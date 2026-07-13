@@ -1,0 +1,32 @@
+# Local secrets and environment overrides
+.env
+.env.*
+!.env.example
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Next.js and Cloudflare build state
+.next/
+out/
+build/
+.open-next/
+.wrangler/
+dist/
+.vercel/
+
+# TypeScript generated state
+*.tsbuildinfo
+next-env.d.ts
+
+# Test and coverage output
+coverage/
+/tmp/playwright/
+
+# Logs and local operating-system files
+*.log
+.DS_Store

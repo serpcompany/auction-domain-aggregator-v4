@@ -1,0 +1,24 @@
+.git/
+.next/
+.open-next/
+.wrangler/
+.vercel/
+build/
+coverage/
+dist/
+node_modules/
+pnpm-lock.yaml
+tmp/
+*.tsbuildinfo
+cloudflare-env.d.ts
+next-env.d.ts
+
+# Product and planning documents are user-owned.
+**/*.md
+docs/
+
+# Never inspect or rewrite local secrets or their examples.
+.env
+.env.*
+.dev.vars
+.dev.vars.*

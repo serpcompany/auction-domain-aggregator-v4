@@ -1,14 +1,12 @@
 # README.md
 
-This project is an auction/expired domain aggregator that helps user's find and bid-on/purchase domains that are either expired (ready to buy) or at auction (expiring soon but first open to bidders). 
+This project is a personal auction and expired-domain discovery tool. Its goal is to replace the parts of SpamZilla that the repository owner uses without requiring a SpamZilla subscription.
 
-Functionally the goal is to fetch auction & expired domains from multiple domain registrars / domain auctions and aggregate them into one central area to make it more convenient for users to find domains that fit their various needs (consolidate, search, filter, etc.)
+The first usable version will aggregate domains into one table, support filtering and column sorting, show the auction source, Majestic topic, and Ahrefs Domain Rating, and link each domain to its auction page.
 
-### Competitor references
+The agreed initial scope is recorded in [`docs/product-specs/initial-domain-discovery.md`](docs/product-specs/initial-domain-discovery.md). The larger SpamZilla inventories under `docs/references/spamzilla/` are research references, not a commitment to implement every field.
 
-1. spamzilla.io
-
-### Domain auction providers
+## Domain auction providers
 
 We will aggregate domains from various providers using their API. 
 
@@ -20,7 +18,7 @@ We will aggregate domains from various providers using their API.
 5. NameSilo
 6. NameJet
 
-### Domain Metrics
+## Domain Metrics
 
 There are alot of metrics that can be used to evaluate domains. We will start by trying to create a parity with spamzill.io's set of filters. Their data comes from a variety of sources. 
 
@@ -32,4 +30,3 @@ You can see their domain metrics listed in the `spamzilla` competitor references
 - https://www.spamzilla.io/faq/domains-table-filters/
 
 Our goal is to identify whats needed to "get" (pull) those metrics and work towards having them for our own.
-

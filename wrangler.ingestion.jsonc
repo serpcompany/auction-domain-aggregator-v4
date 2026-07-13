@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "auction-domain-aggregator-ingestion-local",
+  "main": "src/server/ingestion/local-worker.ts",
+  "compatibility_date": "2026-07-13",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "auction-domain-aggregator-local",
+      "database_id": "local-only-do-not-deploy",
+      "migrations_dir": "drizzle",
+      "remote": false,
+    },
+  ],
+}
