@@ -18,7 +18,8 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - Keep product behavior in product specs and keep `AGENTS.md` as a short map.
 - Keep stable system boundaries in `ARCHITECTURE.md` and implementation detail in technical-design documents.
 - Do not infer first-version requirements from the complete SpamZilla reference inventory.
-- Treat `.env` as secret local configuration. Never read, print, commit, or copy its values into documentation, tests, logs, or source files.
+- Provider credentials live in `.secrets/providers.env` (template: `providers.env.example`). Treat it as secret local configuration. Never read, print, commit, or copy its values into documentation, tests, logs, or source files.
+- Never put credentials in `.env*` files: `opennextjs-cloudflare build` inlines their values into the Worker bundle. `preview`, `deploy`, and `upload` refuse to continue if the built bundle contains non-public env variables.
 - Prefer small changes with an observable result. Do not add speculative infrastructure or abstractions before the product needs them.
 
 ## Local development
@@ -34,11 +35,11 @@ Prerequisites are Node.js 22.12 or newer and npm. Install the known-good Corepac
 - `corepack pnpm db:generate`: generate a migration after an intentional Drizzle schema change.
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
-- `corepack pnpm sync:dynadot`: migrate and manually synchronize Dynadot into local D1 using local `.env` configuration.
+- `corepack pnpm sync:dynadot`: migrate and manually synchronize Dynadot into local D1 using `.secrets/providers.env`.
 - `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
-- `corepack pnpm benchmark:filters`: rerun sanitized aggregate filter timings against the populated local D1 inventory without loading `.env` or printing rows.
+- `corepack pnpm benchmark:filters`: rerun sanitized aggregate filter timings against the populated local D1 inventory without loading credentials or printing rows.
 - `corepack pnpm check`: run the quick checks, isolated D1 integration proof, and isolated browser acceptance.
 - `corepack pnpm preview`: migrate local D1, build with OpenNext, and serve the Cloudflare Worker locally.
 - `corepack pnpm build`: verify the standard Next.js production build.
