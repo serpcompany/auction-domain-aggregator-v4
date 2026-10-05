@@ -5,10 +5,10 @@ on:
     branches: [main]
   pull_request:
 
-# One run per PR or branch; a newer push cancels the outdated run.
+# Cancel superseded PR runs, but check every main commit (SERP verification cadence).
 concurrency:
-  group: ci-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
