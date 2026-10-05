@@ -11,7 +11,7 @@ The table's Ahrefs DR column is always empty. This plan fills it with real Ahref
 - [x] (2026-10-06) Milestone 2: enrichment service and the bounded `POST /api/enrichment/domain-rating` route.
 - [x] (2026-10-06) Milestone 3: the table reads DR from D1, shows the attribution, and requests missing DR for visible rows. The empty Majestic column and the unusable Metrics filter group were removed.
 - [x] (2026-10-06) Validation without provider calls: 196 unit tests at 100% coverage; integration proof (active-only, write-once, table read); e2e (4 passed, seeded DR plus attribution).
-- [ ] One authorized live lookup on port 30001. This needs an Ahrefs APIv3 key in `.dev.vars`, plus a fresh Dynadot sync, because the local inventory has no open auctions.
+- [x] (2026-10-06) Authorized live verification on port 30001, after a fresh Dynadot sync. All 50 visible rows gained DR within seconds of loading, and on the appraisal-sorted page 8 of 50 were non-zero (max 33). Repeat requests for stored domains made no Ahrefs call.
 
 ## Surprises & Discoveries
 
@@ -29,7 +29,17 @@ The table's Ahrefs DR column is always empty. This plan fills it with real Ahref
 
 ## Outcomes & Retrospective
 
-Not started.
+Achieved:
+- DR appears for the rows a person views, under the required "Domain Rating by Ahrefs" link.
+- It is stored once per domain, and only domains currently at auction can be looked up.
+- Page rendering stays D1-only.
+- No paid Ahrefs units are used.
+
+Remaining:
+- DR cannot be filtered or sorted across the inventory. That is by design for the on-demand model and the licence's anti-harvesting clause.
+- Ask Ahrefs (email draft in `docs/references/data-licensing.md`) whether header attribution counts as "adjacent", and what lookup volume is acceptable for a paid product.
+
+Lesson: the live API's response format (a trailing slash on targets) differed from the documentation example; only a real call exposed it.
 
 ## Context and Orientation
 
@@ -89,4 +99,4 @@ No new packages.
     enrichDomainRatings(db, fetchRatings, domains): Promise<{ stored: number }>
     POST /api/enrichment/domain-rating  { domains: string[] } -> { stored: number }
 
-Revision note (2026-10-06, Claude): Initial plan. Updated after implementation with the discoveries and validation evidence. The live lookup remains.
+Revision note (2026-10-06, Claude): Initial plan. Updated after implementation with the discoveries and validation evidence. Completed after the authorized live verification; moved to `completed/`.
