@@ -594,6 +594,15 @@ export function formatDateTime(value: Date) {
   }).format(value);
 }
 
+export const STALE_INVENTORY_MILLISECONDS = 24 * 60 * 60 * 1_000;
+
+export function isInventoryStale(value: Date | null, now = new Date()) {
+  return (
+    value !== null &&
+    now.getTime() - value.getTime() > STALE_INVENTORY_MILLISECONDS
+  );
+}
+
 export function formatSyncRecency(value: Date | null, now = new Date()) {
   if (!value) return 'No successful sync yet';
 

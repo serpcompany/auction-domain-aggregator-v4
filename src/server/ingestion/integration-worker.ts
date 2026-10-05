@@ -157,7 +157,7 @@ async function runProof(env: IntegrationEnv) {
     auctionType: 'EXPIRED',
     bidCount: 2,
     bidderCount: 1,
-    endsAt: new Date('2026-07-13T03:00:00.000Z'),
+    endsAt: new Date('2026-07-13T04:30:00.000Z'),
     ageYears: null,
     inboundLinks: null,
     visitors: null,
@@ -227,6 +227,7 @@ async function runProof(env: IntegrationEnv) {
       direction: 'asc',
     }),
     database,
+    QUERY_NOW,
   );
   assertIntegration(filtered.total === 1, 'query_filter');
   assertIntegration(filtered.rows.length === 1, 'query_filter_rows');
@@ -238,6 +239,7 @@ async function runProof(env: IntegrationEnv) {
       direction: 'desc',
     }),
     database,
+    QUERY_NOW,
   );
   const sortedSecondPage = await queryDomainListingsWithDatabase(
     parseDomainTableFilters({
@@ -247,6 +249,7 @@ async function runProof(env: IntegrationEnv) {
       page: '2',
     }),
     database,
+    QUERY_NOW,
   );
   assertIntegration(sortedFirstPage.total === 51, 'query_total');
   assertIntegration(sortedFirstPage.rows.length === 50, 'query_first_page');
@@ -322,8 +325,31 @@ async function runProof(env: IntegrationEnv) {
   const categoryAnd = await query({ q: 'garden', tld: ['org'] });
   assertIntegration(categoryAnd.total === 0, 'category_and');
 
-  const staleEnding = await query({ q: 'past', endingWithin: '1h' });
-  assertIntegration(staleEnding.total === 1, 'ending_window_keeps_past');
+  const endingSoon = await query({ q: 'past', endingWithin: '1h' });
+  assertIntegration(endingSoon.total === 1, 'ending_window_includes_upcoming');
+
+  // Once its end time passes, a listing is hidden from rows, counts, and
+  // facets even though no sync has reconciled its status yet.
+  const afterPastEnds = await queryDomainListingsWithDatabase(
+    parseDomainTableFilters({ q: 'past' }),
+    database,
+    new Date('2026-07-13T04:30:00.000Z'),
+  );
+  assertIntegration(
+    afterPastEnds.total === 0 && afterPastEnds.rows.length === 0,
+    'ended_listing_hidden',
+  );
+  const endedFacets = await queryDomainListingsWithDatabase(
+    parseDomainTableFilters({}),
+    database,
+    new Date('2026-08-01T00:00:00.000Z'),
+  );
+  assertIntegration(
+    endedFacets.total === 0 &&
+      endedFacets.tlds.length === 0 &&
+      endedFacets.sources.length === 0,
+    'ended_listings_leave_facets',
+  );
 
   const nullUnconstrained = await query({ q: 'past' });
   assertIntegration(nullUnconstrained.total === 1, 'null_unconstrained');
@@ -766,9 +792,15 @@ const worker = {
 
     try {
       return Response.json(await runProof(env));
-    } catch {
+    } catch (error) {
+      // The proof uses only invented fixtures, so the failing assertion code
+      // (or D1 error message) is safe to report.
       return Response.json(
-        { status: 'failed', errorCode: 'd1_integration_failed' },
+        {
+          status: 'failed',
+          errorCode: 'd1_integration_failed',
+          failure: error instanceof Error ? error.message : 'unknown',
+        },
         { status: 500 },
       );
     }

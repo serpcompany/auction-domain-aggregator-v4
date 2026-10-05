@@ -128,6 +128,9 @@ function parseSummary(value: unknown): ProofSummary {
     throw fixedError('d1_integration_failed');
   }
   const summary = value as Record<string, unknown>;
+  if (summary.status === 'failed' && typeof summary.failure === 'string') {
+    throw fixedError(`d1_integration_failed: ${summary.failure}`);
+  }
   const expected = {
     status: 'succeeded',
     initialCount: 3,
@@ -153,12 +156,11 @@ function parseSummary(value: unknown): ProofSummary {
     independentFilterProof: true,
     wildcardEscapeProof: true,
   } as const;
-  if (
-    Object.entries(expected).some(
-      ([key, expectedValue]) => summary[key] !== expectedValue,
-    )
-  ) {
-    throw fixedError('d1_integration_failed');
+  const mismatched = Object.entries(expected)
+    .filter(([key, expectedValue]) => summary[key] !== expectedValue)
+    .map(([key]) => `${key}=${String(summary[key])}`);
+  if (mismatched.length > 0) {
+    throw fixedError(`d1_integration_failed: ${mismatched.join(', ')}`);
   }
   return summary as ProofSummary;
 }
@@ -231,7 +233,6 @@ async function main() {
       PROOF_TIMEOUT_MS,
       'd1_integration_proof_timeout',
     );
-    if (!response.ok) throw fixedError('d1_integration_failed');
     const summary = parseSummary(await response.json());
     process.stdout.write(`${JSON.stringify(summary)}\n`);
   } finally {
@@ -250,7 +251,9 @@ main().catch((error: unknown) => {
     'd1_integration_proof_timeout',
   ];
   const message =
-    error instanceof Error && allowed.includes(error.message)
+    error instanceof Error &&
+    (allowed.includes(error.message) ||
+      error.message.startsWith('d1_integration_failed: '))
       ? error.message
       : 'd1_integration_failed';
   process.stderr.write(`${message}\n`);

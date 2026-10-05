@@ -6,6 +6,7 @@ import {
   formatSyncRecency,
   getDomainTableFilterChips,
   hasActiveDomainTableFilters,
+  isInventoryStale,
   type DomainTableFilters,
 } from '@/domain/domain-table';
 import { DomainFilters } from '@/components/domain-filters';
@@ -62,6 +63,17 @@ export function DomainDiscovery({
             {formatSyncRecency(result.latestSuccessfulSync, now)}
           </p>
         </header>
+
+        {isInventoryStale(result.latestSuccessfulSync, now) ? (
+          <p
+            role="status"
+            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+          >
+            The inventory is out of date. Auctions that have ended since the
+            last sync are hidden, but prices, bids, and new listings may be
+            stale until the next sync.
+          </p>
+        ) : null}
 
         <section
           className="min-w-0 overflow-hidden rounded-xl border bg-card/95 shadow-sm"

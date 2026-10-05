@@ -14,6 +14,7 @@ import {
   formatMoney,
   formatProvider,
   formatSyncRecency,
+  isInventoryStale,
   countAdvancedDomainTableFilters,
   getDomainTableFilterChips,
   hasActiveDomainTableFilters,
@@ -490,5 +491,18 @@ describe('domain table filter summaries', () => {
         parseDomainTableFilters({ priceMin: '25' }),
       ).map((chip) => chip.label),
     ).toEqual(['Price: $25+']);
+  });
+
+  it.each([
+    [null, false],
+    ['2026-07-12T10:00:00.000Z', false],
+    ['2026-07-12T09:59:59.000Z', true],
+  ])('treats a sync at %s as stale: %s', (value, expected) => {
+    expect(
+      isInventoryStale(
+        value === null ? null : new Date(value),
+        new Date('2026-07-13T10:00:00.000Z'),
+      ),
+    ).toBe(expected);
   });
 });
