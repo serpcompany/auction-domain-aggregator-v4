@@ -24,7 +24,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 
 ## Local development
 
-Prerequisites are Node.js 22.12 or newer and npm. Install the known-good Corepack version before enabling the pnpm version pinned in `package.json`.
+Prerequisites are Node.js 22 (22.12 or newer, below 23; `.node-version` pins the major version) and npm. Install the known-good Corepack version before enabling the pnpm version pinned in `package.json`.
 
 - `npm install --global corepack@0.34.0`: install the supported Corepack release.
 - `corepack enable`: enable Corepack's package-manager shims.
