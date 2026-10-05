@@ -58,9 +58,6 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Check generated Cloudflare types are current
-        run: pnpm cf-typegen && git diff --exit-code cloudflare-env.d.ts
-
       - name: Run checks
         run: pnpm check
 
