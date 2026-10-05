@@ -16,7 +16,6 @@ import {
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
 import {
   Sheet,
   SheetClose,
@@ -214,10 +213,14 @@ function FilterGroup({
   children: React.ReactNode;
 }) {
   return (
-    <fieldset className="space-y-4">
-      <legend className="text-sm font-semibold tracking-wide text-foreground">
+    <fieldset className="min-w-0 space-y-4 rounded-xl border bg-card p-4">
+      <legend className="sr-only">{title}</legend>
+      <p
+        aria-hidden="true"
+        className="text-sm font-semibold tracking-wide text-foreground"
+      >
         {title}
-      </legend>
+      </p>
       {children}
     </fieldset>
   );
@@ -650,8 +653,8 @@ export function DomainFilters({
                 </span>
               ) : null}
             </SheetTrigger>
-            <SheetContent className="w-full sm:max-w-2xl">
-              <SheetHeader className="border-b pr-14">
+            <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-none lg:data-[side=right]:w-[min(1280px,94vw)]">
+              <SheetHeader className="border-b px-6 pr-14">
                 <SheetTitle>More filters</SheetTitle>
                 <SheetDescription>
                   Narrow the current inventory. Changes run only when you apply
@@ -659,13 +662,12 @@ export function DomainFilters({
                 </SheetDescription>
               </SheetHeader>
               {rangeError ? (
-                <div className="px-4">
+                <div className="px-6">
                   <RangeErrorMessage message={rangeError} />
                 </div>
               ) : null}
-              <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-4 pb-4">
+              <div className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-6 pb-6 md:grid-cols-2 xl:grid-cols-4">
                 <DomainFilterGroup filters={filters} />
-                <Separator />
                 <AuctionFilterGroup
                   filters={filters}
                   auctionTypeOptions={auctionTypeOptions}
@@ -674,13 +676,10 @@ export function DomainFilters({
                   endingWithin={endingWithin}
                   setEndingWithin={setEndingWithin}
                 />
-                <Separator />
                 <ActivityFilterGroup filters={filters} />
-                <Separator />
                 <ValueFilterGroup filters={filters} />
-                <Separator />
               </div>
-              <SheetFooter className="flex-row border-t bg-background">
+              <SheetFooter className="flex-row justify-end border-t bg-background px-6 sm:[&>*]:max-w-48">
                 <SheetClose
                   render={
                     <Button
