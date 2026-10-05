@@ -426,33 +426,6 @@ function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
   );
 }
 
-function MetricsFilterGroup() {
-  return (
-    <FilterGroup title="Metrics">
-      <div className="space-y-2">
-        <div
-          aria-disabled="true"
-          className="rounded-lg border bg-muted/40 p-3 text-muted-foreground"
-        >
-          <p className="font-medium text-foreground/70">Ahrefs Domain Rating</p>
-          <p className="mt-1 text-xs">
-            Unavailable until Ahrefs enrichment is implemented.
-          </p>
-        </div>
-        <div
-          aria-disabled="true"
-          className="rounded-lg border bg-muted/40 p-3 text-muted-foreground"
-        >
-          <p className="font-medium text-foreground/70">Majestic Topic</p>
-          <p className="mt-1 text-xs">
-            Unavailable until Majestic enrichment is implemented.
-          </p>
-        </div>
-      </div>
-    </FilterGroup>
-  );
-}
-
 function formNumber(data: FormData, name: string) {
   const value = data.get(name);
   if (!value) return undefined;
@@ -706,7 +679,6 @@ export function DomainFilters({
                 <Separator />
                 <ValueFilterGroup filters={filters} />
                 <Separator />
-                <MetricsFilterGroup />
               </div>
               <SheetFooter className="flex-row border-t bg-background">
                 <SheetClose

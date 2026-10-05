@@ -19,6 +19,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - Keep stable system boundaries in `ARCHITECTURE.md` and implementation detail in technical-design documents.
 - Do not infer first-version requirements from the complete SpamZilla reference inventory.
 - Provider credentials live in `.secrets/providers.env` (template: `providers.env.example`). Treat it as secret local configuration. Never read, print, commit, or copy its values into documentation, tests, logs, or source files.
+- The app worker's own secrets (currently `AHREFS_API_KEY`, an Ahrefs APIv3 key) go in `.dev.vars` for local development. OpenNext does not bundle that file. Deployed workers use `wrangler secret put`.
 - Never put credentials in `.env*` files: `opennextjs-cloudflare build` inlines their values into the Worker bundle. `preview`, `deploy`, and `upload` refuse to continue if the built bundle contains non-public env variables.
 - Prefer small changes with an observable result. Do not add speculative infrastructure or abstractions before the product needs them.
 

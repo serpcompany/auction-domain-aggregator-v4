@@ -35,7 +35,7 @@ loopback-only Wrangler worker -> provider adapter -> bounded D1 upserts
 
 The read model derives TLD, domain length, hyphen presence, and digit presence from normalized listing names. It applies OR within repeated source, auction-type, and TLD values and AND across filter families. Count, page, facet, and freshness reads remain sequential because concurrent local D1 snapshots previously produced locking failures. The full read behavior and measured index decision are recorded in `docs/technical-design/domain-discovery.md`.
 
-The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points.
+The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points. The one exception is `POST /api/enrichment/domain-rating`, described below.
 
 ### Auction ingestion
 
@@ -47,7 +47,14 @@ The local runner gives the worker only an allowlisted process environment and a 
 
 ### Domain enrichment
 
-Ahrefs Domain Rating and Majestic Topic remain planned domain-level enrichment. When implemented, a successful result is stored once per domain and is not automatically refreshed. No enrichment table or provider call exists yet.
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `src/components/enrich-visible-domain-ratings.tsx` posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`.
+- That route is the only request path that calls a provider.
+- It accepts at most 50 domains, and `src/server/enrichment/domain-rating.ts` fetches only those with an active listing and no stored rating.
+- Ratings come from Ahrefs' free `domain-rating-free` endpoint (`src/server/enrichment/ahrefs.ts`) and are written once to `domain_metrics`. "No rating" is stored too, so it is not requested again.
+- When something is stored, the client refreshes the page, which re-renders from D1.
+- Every displayed value sits under the "Domain Rating by Ahrefs" attribution link that the DR licence requires (`docs/references/data-licensing.md`).
+
+Majestic Topic is not planned (#19).
 
 ### Cloudflare D1
 
@@ -55,6 +62,7 @@ D1 is the current source of truth. `src/server/db/schema.ts` defines:
 
 - `domains`: normalized domain identity and first-seen time.
 - `auction_listings`: provider/external-ID identity, domain foreign key, outbound URL, mutable auction fields, active state, and first/last-seen times.
+- `domain_metrics`: write-once domain enrichment keyed by domain and metric (`ahrefs_dr`), with an `ok`/`not_found` status.
 - `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, and a fixed diagnostic code.
 
 Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.

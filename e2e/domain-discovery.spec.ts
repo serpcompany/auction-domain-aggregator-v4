@@ -67,13 +67,22 @@ test('serves the deterministic domain inventory with a healthy database', async 
     'Age',
     'Links',
     'Appraisal',
-    'Majestic topic',
-    'Ahrefs Domain Rating',
   ]) {
     await expect(
       table.getByRole('columnheader', { name: header, exact: true }),
     ).toBeVisible();
   }
+
+  // Seeded Ahrefs DR renders with the licence-required attribution link.
+  const drHeader = table.getByRole('columnheader', { name: /^DR/ });
+  await expect(
+    drHeader.getByRole('link', { name: 'Domain Rating by Ahrefs' }),
+  ).toHaveAttribute('href', 'https://ahrefs.com/');
+  await expect(
+    table
+      .getByRole('row', { name: /garden\.com/ })
+      .getByTitle('Domain Rating by Ahrefs'),
+  ).toHaveText('37');
 
   const response = await request.get('/api/health');
   expect(response.status()).toBe(200);
