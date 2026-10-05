@@ -56,7 +56,7 @@ describe('fetchDynadotPage', () => {
       count_per_page: '1000',
       page_index: '2',
     });
-    expect(result).toEqual([
+    expect(result.listings).toEqual([
       {
         provider: 'dynadot',
         externalId: '42',
@@ -105,7 +105,7 @@ describe('fetchDynadotPage', () => {
         pageSize: 1,
         fetchImpl,
       }),
-    ).resolves.toEqual([]);
+    ).resolves.toEqual({ listings: [], received: 0, rejected: 0 });
     expect(
       new URL(String(fetchImpl.mock.calls[0]?.[0])).searchParams.get(
         'page_index',
@@ -276,7 +276,14 @@ describe('fetchDynadotPage', () => {
       'domain',
       {
         status: 'success',
-        auction_list: [{ ...validItem, domain: 'tést.example' }],
+        auction_list: [{ ...validItem, domain: 'bad_label.example' }],
+      },
+    ],
+    [
+      'unparseable internationalized domain',
+      {
+        status: 'success',
+        auction_list: [{ ...validItem, domain: 'té st.example' }],
       },
     ],
     [
@@ -367,6 +374,65 @@ describe('fetchDynadotPage', () => {
     ).rejects.toMatchObject({ code: 'dynadot_response_error' });
   });
 
+  it('skips and counts an invalid auction without failing the page', async () => {
+    const auctions = Array.from({ length: 10 }, (_, index) => ({
+      ...validItem,
+      auction_id: index + 1,
+      domain: `valid-${index}.example`,
+    }));
+    auctions[3] = { ...auctions[3]!, domain: 'bad_label.example' };
+
+    const page = await fetchDynadotPage({
+      apiKey: 'invented-key',
+      pageIndex: 1,
+      pageSize: 10,
+      fetchImpl: async () =>
+        jsonResponse({ status: 'success', auction_list: auctions }),
+    });
+
+    expect(page.received).toBe(10);
+    expect(page.rejected).toBe(1);
+    expect(page.listings.map((listing) => listing.domainName)).not.toContain(
+      'bad_label.example',
+    );
+    expect(page.listings).toHaveLength(9);
+  });
+
+  it('fails the page when more than a tenth of its auctions are invalid', async () => {
+    const auctions = Array.from({ length: 10 }, (_, index) => ({
+      ...validItem,
+      auction_id: index + 1,
+      domain: index < 2 ? `bad_${index}.example` : `valid-${index}.example`,
+    }));
+
+    await expect(
+      fetchDynadotPage({
+        apiKey: 'invented-key',
+        pageIndex: 1,
+        pageSize: 10,
+        fetchImpl: async () =>
+          jsonResponse({ status: 'success', auction_list: auctions }),
+      }),
+    ).rejects.toMatchObject({ code: 'dynadot_response_error' });
+  });
+
+  it('stores internationalized domain names in punycode', async () => {
+    const {
+      listings: [listing],
+    } = await fetchDynadotPage({
+      apiKey: 'invented-key',
+      pageIndex: 1,
+      pageSize: 10,
+      fetchImpl: async () =>
+        jsonResponse({
+          status: 'success',
+          auction_list: [{ ...validItem, domain: 'Tést.Example' }],
+        }),
+    });
+
+    expect(listing?.domainName).toBe('xn--tst-bma.example');
+  });
+
   it('accepts integer money and omitted nullable fields', async () => {
     const requiredItem: Record<string, unknown> = { ...validItem };
     for (const field of [
@@ -380,7 +446,9 @@ describe('fetchDynadotPage', () => {
       delete requiredItem[field];
     }
 
-    const [result] = await fetchDynadotPage({
+    const {
+      listings: [result],
+    } = await fetchDynadotPage({
       apiKey: 'invented-key',
       pageIndex: 1,
       pageSize: 10,
@@ -408,7 +476,9 @@ describe('fetchDynadotPage', () => {
     ['negative number', -5],
     ['negative string', '-2'],
   ])('maps nullable numeric %s sentinels to null', async (_label, sentinel) => {
-    const [listing] = await fetchDynadotPage({
+    const {
+      listings: [listing],
+    } = await fetchDynadotPage({
       apiKey: 'invented-key',
       pageIndex: 1,
       pageSize: 10,

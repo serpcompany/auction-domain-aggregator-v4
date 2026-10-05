@@ -41,7 +41,7 @@ The request boundary is D1-only: normal page and health requests may construct t
 
 `pnpm sync:dynadot` is the only implemented ingestion trigger. `scripts/sync-dynadot.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and calls the adapter in `src/server/providers/dynadot/`.
 
-`src/server/ingestion/sync-dynadot.ts` defines synchronization behavior. `src/server/ingestion/sync-dynadot-d1.ts` owns D1 writes and reconciliation. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run.
+`src/server/ingestion/sync-dynadot.ts` defines synchronization behavior. `src/server/ingestion/sync-dynadot-d1.ts` owns D1 writes and reconciliation. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
 The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing the Dynadot key. It removes the file and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
 

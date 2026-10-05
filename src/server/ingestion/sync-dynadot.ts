@@ -1,21 +1,28 @@
-import type { DynadotListing } from '../providers/dynadot';
+import {
+  DynadotProviderError,
+  type DynadotListing,
+  type DynadotPage,
+  type DynadotProviderErrorCode,
+} from '../providers/dynadot';
 
+// A bare array means every auction the provider returned was valid.
 export type FetchDynadotListingsPage = (input: {
   pageIndex: number;
   pageSize: number;
-}) => Promise<DynadotListing[]>;
+}) => Promise<DynadotPage | DynadotListing[]>;
 
 export type DynadotSyncErrorCode =
   | 'dynadot_sync_invalid_request'
   | 'dynadot_sync_failed'
   | 'dynadot_page_limit_exceeded'
   | 'dynadot_sync_interrupted'
-  | 'dynadot_stale_continuation';
+  | 'dynadot_stale_continuation'
+  | 'dynadot_reconciliation_guard';
 
 export class DynadotSyncError extends Error {
-  readonly code: DynadotSyncErrorCode;
+  readonly code: DynadotSyncErrorCode | DynadotProviderErrorCode;
 
-  constructor(code: DynadotSyncErrorCode) {
+  constructor(code: DynadotSyncErrorCode | DynadotProviderErrorCode) {
     super(code);
     this.name = 'DynadotSyncError';
     this.code = code;
@@ -27,7 +34,13 @@ export type RunCounters = {
   recordsFetched: number;
   recordsUpserted: number;
   recordsInactivated: number;
+  recordsRejected: number;
 };
+
+// Non-secret codes persisted on a failed run.
+export type DynadotRunErrorCode =
+  | Exclude<DynadotSyncErrorCode, 'dynadot_sync_interrupted'>
+  | DynadotProviderErrorCode;
 
 export type DynadotRunState = RunCounters & {
   runId: number;
@@ -38,7 +51,8 @@ export type DynadotRunState = RunCounters & {
 export type DynadotRunCompletion = RunCounters & {
   status: 'failed';
   completedAt: Date;
-  errorCode: Exclude<DynadotSyncErrorCode, 'dynadot_sync_interrupted'>;
+  errorCode: DynadotRunErrorCode;
+  failedPage: number | null;
 };
 
 export type DynadotSuccessfulRunFinalization = Omit<
@@ -87,6 +101,23 @@ export type DynadotSegmentResult =
   | { done: false; run: DynadotRunState }
   | { done: true; summary: DynadotSyncSummary };
 
+function toPage(result: DynadotPage | DynadotListing[]): DynadotPage {
+  return Array.isArray(result)
+    ? { listings: result, received: result.length, rejected: 0 }
+    : result;
+}
+
+function runErrorCode(error: unknown): DynadotRunErrorCode {
+  if (error instanceof DynadotProviderError) return error.code;
+  if (
+    error instanceof DynadotSyncError &&
+    error.code !== 'dynadot_sync_interrupted'
+  ) {
+    return error.code;
+  }
+  return 'dynadot_sync_failed';
+}
+
 function positiveInteger(value: number) {
   return Number.isSafeInteger(value) && value > 0;
 }
@@ -120,6 +151,7 @@ function validateRun(run: DynadotRunState, maxPages: number) {
       run.recordsFetched,
       run.recordsUpserted,
       run.recordsInactivated,
+      run.recordsRejected,
     ].some((counter) => !Number.isSafeInteger(counter) || counter < 0)
   ) {
     throw new DynadotSyncError('dynadot_stale_continuation');
@@ -143,6 +175,7 @@ export async function runDynadotSegment(
     : await storage.startRun(clock());
   validateRun(run, maxPages);
 
+  let failedPage: number | null = null;
   try {
     const finalPageInSegment = Math.min(
       run.nextPage + segmentPages - 1,
@@ -153,18 +186,24 @@ export async function runDynadotSegment(
       pageIndex <= finalPageInSegment;
       pageIndex += 1
     ) {
-      const listings = await fetchPage({ pageIndex, pageSize });
+      failedPage = pageIndex;
+      const page = toPage(await fetchPage({ pageIndex, pageSize }));
       run.pagesFetched += 1;
-      run.recordsFetched += listings.length;
-      await storage.upsertListings(run, listings);
-      run.recordsUpserted += listings.length;
+      run.recordsFetched += page.received;
+      run.recordsRejected += page.rejected;
+      await storage.upsertListings(run, page.listings);
+      run.recordsUpserted += page.listings.length;
       run.nextPage = pageIndex + 1;
 
-      if (listings.length < pageSize) {
+      // The final page is the first short one, counted before rejection so a
+      // skipped record cannot end the run early.
+      if (page.received < pageSize) {
+        failedPage = null;
         run.recordsInactivated = await storage.finalizeSuccessfulRun(run, {
           pagesFetched: run.pagesFetched,
           recordsFetched: run.recordsFetched,
           recordsUpserted: run.recordsUpserted,
+          recordsRejected: run.recordsRejected,
           completedAt: clock(),
         });
         return {
@@ -176,6 +215,7 @@ export async function runDynadotSegment(
             recordsFetched: run.recordsFetched,
             recordsUpserted: run.recordsUpserted,
             recordsInactivated: run.recordsInactivated,
+            recordsRejected: run.recordsRejected,
           },
         };
       }
@@ -184,6 +224,7 @@ export async function runDynadotSegment(
         throw new DynadotSyncError('dynadot_page_limit_exceeded');
       }
     }
+    failedPage = null;
 
     await storage.updateRunProgress(run);
     return { done: false, run };
@@ -194,20 +235,18 @@ export async function runDynadotSegment(
     ) {
       throw error;
     }
-    const errorCode =
-      error instanceof DynadotSyncError &&
-      error.code === 'dynadot_page_limit_exceeded'
-        ? error.code
-        : 'dynadot_sync_failed';
+    const errorCode = runErrorCode(error);
     try {
       await storage.completeRun(run, {
         pagesFetched: run.pagesFetched,
         recordsFetched: run.recordsFetched,
         recordsUpserted: run.recordsUpserted,
         recordsInactivated: run.recordsInactivated,
+        recordsRejected: run.recordsRejected,
         status: 'failed',
         completedAt: clock(),
         errorCode,
+        failedPage,
       });
     } catch {
       // The caller receives only the sanitized synchronization error.

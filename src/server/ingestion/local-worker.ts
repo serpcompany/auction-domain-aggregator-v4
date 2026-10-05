@@ -3,6 +3,7 @@ import { drizzle } from 'drizzle-orm/d1';
 import * as schema from '../db/schema';
 import { fetchDynadotPage } from '../providers/dynadot';
 import {
+  DynadotSyncError,
   runDynadotSegment,
   type DynadotIngestionStorage,
   type FetchDynadotListingsPage,
@@ -82,9 +83,16 @@ export async function handleLocalWorkerRequest(
             recordsInactivated: result.run.recordsInactivated,
           },
     );
-  } catch {
+  } catch (error) {
+    // Sync error codes are fixed, non-secret identifiers.
     return Response.json(
-      { status: 'failed', errorCode: 'dynadot_sync_failed' },
+      {
+        status: 'failed',
+        errorCode:
+          error instanceof DynadotSyncError
+            ? error.code
+            : 'dynadot_sync_failed',
+      },
       { status: 500 },
     );
   }

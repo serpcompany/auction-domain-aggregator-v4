@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { DynadotProviderError } from '../providers/dynadot';
 import type { DynadotIngestionStorage, DynadotRunState } from './sync-dynadot';
 import worker, {
   handleLocalWorkerRequest,
@@ -15,6 +16,7 @@ function runState(runId = 1): DynadotRunState {
     recordsFetched: 0,
     recordsUpserted: 0,
     recordsInactivated: 0,
+    recordsRejected: 0,
   };
 }
 
@@ -109,6 +111,28 @@ describe('local ingestion worker', () => {
     expect(await response.json()).toEqual({
       status: 'failed',
       errorCode: 'dynadot_sync_failed',
+    });
+  });
+
+  it('reports the fixed sync error code when a provider page fails', async () => {
+    const response = await handleLocalWorkerRequest(
+      new Request('http://local/sync-dynadot', {
+        method: 'POST',
+        body: JSON.stringify({}),
+      }),
+      env,
+      {
+        createStorage: () => storage(),
+        fetchPage: async () => {
+          throw new DynadotProviderError('dynadot_http_error');
+        },
+      },
+    );
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      status: 'failed',
+      errorCode: 'dynadot_http_error',
     });
   });
 

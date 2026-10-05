@@ -1,4 +1,4 @@
-import { and, count, eq, exists, lt } from 'drizzle-orm';
+import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm';
 
 import { auctionListings, ingestionRuns } from '../db/schema';
 import type { AppDatabase } from '../db/types';
@@ -14,6 +14,20 @@ import { DynadotSyncError } from './sync-dynadot';
 
 const DOMAIN_BATCH_SIZE = 100;
 const LISTING_BATCH_SIZE = 25;
+
+// Unseen listings whose auction has ended are expected churn. Unseen listings
+// that were still scheduled to run usually mean the provider returned a short
+// or empty page mid-inventory, so a run that would remove many of them fails
+// instead of emptying the table.
+const VANISHED_LISTINGS_MINIMUM = 500;
+const VANISHED_LISTINGS_RATIO = 0.1;
+
+export function vanishedListingsLimit(recordsFetched: number) {
+  return Math.max(
+    VANISHED_LISTINGS_MINIMUM,
+    Math.floor(recordsFetched * VANISHED_LISTINGS_RATIO),
+  );
+}
 
 function chunks<T>(values: T[], size: number) {
   const result: T[][] = [];
@@ -110,6 +124,7 @@ function runSelection() {
     recordsFetched: ingestionRuns.recordsFetched,
     recordsUpserted: ingestionRuns.recordsUpserted,
     recordsInactivated: ingestionRuns.recordsInactivated,
+    recordsRejected: ingestionRuns.recordsRejected,
   };
 }
 
@@ -212,14 +227,36 @@ export function createDynadotD1Storage(
         eq(auctionListings.status, 'active'),
         lt(auctionListings.lastSeenAt, run.startedAt),
         exists(guardedRunningRun),
-      );
-      const [result] = await db
+      )!;
+
+      const [vanished] = await db
         .select({ value: count() })
         .from(auctionListings)
-        .where(reconciliationFilter);
-      const recordsInactivated = result?.value ?? 0;
+        .where(
+          and(
+            reconciliationFilter,
+            or(
+              isNull(auctionListings.endsAt),
+              gt(auctionListings.endsAt, finalization.completedAt),
+            ),
+          ),
+        );
+      if (
+        (vanished?.value ?? 0) >
+        vanishedListingsLimit(finalization.recordsFetched)
+      ) {
+        throw new DynadotSyncError('dynadot_reconciliation_guard');
+      }
 
-      const [, completed] = await db.batch([
+      // One atomic batch: record the count, inactivate exactly those rows
+      // while the run is still running, then mark the run succeeded.
+      const [, , completed] = await db.batch([
+        db
+          .update(ingestionRuns)
+          .set({
+            recordsInactivated: sql`(select count(*) from ${auctionListings} where ${reconciliationFilter})`,
+          })
+          .where(runFilter),
         db
           .update(auctionListings)
           .set({ status: 'inactive' })
@@ -232,16 +269,17 @@ export function createDynadotD1Storage(
             pagesFetched: finalization.pagesFetched,
             recordsFetched: finalization.recordsFetched,
             recordsUpserted: finalization.recordsUpserted,
-            recordsInactivated,
+            recordsRejected: finalization.recordsRejected,
             errorCode: null,
+            failedPage: null,
           })
           .where(runFilter)
-          .returning({ id: ingestionRuns.id }),
+          .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
       ]);
       if (!completed[0]) {
         throw new DynadotSyncError('dynadot_stale_continuation');
       }
-      return recordsInactivated;
+      return completed[0].recordsInactivated;
     },
 
     async updateRunProgress(run) {
@@ -253,6 +291,7 @@ export function createDynadotD1Storage(
           recordsFetched: run.recordsFetched,
           recordsUpserted: run.recordsUpserted,
           recordsInactivated: run.recordsInactivated,
+          recordsRejected: run.recordsRejected,
         })
         .where(runningRunFilter(run))
         .returning({ id: ingestionRuns.id });
@@ -271,7 +310,9 @@ export function createDynadotD1Storage(
           recordsFetched: completion.recordsFetched,
           recordsUpserted: completion.recordsUpserted,
           recordsInactivated: completion.recordsInactivated,
+          recordsRejected: completion.recordsRejected,
           errorCode: completion.errorCode,
+          failedPage: completion.failedPage,
         })
         .where(runningRunFilter(run))
         .returning({ id: ingestionRuns.id });
