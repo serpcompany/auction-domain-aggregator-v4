@@ -13,7 +13,7 @@ The user can:
 3. Open `More filters` for auction type; domain length, age, and shape; current-bid range; renewal-price ceiling; minimum bids, bidders, visitors, inbound links, and provider appraisal.
 4. See every applied constraint as a removable summary, clear all constraints, and use a copied URL or browser Back without losing normalized filter state.
 5. Sort by Domain, Auction, Price, Interest, Ends, Age, Links, or Appraisal and move through fixed 50-row pages. Sorting and pagination preserve active filters.
-6. Compare Domain, Auction, Price, Interest, Ends, Age, Links, provider Appraisal, Majestic Topic, and Ahrefs DR in one table.
+6. Compare Domain, Auction, Price, Interest, Ends, Age, Links, provider Appraisal, and Ahrefs DR in one table. DR is fetched from Ahrefs for the rows being viewed, appears a moment after the page loads, and is shown under a "Domain Rating by Ahrefs" link. Because DR exists only for domains someone has viewed, it cannot be filtered or sorted across the inventory.
 7. Open the authoritative auction page from the domain link in a new tab.
 
 Filters combine with AND across categories. Repeated values within Source, Auction type, and TLD use OR. Applying, removing, or clearing filters returns to page 1. Unknown numeric values remain eligible until that value is constrained, then are excluded.
@@ -26,7 +26,7 @@ Dynadot is the first implemented auction source. Its normalized listing data sup
 
 TLD, domain length, hyphen presence, and digit presence are deterministic domain-name properties and are derived at query time. They are not separately stored.
 
-Majestic Topic and Ahrefs Domain Rating are part of the intended comparison workflow but are not ingested yet. The table displays them as unavailable, and their filters are explicitly unavailable, until real enrichment exists. No fabricated metric value is acceptable.
+Ahrefs Domain Rating is fetched on demand and stored once per domain. A domain not yet fetched shows a truthful em dash with "not collected" context, and one Ahrefs has no rating for says so. Majestic Topic is not planned. No fabricated metric value is acceptable.
 
 Local credentials may exist for other auction or metric providers, but credentials alone do not make an integration implemented or authorize a provider call.
 
@@ -38,6 +38,4 @@ User accounts, subscriptions, billing, teams, saved searches, bidding, additiona
 
 ## Remaining product dependencies
 
-- Obtain and store real Ahrefs Domain Rating enrichment once per domain.
-- Decide how Majestic topics will be obtained, then store real topic enrichment once per domain.
 - Add other auction providers one independently verified adapter at a time.

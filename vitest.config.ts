@@ -15,6 +15,8 @@ export default defineConfig({
         'src/domain/**/*.{ts,tsx}',
         'src/server/providers/**/*.ts',
         'src/server/ingestion/sync.ts',
+        'src/server/enrichment/ahrefs.ts',
+        'src/server/enrichment/domain-rating-request.ts',
         'src/server/ingestion/local-worker.ts',
         'src/server/ingestion/local-runner.ts',
       ],

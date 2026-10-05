@@ -26,7 +26,11 @@ import {
   DOMAIN_TABLE_AUCTION_SOURCES,
   DOMAIN_TABLE_AUCTION_TYPES,
 } from '@/domain/domain-table';
-import { auctionListings, ingestionRuns } from '@/server/db/schema';
+import {
+  auctionListings,
+  domainMetrics,
+  ingestionRuns,
+} from '@/server/db/schema';
 import type { AppDatabase } from '@/server/db/types';
 
 export interface DomainListingRow {
@@ -50,6 +54,10 @@ export interface DomainListingRow {
   tld: string;
   hasHyphen: boolean;
   hasDigit: boolean;
+  // Ahrefs DR. `domainRatingFetched` distinguishes "Ahrefs has no rating"
+  // (fetched, null) from "not requested yet" (not fetched, null).
+  domainRating: number | null;
+  domainRatingFetched: boolean;
 }
 
 export interface DomainListingsResult {
@@ -265,6 +273,27 @@ export async function queryDomainListingsWithDatabase(
     .limit(filters.pageSize)
     .offset((page - 1) * filters.pageSize);
 
+  // Looked up only for the visible page, so it stays cheap on any filter.
+  const pageDomains = [...new Set(rawRows.map((row) => row.domainName))];
+  const ratingRows =
+    pageDomains.length === 0
+      ? []
+      : await database
+          .select({
+            domainName: domainMetrics.domainName,
+            value: domainMetrics.value,
+          })
+          .from(domainMetrics)
+          .where(
+            and(
+              eq(domainMetrics.metric, 'ahrefs_dr'),
+              inArray(domainMetrics.domainName, pageDomains),
+            ),
+          );
+  const ratings = new Map(
+    ratingRows.map(({ domainName, value }) => [domainName, { value }]),
+  );
+
   const sourceRows = await database
     .select({ source: auctionListings.provider })
     .from(auctionListings)
@@ -305,11 +334,16 @@ export async function queryDomainListingsWithDatabase(
     .where(eq(ingestionRuns.status, 'succeeded'));
 
   return {
-    rows: rawRows.map((row) => ({
-      ...row,
-      hasHyphen: row.hasHyphen === 1,
-      hasDigit: row.hasDigit === 1,
-    })),
+    rows: rawRows.map((row) => {
+      const rating = ratings.get(row.domainName);
+      return {
+        ...row,
+        hasHyphen: row.hasHyphen === 1,
+        hasDigit: row.hasDigit === 1,
+        domainRating: rating?.value ?? null,
+        domainRatingFetched: rating !== undefined,
+      };
+    }),
     total,
     page,
     sources: sourceRows.map(({ source }) => source),

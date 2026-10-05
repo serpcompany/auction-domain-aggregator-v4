@@ -16,6 +16,7 @@ import {
   type DomainTableSort,
   type EndTimeState,
 } from '@/domain/domain-table';
+import { EnrichVisibleDomainRatings } from '@/components/enrich-visible-domain-ratings';
 import { cn } from '@/lib/utils';
 import type { DomainListingRow } from '@/server/queries/domain-listings';
 
@@ -97,19 +98,13 @@ function SortableHead({
   );
 }
 
-function StaticHead({
-  children,
-  align = 'left',
-}: {
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}) {
+// Right-aligned, unsortable header; only the DR column uses it today.
+function StaticHead({ children }: { children: React.ReactNode }) {
   return (
     <th
       scope="col"
       className={cn(
-        'sticky top-0 z-20 h-11 bg-muted px-3 text-xs font-semibold tracking-wide whitespace-nowrap text-foreground uppercase',
-        align === 'right' ? 'text-right' : 'text-left',
+        'sticky top-0 z-20 h-11 bg-muted px-3 text-right text-xs font-semibold tracking-wide whitespace-nowrap text-foreground uppercase',
       )}
     >
       {children}
@@ -130,6 +125,29 @@ function UnknownValue({ label }: { label: string }) {
     <span aria-label={`${label} not collected`} title="Not collected">
       <span aria-hidden="true">—</span>
     </span>
+  );
+}
+
+function DomainRatingCell({ row }: { row: DomainListingRow }) {
+  return (
+    <td className="h-16 px-3 py-2 text-right align-middle tabular-nums">
+      {row.domainRating === null ? (
+        <span className="text-muted-foreground">
+          {row.domainRatingFetched ? (
+            <span title="Ahrefs has no rating for this domain">
+              <span aria-hidden="true">—</span>
+              <span className="sr-only">No Ahrefs Domain Rating</span>
+            </span>
+          ) : (
+            <UnknownValue label="Ahrefs Domain Rating" />
+          )}
+        </span>
+      ) : (
+        <span title="Domain Rating by Ahrefs">
+          {Math.round(row.domainRating)}
+        </span>
+      )}
+    </td>
   );
 }
 
@@ -338,9 +356,19 @@ export function DomainResultsTable({
             >
               Appraisal
             </SortableHead>
-            <StaticHead>Majestic topic</StaticHead>
-            <StaticHead align="right">
-              <span aria-label="Ahrefs Domain Rating">Ahrefs DR</span>
+            <StaticHead>
+              DR
+              <Secondary>
+                {/* Required by the Ahrefs Domain Rating licence. */}
+                <a
+                  href="https://ahrefs.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline-offset-2 hover:underline focus-visible:underline"
+                >
+                  Domain Rating by Ahrefs
+                </a>
+              </Secondary>
             </StaticHead>
           </tr>
         </thead>
@@ -360,16 +388,16 @@ export function DomainResultsTable({
               </td>
               <LinksCell row={row} />
               <AppraisalCell row={row} />
-              <td className="h-16 px-3 py-2 align-middle text-muted-foreground">
-                <UnknownValue label="Majestic topic" />
-              </td>
-              <td className="h-16 px-3 py-2 text-right align-middle text-muted-foreground">
-                <UnknownValue label="Ahrefs Domain Rating" />
-              </td>
+              <DomainRatingCell row={row} />
             </tr>
           ))}
         </tbody>
       </table>
+      <EnrichVisibleDomainRatings
+        domains={rows
+          .filter((row) => !row.domainRatingFetched)
+          .map((row) => row.domainName)}
+      />
     </div>
   );
 }

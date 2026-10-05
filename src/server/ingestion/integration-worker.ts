@@ -12,6 +12,7 @@ import * as schema from '../db/schema';
 import type { NormalizedListing } from '../providers/types';
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query';
 import { SyncError } from './sync';
+import { enrichDomainRatings } from '../enrichment/domain-rating';
 import { createD1IngestionStorage } from './d1-storage';
 
 type IntegrationEnv = { DB: D1Database };
@@ -266,6 +267,77 @@ async function proveProviderIsolation(
   await database
     .delete(auctionListings)
     .where(eq(auctionListings.provider, 'dropcatch'));
+}
+
+// On-demand DR enrichment stores ratings only for domains with an active
+// listing, never overwrites a stored rating, and surfaces it in the table read.
+async function proveDomainRatingEnrichment(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const storage = createD1IngestionStorage(database, 'dynadot');
+  const run = await storage.startRun(new Date('2026-07-16T00:00:00.000Z'));
+  await storage.upsertListings(
+    run,
+    ['dr-rated', 'dr-unrated', 'dr-inactive'].map((name) =>
+      listing(name, `${name}.integration.test`, 100),
+    ),
+  );
+  await database
+    .update(auctionListings)
+    .set({ status: 'inactive' })
+    .where(eq(auctionListings.externalId, 'dr-inactive'));
+
+  const calls: string[][] = [];
+  const fetchRatings = async (domains: string[]) => {
+    calls.push(domains);
+    return new Map<string, number | null>([
+      ['dr-rated.integration.test', 55.5],
+      ['dr-unrated.integration.test', null],
+      ['dr-inactive.integration.test', 99],
+    ]);
+  };
+  const requested = [
+    'dr-rated.integration.test',
+    'dr-unrated.integration.test',
+    'dr-inactive.integration.test',
+    'dr-unknown.integration.test',
+    'dr-rated.integration.test',
+  ];
+  const first = await enrichDomainRatings(
+    database,
+    fetchRatings,
+    requested,
+    new Date('2026-07-16T00:01:00.000Z'),
+  );
+  assertIntegration(
+    first.stored === 2 &&
+      calls.length === 1 &&
+      [...calls[0]!].sort().join() ===
+        'dr-rated.integration.test,dr-unrated.integration.test',
+    'dr_enrich_active_only',
+  );
+
+  const second = await enrichDomainRatings(database, fetchRatings, requested);
+  assertIntegration(
+    second.stored === 0 && second.requested === 0 && calls.length === 1,
+    'dr_write_once',
+  );
+
+  const table = await queryDomainListingsWithDatabase(
+    parseDomainTableFilters({ q: 'dr-' }),
+    database,
+    new Date('2026-07-16T00:02:00.000Z'),
+  );
+  const byName = new Map(table.rows.map((row) => [row.domainName, row]));
+  const rated = byName.get('dr-rated.integration.test');
+  const unrated = byName.get('dr-unrated.integration.test');
+  assertIntegration(
+    rated?.domainRating === 55.5 &&
+      rated.domainRatingFetched &&
+      unrated?.domainRating === null &&
+      unrated.domainRatingFetched,
+    'dr_table_read',
+  );
 }
 
 async function runProof(env: IntegrationEnv) {
@@ -969,6 +1041,7 @@ async function runProof(env: IntegrationEnv) {
     .where(eq(ingestionRuns.status, 'succeeded'));
 
   await proveProviderIsolation(database);
+  await proveDomainRatingEnrichment(database);
   await proveReconciliationSafety(database, storage);
 
   return {

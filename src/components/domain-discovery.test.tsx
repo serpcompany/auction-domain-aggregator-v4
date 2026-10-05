@@ -15,8 +15,17 @@ import type { DomainListingsResult } from '@/server/queries/domain-listings';
 
 const now = new Date('2026-07-13T10:00:00.000Z');
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ refresh: vi.fn() }),
+}));
+
 afterEach(cleanup);
 beforeAll(() => {
+  // DR enrichment requests from the results table; covered separately.
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async () => Response.json({ status: 'ok', stored: 0 })),
+  );
   Object.defineProperty(window, 'PointerEvent', {
     configurable: true,
     value: MouseEvent,
@@ -45,6 +54,8 @@ const rows: DomainListingsResult['rows'] = [
     tld: 'com',
     hasHyphen: true,
     hasDigit: false,
+    domainRating: 42.4,
+    domainRatingFetched: true,
   },
   {
     provider: 'other-provider',
@@ -67,6 +78,8 @@ const rows: DomainListingsResult['rows'] = [
     tld: 'net',
     hasHyphen: true,
     hasDigit: false,
+    domainRating: null,
+    domainRatingFetched: false,
   },
 ];
 
@@ -128,7 +141,7 @@ describe('DomainDiscovery', () => {
 
     const table = screen.getByRole('table');
     expect(within(table).getAllByRole('row')).toHaveLength(3);
-    expect(within(table).getAllByRole('columnheader')).toHaveLength(10);
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(9);
     for (const heading of [
       'Domain',
       'Auction',
@@ -138,8 +151,6 @@ describe('DomainDiscovery', () => {
       'Age',
       'Links',
       'Appraisal',
-      'Majestic topic',
-      'Ahrefs Domain Rating',
     ]) {
       expect(
         within(table).getByRole('columnheader', { name: heading }),
@@ -183,12 +194,19 @@ describe('DomainDiscovery', () => {
     expect(
       within(table).getByLabelText('Domain age not collected'),
     ).toHaveTextContent('—');
+    // A stored DR renders rounded; an unrequested one is "not collected".
+    const drHeader = within(table).getByRole('columnheader', { name: /^DR/ });
+    const attribution = within(drHeader).getByRole('link', {
+      name: 'Domain Rating by Ahrefs',
+    });
+    expect(attribution).toHaveAttribute('href', 'https://ahrefs.com/');
+    expect(attribution).toHaveAttribute('target', '_blank');
     expect(
-      within(table).getAllByLabelText('Majestic topic not collected'),
-    ).toHaveLength(2);
+      within(table).getByTitle('Domain Rating by Ahrefs'),
+    ).toHaveTextContent('42');
     expect(
       within(table).getAllByLabelText('Ahrefs Domain Rating not collected'),
-    ).toHaveLength(2);
+    ).toHaveLength(1);
     for (const [heading, sort] of [
       ['Domain', 'domain'],
       ['Auction', 'source'],
@@ -212,18 +230,6 @@ describe('DomainDiscovery', () => {
       );
       expect(url.searchParams.get('page')).toBe('1');
     }
-    expect(
-      within(
-        within(table).getByRole('columnheader', { name: 'Majestic topic' }),
-      ).queryByRole('link'),
-    ).not.toBeInTheDocument();
-    expect(
-      within(
-        within(table).getByRole('columnheader', {
-          name: 'Ahrefs Domain Rating',
-        }),
-      ).queryByRole('link'),
-    ).not.toBeInTheDocument();
 
     expect(screen.getByText('Showing 1–50 of 51')).toBeInTheDocument();
     expect(screen.getByText('Previous')).toHaveAttribute(
@@ -297,6 +303,24 @@ describe('DomainDiscovery', () => {
     expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
       'Synced 2 days ago',
     );
+  });
+
+  it('distinguishes a domain Ahrefs has no rating for from one not fetched yet', () => {
+    render(
+      <DomainResultsTable
+        rows={[{ ...rows[1]!, domainRating: null, domainRatingFetched: true }]}
+        filters={parseDomainTableFilters({})}
+        now={now}
+      />,
+    );
+
+    const table = screen.getByRole('table');
+    expect(
+      within(table).getByText('No Ahrefs Domain Rating'),
+    ).toBeInTheDocument();
+    expect(
+      within(table).queryByLabelText('Ahrefs Domain Rating not collected'),
+    ).not.toBeInTheDocument();
   });
 
   it('renders a useful empty state and zero range', async () => {
@@ -536,7 +560,7 @@ describe('DomainDiscovery', () => {
       name: 'More filters',
     });
     expect(more).toHaveAttribute('aria-expanded', 'true');
-    for (const group of ['Domain', 'Auction', 'Activity', 'Value', 'Metrics']) {
+    for (const group of ['Domain', 'Auction', 'Activity', 'Value']) {
       expect(
         within(dialog).getByRole('group', { name: group }),
       ).toBeInTheDocument();
@@ -588,14 +612,6 @@ describe('DomainDiscovery', () => {
     expect(portalSubmission.getAll('priceMin')).toEqual(['10.25']);
     expect(portalSubmission.getAll('renewalMax')).toEqual(['18.50']);
     fireEvent.keyDown(auctionTypeDialog, { key: 'Escape' });
-    expect(
-      within(dialog).getByText('Ahrefs Domain Rating'),
-    ).toBeInTheDocument();
-    expect(
-      within(dialog).getByText(
-        'Unavailable until Majestic enrichment is implemented.',
-      ),
-    ).toBeInTheDocument();
     expect(
       within(dialog).getByRole('button', { name: 'Dismiss' }),
     ).toBeInTheDocument();

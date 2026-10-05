@@ -4,6 +4,7 @@ import {
   index,
   integer,
   primaryKey,
+  real,
   sqliteTable,
   text,
 } from 'drizzle-orm/sqlite-core';
@@ -136,6 +137,33 @@ export const ingestionRuns = sqliteTable(
     index('ingestion_runs_provider_started_at_idx').on(
       table.provider,
       table.startedAt,
+    ),
+  ],
+);
+
+// Domain-level enrichment, fetched on demand and stored once per domain and
+// metric. Only `ahrefs_dr` exists today.
+export const domainMetrics = sqliteTable(
+  'domain_metrics',
+  {
+    domainName: text('domain_name')
+      .notNull()
+      .references(() => domains.name),
+    metric: text('metric', { enum: ['ahrefs_dr'] }).notNull(),
+    status: text('status', { enum: ['ok', 'not_found'] }).notNull(),
+    value: real('value'),
+    fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.domainName, table.metric] }),
+    check('domain_metrics_metric_check', sql`${table.metric} in ('ahrefs_dr')`),
+    check(
+      'domain_metrics_status_check',
+      sql`${table.status} in ('ok', 'not_found')`,
+    ),
+    check(
+      'domain_metrics_value_check',
+      sql`(${table.status} = 'ok' and ${table.value} between 0 and 100) or (${table.status} = 'not_found' and ${table.value} is null)`,
     ),
   ],
 );
