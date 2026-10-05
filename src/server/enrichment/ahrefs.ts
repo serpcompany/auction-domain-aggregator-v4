@@ -99,7 +99,12 @@ export async function fetchDomainRatings({
   const requested = new Set(domains);
   const ratings = new Map<string, number | null>();
   for (const { target, domain_rating } of parsed.domain_rating.targets) {
-    const domain = target.trim().toLowerCase();
+    // Ahrefs echoes targets as URL-ish strings, e.g. `example.com/`.
+    const domain = target
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/+$/, '');
     if (requested.has(domain)) ratings.set(domain, domain_rating);
   }
   return ratings;

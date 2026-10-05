@@ -16,6 +16,7 @@ The table's Ahrefs DR column is always empty. This plan fills it with real Ahref
 ## Surprises & Discoveries
 
 - A left join from listings to `domain_metrics` could make SQLite join every filtered row before sorting. DR is therefore read in a second query for only the visible page's domains.
+- The live endpoint echoes each target with a trailing slash (`roadroo.com/`), which the documentation example does not show. Until normalization was added, nothing matched and nothing was stored. Found by the first live call, and now covered by a unit test.
 - 50 rows times 5 columns is 250 bound parameters, above D1's limit of 100. Inserts are chunked at 16 rows.
 
 ## Decision Log

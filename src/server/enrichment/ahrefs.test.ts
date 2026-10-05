@@ -12,8 +12,9 @@ describe('fetchDomainRatings', () => {
       domain_rating: {
         license: 'https://ahrefs.com/legal/domain-rating-license',
         targets: [
-          { target: 'Garden.com', domain_rating: 41.5 },
-          { target: 'unknown.net', domain_rating: null },
+          // Live responses echo targets with a trailing slash.
+          { target: 'Garden.com/', domain_rating: 41.5 },
+          { target: 'https://unknown.net', domain_rating: null },
           { target: 'not-requested.org', domain_rating: 90 },
         ],
       },
