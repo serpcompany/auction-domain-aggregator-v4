@@ -305,6 +305,33 @@ describe('DomainDiscovery', () => {
     );
   });
 
+  it('opens every outbound link in a new tab', () => {
+    const { container } = render(
+      <DomainDiscovery
+        filters={parseDomainTableFilters({})}
+        result={{
+          rows,
+          total: rows.length,
+          page: 1,
+          sources: ['dynadot'],
+          auctionTypes: ['expired'],
+          tlds: ['com', 'net'],
+          latestSuccessfulSync: now,
+        }}
+        now={now}
+      />,
+    );
+
+    const outbound = [
+      ...container.querySelectorAll<HTMLAnchorElement>('a[href]'),
+    ].filter((link) => /^https?:\/\//.test(link.getAttribute('href')!));
+    expect(outbound.length).toBeGreaterThan(0);
+    for (const link of outbound) {
+      expect(link).toHaveAttribute('target', '_blank');
+      expect(link.getAttribute('rel')).toContain('noopener');
+    }
+  });
+
   it('distinguishes a domain Ahrefs has no rating for from one not fetched yet', () => {
     render(
       <DomainResultsTable
