@@ -33,6 +33,16 @@ type ProofSummary = {
   firstPageCount: 50;
   secondPageCount: 1;
   successfulRunCount: 2;
+  expandedFilterProof: true;
+  sortCount: 12;
+  facetTldCount: 4;
+  nullSemantics: true;
+  categoryBindCap: 64;
+  exactSortProof: true;
+  tieBreakProof: true;
+  pageClampProof: true;
+  independentFilterProof: true;
+  wildcardEscapeProof: true;
 };
 
 function fixedError(code: string) {
@@ -132,6 +142,16 @@ function parseSummary(value: unknown): ProofSummary {
     firstPageCount: 50,
     secondPageCount: 1,
     successfulRunCount: 2,
+    expandedFilterProof: true,
+    sortCount: 12,
+    facetTldCount: 4,
+    nullSemantics: true,
+    categoryBindCap: 64,
+    exactSortProof: true,
+    tieBreakProof: true,
+    pageClampProof: true,
+    independentFilterProof: true,
+    wildcardEscapeProof: true,
   } as const;
   if (
     Object.entries(expected).some(

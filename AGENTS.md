@@ -37,12 +37,14 @@ Prerequisites are Node.js 22.12 or newer and npm. Install the known-good Corepac
 - `corepack pnpm sync:dynadot`: migrate and manually synchronize Dynadot into local D1 using local `.env` configuration.
 - `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
-- `corepack pnpm check`: run the quick checks, isolated D1 integration proof, and browser tests against the workerd preview.
+- `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
+- `corepack pnpm benchmark:filters`: rerun sanitized aggregate filter timings against the populated local D1 inventory without loading `.env` or printing rows.
+- `corepack pnpm check`: run the quick checks, isolated D1 integration proof, and isolated browser acceptance.
 - `corepack pnpm preview`: migrate local D1, build with OpenNext, and serve the Cloudflare Worker locally.
 - `corepack pnpm build`: verify the standard Next.js production build.
 - `corepack pnpm cf-typegen`: regenerate Cloudflare binding types from `wrangler.jsonc`.
 
-`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Both `pnpm upload` and `pnpm deploy` mutate external Cloudflare state, require explicit authorization, and are not routine verification steps. Creating remote Cloudflare resources also requires explicit authorization.
+`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Integration and browser tests use temporary persistence and never mutate the owner's `.wrangler` inventory. Both `pnpm upload` and `pnpm deploy` mutate external Cloudflare state, require explicit authorization, and are not routine verification steps. Creating remote Cloudflare resources also requires explicit authorization.
 
 ## ExecPlans
 

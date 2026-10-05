@@ -124,6 +124,12 @@ describe('local runner utilities', () => {
     });
     killChildProcessGroup(groupedChild, 'SIGKILL');
     expect(groupedChild.kill).toHaveBeenCalledWith('SIGKILL');
+
+    processKill.mockClear();
+    processKill.mockReturnValue(true);
+    killChildProcessGroup(groupedChild, 'SIGTERM', 'win32');
+    expect(processKill).not.toHaveBeenCalled();
+    expect(groupedChild.kill).toHaveBeenCalledWith('SIGTERM');
     processKill.mockRestore();
 
     killChildProcessGroup({ pid: undefined } as ChildProcess);

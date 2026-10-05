@@ -64,13 +64,18 @@ type ProcessTarget = {
 export function killChildProcessGroup(
   child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM',
+  platform = process.platform,
 ) {
   if (!child.pid || child.exitCode !== null) return;
-  try {
-    process.kill(-child.pid, signal);
-  } catch {
-    child.kill(signal);
+  if (platform !== 'win32') {
+    try {
+      process.kill(-child.pid, signal);
+      return;
+    } catch {
+      // Fall back to the direct child when it is not a process-group leader.
+    }
   }
+  child.kill(signal);
 }
 
 export function installSignalCleanup({

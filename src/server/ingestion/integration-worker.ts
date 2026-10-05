@@ -1,8 +1,13 @@
-import { asc, count, eq } from 'drizzle-orm';
+import { asc, count, eq, inArray } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
-import { DOMAIN_TABLE_PAGE_SIZE } from '../../domain/domain-table';
-import { auctionListings, ingestionRuns } from '../db/schema';
+import {
+  DOMAIN_TABLE_SORTS,
+  DOMAIN_TABLE_CATEGORY_VALUE_LIMIT,
+  parseDomainTableFilters,
+  type DomainTableSearchParams,
+} from '../../domain/domain-table';
+import { auctionListings, domains, ingestionRuns } from '../db/schema';
 import * as schema from '../db/schema';
 import type { DynadotListing } from '../providers/dynadot';
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query';
@@ -13,6 +18,7 @@ type IntegrationEnv = { DB: D1Database };
 
 const PATH = '/run';
 const STARTED_AT = new Date('2026-07-13T00:00:00.000Z');
+const QUERY_NOW = new Date('2026-07-13T04:00:00.000Z');
 
 function assertIntegration(
   condition: unknown,
@@ -133,16 +139,63 @@ async function runProof(env: IntegrationEnv) {
 
   const successfulStartedAt = new Date('2026-07-13T02:00:00.000Z');
   const successfulRun = await storage.startRun(successfulStartedAt);
+  const shapeFixture = {
+    ...listing('shape-clean', 'garden.com', 2_500),
+    auctionType: 'EXPIRED',
+    bidCount: 10,
+    bidderCount: 5,
+    startsAt: new Date('2026-07-12T04:00:00.000Z'),
+    endsAt: new Date('2026-07-13T05:00:00.000Z'),
+    ageYears: 12,
+    inboundLinks: 100,
+    visitors: 50,
+    dynadotAppraisalCents: 50_000,
+    renewalPriceCents: 1_200,
+  };
+  const nullFixture = {
+    ...listing('shape-null', 'past.org', 3_000),
+    auctionType: 'EXPIRED',
+    bidCount: 2,
+    bidderCount: 1,
+    endsAt: new Date('2026-07-13T03:00:00.000Z'),
+    ageYears: null,
+    inboundLinks: null,
+    visitors: null,
+    dynadotAppraisalCents: null,
+    renewalPriceCents: null,
+  };
+  const digitFixture = {
+    ...listing('shape-digit', 'garden2.net', 4_000),
+    auctionType: 'EXPIRED',
+    bidCount: 4,
+    bidderCount: 2,
+    endsAt: new Date('2026-07-14T04:00:00.000Z'),
+  };
+  const hyphenFixture = {
+    ...listing('shape-hyphen', 'garden-only-hyphen.net', 4_500),
+    auctionType: 'EXPIRED',
+    bidCount: 4,
+    bidderCount: 2,
+    endsAt: new Date('2026-07-15T04:00:00.000Z'),
+  };
   const activeListings = [
     { ...initial[0], currentBidCents: 5_100 },
     ...Array.from({ length: 50 }, (_, index) =>
-      listing(
-        `active-${index.toString().padStart(2, '0')}`,
-        index === 17
-          ? 'filter-target.integration.test'
-          : `active-${index.toString().padStart(2, '0')}.integration.test`,
-        100 + index,
-      ),
+      index === 0
+        ? shapeFixture
+        : index === 1
+          ? nullFixture
+          : index === 2
+            ? digitFixture
+            : index === 3
+              ? hyphenFixture
+              : listing(
+                  `active-${index.toString().padStart(2, '0')}`,
+                  index === 17
+                    ? 'filter-target.integration.test'
+                    : `active-${index.toString().padStart(2, '0')}.integration.test`,
+                  100 + index,
+                ),
     ),
   ];
   await storage.upsertListings(successfulRun, activeListings);
@@ -167,37 +220,32 @@ async function runProof(env: IntegrationEnv) {
   assertIntegration(repeatedInactivated === 0, 'repeat_reconciled');
 
   const filtered = await queryDomainListingsWithDatabase(
-    {
-      query: 'filter-target',
+    parseDomainTableFilters({
+      q: 'filter-target',
       source: 'dynadot',
       sort: 'domain',
       direction: 'asc',
-      page: 1,
-      pageSize: DOMAIN_TABLE_PAGE_SIZE,
-    },
+    }),
     database,
   );
   assertIntegration(filtered.total === 1, 'query_filter');
   assertIntegration(filtered.rows.length === 1, 'query_filter_rows');
 
   const sortedFirstPage = await queryDomainListingsWithDatabase(
-    {
+    parseDomainTableFilters({
       source: 'dynadot',
       sort: 'price',
       direction: 'desc',
-      page: 1,
-      pageSize: DOMAIN_TABLE_PAGE_SIZE,
-    },
+    }),
     database,
   );
   const sortedSecondPage = await queryDomainListingsWithDatabase(
-    {
+    parseDomainTableFilters({
       source: 'dynadot',
       sort: 'price',
       direction: 'desc',
-      page: 2,
-      pageSize: DOMAIN_TABLE_PAGE_SIZE,
-    },
+      page: '2',
+    }),
     database,
   );
   assertIntegration(sortedFirstPage.total === 51, 'query_total');
@@ -209,7 +257,7 @@ async function runProof(env: IntegrationEnv) {
   assertIntegration(sortedSecondPage.page === 2, 'query_page_number');
   assertIntegration(sortedSecondPage.rows.length === 1, 'query_second_page');
   assertIntegration(
-    sortedSecondPage.rows[0]?.currentBidCents === 100,
+    sortedSecondPage.rows[0]?.currentBidCents === 104,
     'query_page_value',
   );
   assertIntegration(
@@ -221,6 +269,456 @@ async function runProof(env: IntegrationEnv) {
       new Date('2026-07-13T03:30:00.000Z').getTime(),
     'query_latest_sync',
   );
+
+  const query = (searchParams: DomainTableSearchParams) =>
+    queryDomainListingsWithDatabase(
+      parseDomainTableFilters(searchParams),
+      database,
+      QUERY_NOW,
+    );
+
+  const everyFilter = await query({
+    q: 'garden',
+    source: ['dynadot', 'unsupported'],
+    type: ['expired', 'unsupported'],
+    tld: ['com', 'org'],
+    domainLengthMin: '5',
+    domainLengthMax: '12',
+    noHyphens: '1',
+    noDigits: '1',
+    priceMin: '20',
+    priceMax: '30',
+    bidsMin: '10',
+    biddersMin: '5',
+    ageMin: '10',
+    ageMax: '15',
+    linksMin: '100',
+    visitorsMin: '50',
+    appraisalMin: '500',
+    renewalMax: '12',
+    endingWithin: '1h',
+  });
+  assertIntegration(everyFilter.total === 1, 'all_filter_families');
+  const [shapeRow] = everyFilter.rows;
+  assertIntegration(shapeRow?.bidderCount === 5, 'row_bidder_count');
+  assertIntegration(shapeRow.inboundLinks === 100, 'row_links');
+  assertIntegration(shapeRow.visitors === 50, 'row_visitors');
+  assertIntegration(shapeRow.dynadotAppraisalCents === 50_000, 'row_appraisal');
+  assertIntegration(shapeRow.renewalPriceCents === 1_200, 'row_renewal');
+  assertIntegration(
+    shapeRow.startsAt?.getTime() ===
+      new Date('2026-07-12T04:00:00.000Z').getTime(),
+    'row_starts_at',
+  );
+  assertIntegration(shapeRow.domainLength === 10, 'row_domain_length');
+  assertIntegration(shapeRow.tld === 'com', 'row_tld');
+  assertIntegration(
+    !shapeRow.hasHyphen && !shapeRow.hasDigit,
+    'row_shape_flags',
+  );
+
+  const categoryOr = await query({ tld: ['com', 'org'] });
+  assertIntegration(categoryOr.total === 2, 'category_or');
+  const categoryAnd = await query({ q: 'garden', tld: ['org'] });
+  assertIntegration(categoryAnd.total === 0, 'category_and');
+
+  const staleEnding = await query({ q: 'past', endingWithin: '1h' });
+  assertIntegration(staleEnding.total === 1, 'ending_window_keeps_past');
+
+  const nullUnconstrained = await query({ q: 'past' });
+  assertIntegration(nullUnconstrained.total === 1, 'null_unconstrained');
+  for (const constrained of [
+    { ageMin: '0' },
+    { linksMin: '0' },
+    { visitorsMin: '0' },
+    { appraisalMin: '0' },
+    { renewalMax: '9999' },
+  ]) {
+    const nullConstrained = await query({ q: 'past', ...constrained });
+    assertIntegration(nullConstrained.total === 0, 'null_constrained');
+  }
+
+  const overCapTlds = [
+    'com',
+    ...Array.from({ length: 80 }, (_, index) => `cap${index}`),
+  ];
+  const cappedFilters = parseDomainTableFilters({
+    q: 'garden',
+    source: 'dynadot',
+    type: 'expired',
+    tld: overCapTlds,
+    domainLengthMin: '0',
+    domainLengthMax: '253',
+    noHyphens: '1',
+    noDigits: '1',
+    priceMin: '0',
+    priceMax: '999999',
+    bidsMin: '0',
+    biddersMin: '0',
+    ageMin: '0',
+    ageMax: '999',
+    linksMin: '0',
+    visitorsMin: '0',
+    appraisalMin: '0',
+    renewalMax: '999999',
+    endingWithin: '7d',
+  });
+  assertIntegration(
+    cappedFilters.sources.length +
+      cappedFilters.auctionTypes.length +
+      cappedFilters.tlds.length ===
+      DOMAIN_TABLE_CATEGORY_VALUE_LIMIT,
+    'category_bind_cap',
+  );
+  const cappedQuery = await queryDomainListingsWithDatabase(
+    cappedFilters,
+    database,
+    QUERY_NOW,
+  );
+  assertIntegration(cappedQuery.total === 1, 'category_bind_cap_query');
+
+  const fixtureSeenAt = new Date('2026-07-13T04:00:00.000Z');
+  const rankedDomains = [
+    'rank-a-long.test',
+    'rank-b.co',
+    'rank-cccc.com',
+    'rank-dd.org',
+  ];
+  const tieDomain = 'tie-domain.test';
+  await database.insert(domains).values(
+    [...rankedDomains, tieDomain].map((name) => ({
+      name,
+      firstSeenAt: fixtureSeenAt,
+    })),
+  );
+  const rankedProviders = ['dynadot', 'godaddy', 'namecheap', 'namesilo'];
+  const rankedExternalIds = ['rank-0', 'rank-1', 'rank-2', 'rank-3'];
+  const rankedListings = rankedExternalIds.map((externalId, index) => ({
+    provider: rankedProviders[index]!,
+    externalId,
+    domainName: rankedDomains[index]!,
+    auctionUrl: `https://example.invalid/rank/${index}`,
+    auctionType: index === 1 ? 'CLOSEOUT' : index === 3 ? 'AUCTION' : 'EXPIRED',
+    currency: 'USD',
+    currentBidCents: [300, 100, 400, 200][index]!,
+    bidCount: [4, 2, 1, 3][index]!,
+    bidderCount: [2, 4, 3, 1][index]!,
+    startsAt: null,
+    endsAt: new Date(
+      `2026-07-14T${String([8, 5, 7, 6][index]).padStart(2, '0')}:00:00.000Z`,
+    ),
+    ageYears: [3, 1, null, 2][index]!,
+    inboundLinks: [null, 30, 10, 20][index]!,
+    visitors: [20, null, 30, 10][index]!,
+    dynadotAppraisalCents: [4_000, 1_000, 3_000, null][index]!,
+    renewalPriceCents: [1_000, 4_000, null, 2_000][index]!,
+    status: 'active' as const,
+    firstSeenAt: fixtureSeenAt,
+    lastSeenAt: fixtureSeenAt,
+  }));
+  const tieExternalIds = ['tie-b', 'tie-a', 'tie-godaddy'];
+  const tieListings = [
+    { provider: 'dynadot', externalId: tieExternalIds[0]! },
+    { provider: 'dynadot', externalId: tieExternalIds[1]! },
+    { provider: 'godaddy', externalId: tieExternalIds[2]! },
+  ].map(({ provider, externalId }) => ({
+    provider,
+    externalId,
+    domainName: tieDomain,
+    auctionUrl: `https://example.invalid/tie/${externalId}`,
+    auctionType: 'EXPIRED',
+    currency: 'USD',
+    currentBidCents: 777,
+    bidCount: 7,
+    bidderCount: 7,
+    startsAt: null,
+    endsAt: new Date('2026-07-15T07:00:00.000Z'),
+    ageYears: 7,
+    inboundLinks: 70,
+    visitors: 70,
+    dynadotAppraisalCents: 7_000,
+    renewalPriceCents: 700,
+    status: 'active' as const,
+    firstSeenAt: fixtureSeenAt,
+    lastSeenAt: fixtureSeenAt,
+  }));
+  await database.insert(auctionListings).values(rankedListings);
+  await database.insert(auctionListings).values(tieListings);
+
+  const assertFilterCase = async ({
+    code,
+    searchParams,
+    includes,
+    excludes,
+  }: {
+    code: string;
+    searchParams: DomainTableSearchParams;
+    includes: string[];
+    excludes: string[];
+  }) => {
+    const result = await query(searchParams);
+    const externalIds = new Set(
+      result.rows.map(({ externalId }) => externalId),
+    );
+    assertIntegration(
+      includes.every((externalId) => externalIds.has(externalId)),
+      `${code}_boundary`,
+    );
+    assertIntegration(
+      excludes.every((externalId) => !externalIds.has(externalId)),
+      `${code}_near_miss`,
+    );
+  };
+
+  for (const filterCase of [
+    {
+      code: 'domain_length_min',
+      searchParams: { q: 'rank-', domainLengthMin: '11' },
+      includes: ['rank-3'],
+      excludes: ['rank-1'],
+    },
+    {
+      code: 'domain_length_max',
+      searchParams: { q: 'rank-', domainLengthMax: '13' },
+      includes: ['rank-2'],
+      excludes: ['rank-0'],
+    },
+    {
+      code: 'price_min',
+      searchParams: { q: 'rank-', priceMin: '2' },
+      includes: ['rank-3'],
+      excludes: ['rank-1'],
+    },
+    {
+      code: 'price_max',
+      searchParams: { q: 'rank-', priceMax: '3' },
+      includes: ['rank-0'],
+      excludes: ['rank-2'],
+    },
+    {
+      code: 'age_min',
+      searchParams: { q: 'rank-', ageMin: '2' },
+      includes: ['rank-3'],
+      excludes: ['rank-1', 'rank-2'],
+    },
+    {
+      code: 'age_max',
+      searchParams: { q: 'rank-', ageMax: '2' },
+      includes: ['rank-3'],
+      excludes: ['rank-0', 'rank-2'],
+    },
+    {
+      code: 'bids_min',
+      searchParams: { q: 'rank-', bidsMin: '2' },
+      includes: ['rank-1'],
+      excludes: ['rank-2'],
+    },
+    {
+      code: 'bidders_min',
+      searchParams: { q: 'rank-', biddersMin: '2' },
+      includes: ['rank-0'],
+      excludes: ['rank-3'],
+    },
+    {
+      code: 'links_min',
+      searchParams: { q: 'rank-', linksMin: '20' },
+      includes: ['rank-3'],
+      excludes: ['rank-2', 'rank-0'],
+    },
+    {
+      code: 'visitors_min',
+      searchParams: { q: 'rank-', visitorsMin: '20' },
+      includes: ['rank-0'],
+      excludes: ['rank-3', 'rank-1'],
+    },
+    {
+      code: 'appraisal_min',
+      searchParams: { q: 'rank-', appraisalMin: '30' },
+      includes: ['rank-2'],
+      excludes: ['rank-1', 'rank-3'],
+    },
+    {
+      code: 'renewal_max',
+      searchParams: { q: 'rank-', renewalMax: '20' },
+      includes: ['rank-3'],
+      excludes: ['rank-1', 'rank-2'],
+    },
+  ]) {
+    await assertFilterCase(filterCase);
+  }
+
+  await assertFilterCase({
+    code: 'shape_unconstrained',
+    searchParams: { q: 'garden', noHyphens: '0', noDigits: 'false' },
+    includes: ['shape-clean', 'shape-digit', 'shape-hyphen'],
+    excludes: [],
+  });
+  await assertFilterCase({
+    code: 'no_hyphens',
+    searchParams: { q: 'garden', noHyphens: '1' },
+    includes: ['shape-clean', 'shape-digit'],
+    excludes: ['shape-hyphen'],
+  });
+  await assertFilterCase({
+    code: 'no_digits',
+    searchParams: { q: 'garden', noDigits: '1' },
+    includes: ['shape-clean', 'shape-hyphen'],
+    excludes: ['shape-digit'],
+  });
+  await assertFilterCase({
+    code: 'ending_1h',
+    searchParams: { endingWithin: '1h' },
+    includes: ['shape-clean', 'shape-null'],
+    excludes: ['shape-digit'],
+  });
+  await assertFilterCase({
+    code: 'ending_24h',
+    searchParams: { endingWithin: '24h' },
+    includes: ['shape-digit'],
+    excludes: ['shape-hyphen', 'active-04'],
+  });
+  await assertFilterCase({
+    code: 'source_or',
+    searchParams: { q: 'rank-', source: ['dynadot', 'godaddy'] },
+    includes: ['rank-0', 'rank-1'],
+    excludes: ['rank-2', 'rank-3'],
+  });
+  await assertFilterCase({
+    code: 'auction_type_or',
+    searchParams: { q: 'rank-', type: ['expired', 'closeout'] },
+    includes: ['rank-0', 'rank-1', 'rank-2'],
+    excludes: ['rank-3'],
+  });
+  await assertFilterCase({
+    code: 'auction_type_single',
+    searchParams: { q: 'rank-', type: ['closeout'] },
+    includes: ['rank-1'],
+    excludes: ['rank-0', 'rank-2', 'rank-3'],
+  });
+  await assertFilterCase({
+    code: 'auction_type_expired',
+    searchParams: { q: 'rank-', type: ['expired'] },
+    includes: ['rank-0', 'rank-2'],
+    excludes: ['rank-1', 'rank-3'],
+  });
+  await assertFilterCase({
+    code: 'tld_or',
+    searchParams: { q: 'rank-', tld: ['co', 'org'] },
+    includes: ['rank-1', 'rank-3'],
+    excludes: ['rank-0', 'rank-2'],
+  });
+  await assertFilterCase({
+    code: 'query_literal',
+    searchParams: { q: 'garden' },
+    includes: ['shape-clean', 'shape-digit', 'shape-hyphen'],
+    excludes: ['shape-null'],
+  });
+  const wildcardPercent = await query({ q: '%' });
+  const wildcardUnderscore = await query({ q: '_' });
+  assertIntegration(wildcardPercent.total === 0, 'query_percent_literal');
+  assertIntegration(wildcardUnderscore.total === 0, 'query_underscore_literal');
+
+  const expectedAscendingBySort: Record<
+    (typeof DOMAIN_TABLE_SORTS)[number],
+    string[]
+  > = {
+    domain: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
+    source: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
+    price: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
+    bids: ['rank-2', 'rank-1', 'rank-3', 'rank-0'],
+    bidders: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
+    endsAt: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+    age: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
+    links: ['rank-2', 'rank-3', 'rank-1', 'rank-0'],
+    visitors: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
+    appraisal: ['rank-1', 'rank-2', 'rank-0', 'rank-3'],
+    renewal: ['rank-0', 'rank-3', 'rank-1', 'rank-2'],
+    domainLength: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+  };
+  const nullExternalIdBySort = {
+    age: 'rank-2',
+    links: 'rank-0',
+    visitors: 'rank-1',
+    appraisal: 'rank-3',
+    renewal: 'rank-2',
+  } as const;
+  for (const sort of DOMAIN_TABLE_SORTS) {
+    const ascending = await query({ q: 'rank-', sort, direction: 'asc' });
+    const descending = await query({ q: 'rank-', sort, direction: 'desc' });
+    const expectedAscending = expectedAscendingBySort[sort];
+    const nullExternalId =
+      nullExternalIdBySort[sort as keyof typeof nullExternalIdBySort];
+    const expectedDescending = [
+      ...expectedAscending
+        .filter((externalId) => externalId !== nullExternalId)
+        .reverse(),
+      ...(nullExternalId ? [nullExternalId] : []),
+    ];
+    assertIntegration(
+      ascending.rows.map(({ externalId }) => externalId).join(',') ===
+        expectedAscending.join(','),
+      `sort_ascending_${sort}`,
+    );
+    assertIntegration(
+      descending.rows.map(({ externalId }) => externalId).join(',') ===
+        expectedDescending.join(','),
+      `sort_descending_${sort}`,
+    );
+  }
+  for (const sort of DOMAIN_TABLE_SORTS) {
+    for (const direction of ['asc', 'desc'] as const) {
+      const ties = await query({ q: 'tie-domain', sort, direction });
+      const expectedTieOrder =
+        sort === 'source' && direction === 'desc'
+          ? 'tie-godaddy,tie-a,tie-b'
+          : 'tie-a,tie-b,tie-godaddy';
+      assertIntegration(
+        ties.rows.map(({ externalId }) => externalId).join(',') ===
+          expectedTieOrder,
+        `sort_tie_${sort}_${direction}`,
+      );
+    }
+  }
+  const clampedPage = await query({ q: 'rank-', page: '100000' });
+  assertIntegration(clampedPage.page === 1, 'query_page_clamped');
+  assertIntegration(clampedPage.rows.length === 4, 'query_page_clamped_rows');
+
+  await database.insert(auctionListings).values({
+    ...rankedListings[0]!,
+    provider: 'unsupported-provider',
+    externalId: 'unsupported-facet',
+    auctionType: 'UNSUPPORTED-TYPE',
+  });
+  const boundedFacets = await query({});
+  assertIntegration(
+    boundedFacets.sources.join(',') === 'dynadot,godaddy,namecheap,namesilo',
+    'source_facets_allowlisted',
+  );
+  assertIntegration(
+    boundedFacets.auctionTypes.join(',') === 'auction,closeout,expired',
+    'auction_type_facets_allowlisted',
+  );
+
+  assertIntegration(
+    sortedFirstPage.auctionTypes.join(',') === 'expired',
+    'auction_type_facets',
+  );
+  assertIntegration(
+    sortedFirstPage.tlds.join(',') === 'com,net,org,test',
+    'tld_facets',
+  );
+
+  const fixtureExternalIds = [
+    ...rankedExternalIds,
+    ...tieExternalIds,
+    'unsupported-facet',
+  ];
+  await database
+    .delete(auctionListings)
+    .where(inArray(auctionListings.externalId, fixtureExternalIds));
+  await database
+    .delete(domains)
+    .where(inArray(domains.name, [...rankedDomains, tieDomain]));
 
   const statuses = await database
     .select({ status: auctionListings.status, value: count() })
@@ -247,6 +745,16 @@ async function runProof(env: IntegrationEnv) {
     firstPageCount: sortedFirstPage.rows.length,
     secondPageCount: sortedSecondPage.rows.length,
     successfulRunCount: successfulRuns?.value ?? 0,
+    expandedFilterProof: true as const,
+    sortCount: DOMAIN_TABLE_SORTS.length,
+    facetTldCount: sortedFirstPage.tlds.length,
+    nullSemantics: true as const,
+    categoryBindCap: DOMAIN_TABLE_CATEGORY_VALUE_LIMIT,
+    exactSortProof: true as const,
+    tieBreakProof: true as const,
+    pageClampProof: true as const,
+    independentFilterProof: true as const,
+    wildcardEscapeProof: true as const,
   };
 }
 

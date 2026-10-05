@@ -54,13 +54,13 @@ Use shadcn/ui as the component foundation for the Next.js interface. Components 
 
 Do not treat the default appearance of generated components as the product's finished UI design. The first domain-discovery table establishes the current dense, server-rendered application pattern; later UI changes should preserve its accessible table and URL-backed filtering behavior unless a product decision replaces them.
 
-Initialize shadcn/ui against the existing application and add components only as they are needed. The repository currently owns the generated Card, Table, Input, Button, and Badge primitives.
+Initialize shadcn/ui against the existing application and add components only as they are needed. The repository currently owns the generated Card, Table, Input, Button, Badge, Checkbox, Popover, Sheet, Scroll Area, and Separator primitives; no client table framework is used.
 
 ### Validation and continuous integration
 
 Use Zod 4 for runtime validation of provider responses. Use Prettier for formatting and ESLint for static linting. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
-`pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and preview-backed browser tests and is the CI gate. CI installs the frozen lockfile and Chromium before running that gate; it does not deploy or access remote resources.
+`pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
 
 ## Decisions not yet made
 

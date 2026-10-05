@@ -31,7 +31,9 @@ loopback-only Wrangler worker -> Dynadot adapter -> bounded D1 upserts
 
 ### Next.js application
 
-`src/app/page.tsx` validates URL search parameters, asks `src/server/queries/domain-listings.ts` for active listings, and server-renders `src/components/domain-discovery.tsx`. Search, source filtering, allowlisted sorting, and 50-row pagination are D1 queries. Majestic Topic and Ahrefs DR are displayed as unavailable until real enrichment is implemented.
+`src/app/page.tsx` normalizes URL search parameters, asks `src/server/queries/domain-listings.ts` for active listings, and server-renders `src/components/domain-discovery.tsx`. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only bounded facets and the current page cross into the UI. Majestic Topic and Ahrefs DR are displayed as unavailable until real enrichment is implemented.
+
+The read model derives TLD, domain length, hyphen presence, and digit presence from normalized listing names. It applies OR within repeated source, auction-type, and TLD values and AND across filter families. Count, page, facet, and freshness reads remain sequential because concurrent local D1 snapshots previously produced locking failures. The full read behavior and measured index decision are recorded in `docs/technical-design/domain-discovery.md`.
 
 The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points.
 
@@ -79,14 +81,14 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 ## Physical code map
 
 - `src/app/` owns Next.js routes, layout, global styles, and the D1 health route.
-- `src/components/domain-discovery.tsx` owns the discovery UI; `src/components/ui/` contains repository-owned shadcn source.
+- `src/components/domain-discovery.tsx` composes the page, `src/components/domain-filters.tsx` owns the single URL-backed filter-form island, and `src/components/domain-results-table.tsx` owns the server-rendered comparison table. `src/components/ui/` contains repository-owned shadcn source.
 - `src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `src/server/db/` owns the server-only Drizzle schema, client, and database types.
-- `src/server/queries/domain-listings.ts` is the server-only read model for the table.
+- `src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
 - `src/server/providers/dynadot/` terminates Dynadot response shapes and returns normalized listings.
 - `src/server/ingestion/` owns provider-independent sync flow, Dynadot D1 storage, the protected local worker, and local-runner utilities.
 - `scripts/sync-dynadot.ts` orchestrates the manual loopback sync.
-- `e2e/` contains Playwright acceptance against the OpenNext workerd preview.
-- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define separate application and ingestion workers sharing local D1 only.
+- `e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures.
+- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define application and ingestion workers sharing local D1 only. `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.
 
 Browser components must not import `src/server/`. Provider-specific shapes must not escape their adapter. Only ingestion code may cross both the provider-network and database boundaries.

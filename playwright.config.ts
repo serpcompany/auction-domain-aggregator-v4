@@ -1,7 +1,10 @@
 import { defineConfig, devices } from '@playwright/test';
 
+import { E2E_BASE_URL } from './scripts/e2e-preview-lifecycle';
+
 export default defineConfig({
   testDir: './e2e',
+  globalSetup: './e2e/global-setup.ts',
   outputDir: './tmp/playwright/test-results',
   retries: process.env.CI ? 1 : 0,
   workers: process.env.CI ? 1 : undefined,
@@ -10,7 +13,7 @@ export default defineConfig({
     ['html', { open: 'never', outputFolder: './tmp/playwright/report' }],
   ],
   use: {
-    baseURL: 'http://127.0.0.1:8787',
+    baseURL: E2E_BASE_URL,
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -21,9 +24,4 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
   ],
-  webServer: {
-    command: 'pnpm preview',
-    url: 'http://127.0.0.1:8787/api/health',
-    reuseExistingServer: false,
-  },
 });

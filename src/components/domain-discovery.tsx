@@ -1,90 +1,18 @@
 import Link from 'next/link';
+import { X } from 'lucide-react';
 
 import {
   buildDomainTableHref,
-  formatDateTime,
-  formatMoney,
   formatSyncRecency,
-  nextSortDirection,
+  getDomainTableFilterChips,
+  hasActiveDomainTableFilters,
   type DomainTableFilters,
-  type DomainTableSort,
 } from '@/domain/domain-table';
+import { DomainFilters } from '@/components/domain-filters';
+import { DomainResultsTable } from '@/components/domain-results-table';
 import type { DomainListingsResult } from '@/server/queries/domain-listings';
-import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { buttonVariants } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-
-const sortableColumns: Array<{
-  key: DomainTableSort;
-  label: string;
-  align?: 'right';
-}> = [
-  { key: 'domain', label: 'Domain' },
-  { key: 'source', label: 'Source' },
-  { key: 'price', label: 'Current bid', align: 'right' },
-  { key: 'bids', label: 'Bids', align: 'right' },
-  { key: 'endsAt', label: 'Ends' },
-  { key: 'age', label: 'Age', align: 'right' },
-];
-
-function providerLabel(provider: string) {
-  return provider === 'dynadot' ? 'Dynadot' : provider;
-}
-
-function SortableHead({
-  filters,
-  sort,
-  label,
-  align,
-}: {
-  filters: DomainTableFilters;
-  sort: DomainTableSort;
-  label: string;
-  align?: 'right';
-}) {
-  const active = filters.sort === sort;
-  const direction = nextSortDirection(filters, sort);
-
-  return (
-    <TableHead
-      className={cn(align === 'right' && 'text-right')}
-      aria-sort={
-        active
-          ? filters.direction === 'asc'
-            ? 'ascending'
-            : 'descending'
-          : 'none'
-      }
-    >
-      <Link
-        prefetch={false}
-        className={cn(
-          'inline-flex rounded-sm px-1 py-1 font-semibold hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-          align === 'right' && 'justify-end',
-        )}
-        href={buildDomainTableHref(filters, {
-          sort,
-          direction,
-          page: 1,
-        })}
-      >
-        {label}
-        <span className="ml-1 w-3 text-muted-foreground" aria-hidden="true">
-          {active ? (filters.direction === 'asc' ? '↑' : '↓') : '↕'}
-        </span>
-      </Link>
-    </TableHead>
-  );
-}
 
 export function DomainDiscovery({
   filters,
@@ -101,6 +29,8 @@ export function DomainDiscovery({
   const lastResult = Math.min(result.page * filters.pageSize, result.total);
   const hasPrevious = result.page > 1;
   const hasNext = result.page * filters.pageSize < result.total;
+  const filterChips = getDomainTableFilterChips(filters);
+  const hasActiveFilters = hasActiveDomainTableFilters(filters);
 
   return (
     <main
@@ -134,63 +64,39 @@ export function DomainDiscovery({
         </header>
 
         <section
-          className="rounded-xl border bg-card/95 shadow-sm"
+          className="min-w-0 overflow-hidden rounded-xl border bg-card/95 shadow-sm"
           aria-labelledby="inventory-heading"
         >
           <div className="border-b p-4 sm:p-5">
-            <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <form
-                action="/"
-                method="get"
-                className="grid flex-1 gap-3 sm:grid-cols-[minmax(16rem,1fr)_13rem_auto_auto] sm:items-end"
-              >
-                <div className="space-y-1.5">
-                  <label htmlFor="domain-query" className="text-sm font-medium">
-                    Domain contains
-                  </label>
-                  <Input
-                    id="domain-query"
-                    name="q"
-                    type="search"
-                    autoComplete="off"
-                    defaultValue={filters.query}
-                    placeholder="e.g. example.com…"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <label htmlFor="source" className="text-sm font-medium">
-                    Auction source
-                  </label>
-                  <select
-                    id="source"
-                    name="source"
-                    defaultValue={filters.source ?? ''}
-                    className="h-8 w-full rounded-lg border border-input bg-background px-2.5 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-                  >
-                    <option value="">All sources</option>
-                    {result.sources.map((source) => (
-                      <option key={source} value={source}>
-                        {providerLabel(source)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <input type="hidden" name="sort" value={filters.sort} />
-                <input
-                  type="hidden"
-                  name="direction"
-                  value={filters.direction}
-                />
-                <Button type="submit">Apply filters</Button>
-                <Link
-                  prefetch={false}
-                  href="/"
-                  className={cn(buttonVariants({ variant: 'outline' }), 'h-8')}
-                >
-                  Reset
-                </Link>
-              </form>
+            <DomainFilters
+              key={buildDomainTableHref(filters)}
+              filters={filters}
+              sources={result.sources}
+              auctionTypes={result.auctionTypes}
+              tlds={result.tlds}
+            />
 
+            <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex min-w-0 flex-wrap gap-2">
+                {filterChips.map((chip) => (
+                  <Link
+                    key={chip.key}
+                    prefetch={false}
+                    href={chip.href}
+                    aria-label={`Remove ${chip.label} filter`}
+                    title={chip.label}
+                    className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+                  >
+                    <span className="min-w-0 truncate">{chip.label}</span>
+                    <X className="size-3.5 shrink-0" aria-hidden="true" />
+                  </Link>
+                ))}
+                {filterChips.length === 0 ? (
+                  <span className="text-sm text-muted-foreground">
+                    No filters applied
+                  </span>
+                ) : null}
+              </div>
               <div
                 id="inventory-heading"
                 className="shrink-0 text-sm text-muted-foreground"
@@ -210,84 +116,28 @@ export function DomainDiscovery({
               </div>
               <h2 className="text-lg font-semibold">No domains found</h2>
               <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                Try a broader domain search or reset the source filter. If this
-                is a new database, run the local Dynadot sync first.
+                {hasActiveFilters
+                  ? 'No listings match all applied filters. Clear all filters to return to the full active inventory.'
+                  : 'No active listings have been collected. If this is a new database, run the local Dynadot sync first.'}
               </p>
+              {hasActiveFilters ? (
+                <Link
+                  href="/"
+                  className={cn(
+                    buttonVariants({ variant: 'outline', size: 'sm' }),
+                    'mt-4',
+                  )}
+                >
+                  Clear all filters
+                </Link>
+              ) : null}
             </div>
           ) : (
-            <Table className="min-w-[1120px]">
-              <TableHeader className="bg-muted/40">
-                <TableRow>
-                  {sortableColumns.slice(0, 2).map((column) => (
-                    <SortableHead
-                      key={column.key}
-                      filters={effectiveFilters}
-                      sort={column.key}
-                      label={column.label}
-                      align={column.align}
-                    />
-                  ))}
-                  <TableHead>Auction type</TableHead>
-                  {sortableColumns.slice(2).map((column) => (
-                    <SortableHead
-                      key={column.key}
-                      filters={effectiveFilters}
-                      sort={column.key}
-                      label={column.label}
-                      align={column.align}
-                    />
-                  ))}
-                  <TableHead>Majestic topic</TableHead>
-                  <TableHead className="text-right">Ahrefs DR</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {result.rows.map((row) => (
-                  <TableRow key={`${row.provider}:${row.externalId}`}>
-                    <TableCell className="max-w-80 font-mono font-medium">
-                      <a
-                        href={row.auctionUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="block truncate rounded-sm text-emerald-800 underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring dark:text-emerald-300"
-                      >
-                        {row.domainName}
-                        <span className="sr-only">
-                          {' '}
-                          (opens auction in a new tab)
-                        </span>
-                      </a>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="secondary">
-                        {providerLabel(row.provider)}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {row.auctionType}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {formatMoney(row.currentBidCents, row.currency)}
-                    </TableCell>
-                    <TableCell className="text-right font-mono tabular-nums">
-                      {row.bidCount.toLocaleString('en-US')}
-                    </TableCell>
-                    <TableCell>
-                      <time dateTime={row.endsAt.toISOString()}>
-                        {formatDateTime(row.endsAt)}
-                      </time>
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {row.ageYears === null ? '—' : `${row.ageYears}y`}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">—</TableCell>
-                    <TableCell className="text-right text-muted-foreground">
-                      —
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+            <DomainResultsTable
+              rows={result.rows}
+              filters={effectiveFilters}
+              now={now}
+            />
           )}
 
           <footer className="flex flex-col gap-3 border-t p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
