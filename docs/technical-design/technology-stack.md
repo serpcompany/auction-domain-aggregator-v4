@@ -18,7 +18,7 @@ This is a Cloudflare-first decision, not a requirement to use every Cloudflare p
 
 ### Package manager: pnpm
 
-Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package scripts. Install that known-good Corepack release with npm before enabling its shims; do not rely on the Corepack version bundled with Node.js. Commit `pnpm-lock.yaml` and keep the concrete pnpm version in `package.json` so local development and CI resolve the same dependency graph. The supported runtime is Node.js 22.12 or newer.
+Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package scripts. Install that known-good Corepack release with npm before enabling its shims; do not rely on the Corepack version bundled with Node.js. Commit `pnpm-lock.yaml` and keep the concrete pnpm version in `package.json` so local development and CI resolve the same dependency graph. The supported runtime is Node.js 22.12 or a newer 22.x release; `.node-version` pins the major version for local version managers and CI. Newer majors are excluded because Node 25 previously hung local Wrangler platform proxies.
 
 ### Application framework: Next.js
 
@@ -60,7 +60,7 @@ Initialize shadcn/ui against the existing application and add components only as
 
 Use Zod 4 for runtime validation of provider responses. Use Prettier for formatting and ESLint for static linting. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
-`pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
+`pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded runs, caches the pnpm store and Playwright browsers, fails if `cloudflare-env.d.ts` is stale, and uploads the Playwright report on failure. It installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
 
 ## Decisions not yet made
 
