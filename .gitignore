@@ -1,7 +1,7 @@
 # Local secrets and environment overrides
 .env
 .env.*
-!.env.example
+.secrets/
 .dev.vars
 .dev.vars.*
 !.dev.vars.example

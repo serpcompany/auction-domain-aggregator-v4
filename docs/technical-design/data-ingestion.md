@@ -49,9 +49,9 @@ Implementation uncovered three important runtime constraints:
 
 ## Credentials and local process isolation
 
-The package command loads the local `.env` only into the Node orchestrator. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment. The Dynadot key is supplied only through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
+The package command loads `.secrets/providers.env` only into the Node orchestrator. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment. The Dynadot key is supplied only through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
 
-The command prints only its fixed success summary or a fixed error code. Provider response bodies, URLs containing query credentials, authorization material, and `.env` values must never be logged, committed, or copied into tests or documentation.
+The command prints only its fixed success summary or a fixed error code. Provider response bodies, URLs containing query credentials, authorization material, and credential values must never be logged, committed, or copied into tests or documentation.
 
 ## Listing identity and lifecycle
 
