@@ -9,14 +9,16 @@ When this is done, `corepack pnpm sync dynadot` behaves exactly like today's `co
 ## Progress
 
 - [x] (2026-10-06) Plan written.
-- [ ] Milestone 1: provider-neutral adapter interface, sync service, and D1 storage; Dynadot ported.
-- [ ] Milestone 2: generic local worker route and `pnpm sync <provider>` runner.
-- [ ] Milestone 3: rename `dynadot_appraisal_cents` to `appraisal_cents`.
-- [ ] Validation: quick checks, integration proof, e2e, migration on the real local inventory.
+- [x] (2026-10-06) Milestone 3 (done first, as the smallest mechanical change): `dynadot_appraisal_cents` renamed to `appraisal_cents`, migration `0003` applied to the real local inventory.
+- [x] (2026-10-06) Milestone 1: provider-neutral adapter interface, sync service, and D1 storage; Dynadot ported.
+- [x] (2026-10-06) Milestone 2: generic local worker route and `pnpm sync <provider>` runner.
+- [x] (2026-10-06) Validation: quick checks (171 tests, 100% coverage), integration proof including provider isolation, e2e (4 passed), offline worker and runner smoke test.
 
 ## Surprises & Discoveries
 
-None yet.
+- drizzle-kit asks interactively whether a column was created or renamed, so it cannot generate a rename in a non-interactive session. Migration `0003` and its snapshot were written by hand, and `db:generate` afterwards reports no schema changes.
+- SQLite `RENAME COLUMN` rewrites the CHECK expression but keeps the constraint's name. The schema keeps the original name, `auction_listings_dynadot_appraisal_cents_nonnegative`, to avoid a table rebuild.
+- An env type with an open string index conflicts with the `DB` binding. Provider secret names are therefore a closed union in the registry, which is stricter anyway.
 
 ## Decision Log
 
@@ -27,7 +29,15 @@ None yet.
 
 ## Outcomes & Retrospective
 
-Not started.
+Achieved:
+- `ProviderAdapter`, `runSyncSegment` and `createD1IngestionStorage(db, provider)` replace the Dynadot-specific service and storage.
+- The worker serves `POST /sync/<provider>`, and `corepack pnpm sync <provider>` writes only that provider's registered secrets.
+- The real-D1 proof shows that storage bound to DropCatch rejects foreign listings, leaves Dynadot runs running, and reconciles only its own listings.
+- Adding DropCatch (#17) now needs an adapter and a registry entry.
+
+Remaining:
+- Freshness is still the global latest successful sync. It should become per provider when a second provider lands.
+- The loopback runner remains until #15 adds a `scheduled()` handler.
 
 ## Context and Orientation
 
@@ -82,4 +92,4 @@ No new packages. Stable interfaces after this plan:
     runSyncSegment(adapter, storage, { runId?, segmentPages?, maxPages?, clock? })
     createD1IngestionStorage(db, provider): IngestionStorage
 
-Revision note (2026-10-06, Claude): Initial plan.
+Revision note (2026-10-06, Claude): Initial plan. Completed the same day; recorded the discoveries and outcomes, and moved to `completed/`.

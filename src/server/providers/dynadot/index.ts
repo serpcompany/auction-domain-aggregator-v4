@@ -1,5 +1,12 @@
 import { z } from 'zod';
 
+import {
+  ProviderError,
+  type NormalizedListing,
+  type ProviderAdapter,
+  type ProviderPage,
+} from '../types';
+
 const stringOrNumber = (maximumLength: number) =>
   z.union([z.string().max(maximumLength), z.number()]);
 
@@ -35,32 +42,9 @@ const dynadotResponseSchema = z
 // response-format change rather than a few bad records.
 const MAX_REJECTED_RATIO = 0.1;
 
-export type DynadotPage = {
-  listings: DynadotListing[];
-  // Auctions in the provider response, including rejected ones. The sync uses
-  // this, not `listings.length`, to detect the final page.
-  received: number;
-  rejected: number;
-};
+export type DynadotPage = Omit<ProviderPage, 'isLastPage'>;
 
-export type DynadotListing = {
-  provider: 'dynadot';
-  externalId: string;
-  domainName: string;
-  auctionUrl: string;
-  auctionType: string;
-  currency: string;
-  currentBidCents: number;
-  bidCount: number;
-  bidderCount: number;
-  startsAt: Date | null;
-  endsAt: Date;
-  ageYears: number | null;
-  inboundLinks: number | null;
-  visitors: number | null;
-  appraisalCents: number | null;
-  renewalPriceCents: number | null;
-};
+export type DynadotListing = NormalizedListing & { provider: 'dynadot' };
 
 export type DynadotProviderErrorCode =
   | 'dynadot_invalid_request'
@@ -70,13 +54,12 @@ export type DynadotProviderErrorCode =
   | 'dynadot_response_too_large'
   | 'dynadot_response_error';
 
-export class DynadotProviderError extends Error {
-  readonly code: DynadotProviderErrorCode;
+export class DynadotProviderError extends ProviderError {
+  declare readonly code: DynadotProviderErrorCode;
 
   constructor(code: DynadotProviderErrorCode) {
     super(code);
     this.name = 'DynadotProviderError';
-    this.code = code;
   }
 }
 
@@ -330,4 +313,28 @@ export async function fetchDynadotPage({
   } finally {
     clearTimeout(timeout);
   }
+}
+
+const DYNADOT_PAGE_SIZE = 1000;
+
+export function createDynadotAdapter({
+  apiKey,
+  fetchImpl,
+}: {
+  apiKey: string;
+  fetchImpl?: typeof fetch;
+}): ProviderAdapter {
+  return {
+    provider: 'dynadot',
+    async fetchPage({ pageIndex }) {
+      const page = await fetchDynadotPage({
+        apiKey,
+        pageIndex,
+        pageSize: DYNADOT_PAGE_SIZE,
+        fetchImpl,
+      });
+      // Dynadot has no total count; the first short page is the last one.
+      return { ...page, isLastPage: page.received < DYNADOT_PAGE_SIZE };
+    },
+  };
 }

@@ -9,10 +9,10 @@ import {
 } from '../../domain/domain-table';
 import { auctionListings, domains, ingestionRuns } from '../db/schema';
 import * as schema from '../db/schema';
-import type { DynadotListing } from '../providers/dynadot';
+import type { NormalizedListing } from '../providers/types';
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query';
-import { DynadotSyncError } from './sync-dynadot';
-import { createDynadotD1Storage } from './sync-dynadot-d1';
+import { SyncError } from './sync';
+import { createD1IngestionStorage } from './d1-storage';
 
 type IntegrationEnv = { DB: D1Database };
 
@@ -31,7 +31,7 @@ function listing(
   externalId: string,
   domainName: string,
   currentBidCents: number,
-): DynadotListing {
+): NormalizedListing {
   return {
     provider: 'dynadot',
     externalId,
@@ -78,7 +78,7 @@ async function activeGuardListings(
 // whose auctions have ended by these later timestamps.
 async function proveReconciliationSafety(
   database: ReturnType<typeof drizzle<typeof schema>>,
-  storage: ReturnType<typeof createDynadotD1Storage>,
+  storage: ReturnType<typeof createD1IngestionStorage>,
 ) {
   const guardEndsAt = new Date('2026-09-01T00:00:00.000Z');
   const guardListings = Array.from({ length: 600 }, (_, index) => ({
@@ -114,8 +114,7 @@ async function proveReconciliationSafety(
     });
   } catch (error) {
     guardTripped =
-      error instanceof DynadotSyncError &&
-      error.code === 'dynadot_reconciliation_guard';
+      error instanceof SyncError && error.code === 'sync_reconciliation_guard';
   }
   assertIntegration(guardTripped, 'reconciliation_guard_trips');
   assertIntegration(
@@ -131,7 +130,7 @@ async function proveReconciliationSafety(
     recordsUpserted: 10,
     recordsInactivated: 0,
     recordsRejected: 3,
-    errorCode: 'dynadot_reconciliation_guard',
+    errorCode: 'sync_reconciliation_guard',
     failedPage: 7,
   });
   const [failedRun] = await database
@@ -143,7 +142,7 @@ async function proveReconciliationSafety(
     .from(ingestionRuns)
     .where(eq(ingestionRuns.id, shortRun.runId));
   assertIntegration(
-    failedRun?.errorCode === 'dynadot_reconciliation_guard' &&
+    failedRun?.errorCode === 'sync_reconciliation_guard' &&
       failedRun.failedPage === 7 &&
       failedRun.recordsRejected === 3,
     'failed_run_diagnostics',
@@ -177,9 +176,101 @@ async function proveReconciliationSafety(
   );
 }
 
+async function activeListingsFor(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+  provider: string,
+) {
+  const [row] = await database
+    .select({ value: count() })
+    .from(auctionListings)
+    .where(
+      and(
+        eq(auctionListings.provider, provider),
+        eq(auctionListings.status, 'active'),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+// Storage bound to one provider must never read, reconcile, guard against,
+// or interrupt another provider's listings and runs.
+async function proveProviderIsolation(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const dynadot = createD1IngestionStorage(database, 'dynadot');
+  const dropcatch = createD1IngestionStorage(database, 'dropcatch');
+  const dynadotActiveBefore = await activeListingsFor(database, 'dynadot');
+
+  const dynadotRun = await dynadot.startRun(
+    new Date('2026-07-15T00:00:00.000Z'),
+  );
+  const dropcatchRun = await dropcatch.startRun(
+    new Date('2026-07-15T00:01:00.000Z'),
+  );
+  // Starting a DropCatch run must not interrupt the running Dynadot run.
+  const resumedDynadot = await dynadot.loadRunningRun(dynadotRun.runId);
+  assertIntegration(
+    resumedDynadot.runId === dynadotRun.runId,
+    'isolation_runs_independent',
+  );
+
+  let crossProviderRejected = false;
+  try {
+    await dropcatch.upsertListings(dropcatchRun, [
+      listing('isolation-wrong', 'isolation-wrong.integration.test', 100),
+    ]);
+  } catch (error) {
+    crossProviderRejected =
+      error instanceof SyncError && error.code === 'sync_invalid_request';
+  }
+  assertIntegration(crossProviderRejected, 'isolation_rejects_foreign_listing');
+
+  await dropcatch.upsertListings(
+    dropcatchRun,
+    ['a', 'b'].map((suffix) => ({
+      ...listing(
+        `isolation-${suffix}`,
+        `isolation-${suffix}.integration.test`,
+        100,
+      ),
+      provider: 'dropcatch' as const,
+    })),
+  );
+  // DropCatch saw none of Dynadot's listings, yet finalizing must neither
+  // inactivate them nor count them toward its own guard.
+  const inactivated = await dropcatch.finalizeSuccessfulRun(dropcatchRun, {
+    completedAt: new Date('2026-07-15T00:02:00.000Z'),
+    pagesFetched: 1,
+    recordsFetched: 2,
+    recordsUpserted: 2,
+    recordsRejected: 0,
+  });
+  assertIntegration(
+    inactivated === 0 &&
+      (await activeListingsFor(database, 'dynadot')) === dynadotActiveBefore &&
+      (await activeListingsFor(database, 'dropcatch')) === 2,
+    'isolation_reconciliation_scoped',
+  );
+
+  await dynadot.completeRun(dynadotRun, {
+    status: 'failed',
+    completedAt: new Date('2026-07-15T00:03:00.000Z'),
+    pagesFetched: 0,
+    recordsFetched: 0,
+    recordsUpserted: 0,
+    recordsInactivated: 0,
+    recordsRejected: 0,
+    errorCode: 'sync_failed',
+    failedPage: null,
+  });
+  await database
+    .delete(auctionListings)
+    .where(eq(auctionListings.provider, 'dropcatch'));
+}
+
 async function runProof(env: IntegrationEnv) {
   const database = drizzle(env.DB, { schema });
-  const storage = createDynadotD1Storage(database);
+  const storage = createD1IngestionStorage(database, 'dynadot');
   const initial = [
     listing('initial-a', 'initial-a.integration.test', 100),
     listing('initial-b', 'initial-b.integration.test', 200),
@@ -220,8 +311,7 @@ async function runProof(env: IntegrationEnv) {
     ]);
   } catch (error) {
     staleRejected =
-      error instanceof DynadotSyncError &&
-      error.code === 'dynadot_stale_continuation';
+      error instanceof SyncError && error.code === 'sync_stale_continuation';
   }
   const [afterStale] = await database
     .select({
@@ -248,7 +338,7 @@ async function runProof(env: IntegrationEnv) {
     recordsUpserted: 1,
     recordsInactivated: 0,
     recordsRejected: 0,
-    errorCode: 'dynadot_sync_failed',
+    errorCode: 'sync_failed',
     failedPage: null,
   });
   const [activeAfterFailure] = await database
@@ -878,6 +968,7 @@ async function runProof(env: IntegrationEnv) {
     .from(ingestionRuns)
     .where(eq(ingestionRuns.status, 'succeeded'));
 
+  await proveProviderIsolation(database);
   await proveReconciliationSafety(database, storage);
 
   return {

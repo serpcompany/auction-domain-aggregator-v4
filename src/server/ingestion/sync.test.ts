@@ -4,16 +4,73 @@ import {
   DynadotProviderError,
   type DynadotListing,
 } from '../providers/dynadot';
+import type {
+  NormalizedListing,
+  ProviderAdapter,
+  ProviderPage,
+} from '../providers/types';
 import {
-  DynadotSyncError,
-  runDynadotSegment,
-  syncDynadotWithStorage,
-  type DynadotIngestionStorage,
-  type DynadotRunCompletion,
-  type DynadotRunState,
-  type DynadotSuccessfulRunFinalization,
+  SyncError,
+  runSyncSegment,
+  type IngestionStorage,
+  type RunCompletion,
+  type RunState,
+  type SuccessfulRunFinalization,
   type RunCounters,
-} from './sync-dynadot';
+  type SyncSegmentOptions,
+  type SyncSummary,
+} from './sync';
+
+// Test fixtures describe pages as bare arrays or counted pages for a given
+// page size; this adapter derives `isLastPage` the way Dynadot does.
+type TestFetchPage = (input: {
+  pageIndex: number;
+  pageSize: number;
+}) => Promise<Omit<ProviderPage, 'isLastPage'> | NormalizedListing[]>;
+
+type TestSyncOptions = SyncSegmentOptions & {
+  fetchPage: TestFetchPage;
+  pageSize?: number;
+};
+
+function testAdapter(
+  fetchPage: TestFetchPage,
+  pageSize = 1000,
+): ProviderAdapter {
+  return {
+    provider: 'dynadot',
+    async fetchPage({ pageIndex }) {
+      const result = await fetchPage({ pageIndex, pageSize });
+      const page = Array.isArray(result)
+        ? { listings: result, received: result.length, rejected: 0 }
+        : result;
+      return { ...page, isLastPage: page.received < pageSize };
+    },
+  };
+}
+
+function runSegment(
+  storage: IngestionStorage,
+  { fetchPage, pageSize, ...options }: TestSyncOptions,
+) {
+  return runSyncSegment(testAdapter(fetchPage, pageSize), storage, options);
+}
+
+async function syncWithStorage(
+  storage: IngestionStorage,
+  options: TestSyncOptions,
+): Promise<SyncSummary> {
+  let runId: number | undefined;
+  while (true) {
+    const result = await runSegment(storage, {
+      ...options,
+      runId,
+      segmentPages: Math.min(options.maxPages ?? 1000, 20),
+    });
+    if (result.done) return result.summary;
+    runId = result.run.runId;
+  }
+}
 
 function listing(
   externalId: string,
@@ -46,7 +103,8 @@ type StoredListing = DynadotListing & {
   status: 'active' | 'inactive';
 };
 
-class MemoryStorage implements DynadotIngestionStorage {
+class MemoryStorage implements IngestionStorage {
+  readonly provider = 'dynadot' as const;
   readonly domains = new Map<string, Date>();
   readonly listings = new Map<string, StoredListing>();
   readonly completions: Array<
@@ -57,7 +115,7 @@ class MemoryStorage implements DynadotIngestionStorage {
     }
   > = [];
   readonly progress: RunCounters[] = [];
-  readonly running = new Map<number, DynadotRunState>();
+  readonly running = new Map<number, RunState>();
   runCount = 0;
   staleRunningRuns = 0;
   interruptedRuns = 0;
@@ -83,13 +141,13 @@ class MemoryStorage implements DynadotIngestionStorage {
 
   async loadRunningRun(runId: number) {
     const run = this.running.get(runId);
-    if (!run) throw new DynadotSyncError('dynadot_stale_continuation');
+    if (!run) throw new SyncError('sync_stale_continuation');
     return { ...run };
   }
 
-  async upsertListings(run: DynadotRunState, items: DynadotListing[]) {
+  async upsertListings(run: RunState, items: DynadotListing[]) {
     if (!this.running.has(run.runId)) {
-      throw new DynadotSyncError('dynadot_stale_continuation');
+      throw new SyncError('sync_stale_continuation');
     }
     for (const item of items) {
       if (!this.domains.has(item.domainName)) {
@@ -106,11 +164,11 @@ class MemoryStorage implements DynadotIngestionStorage {
   }
 
   async finalizeSuccessfulRun(
-    run: DynadotRunState,
-    finalization: DynadotSuccessfulRunFinalization,
+    run: RunState,
+    finalization: SuccessfulRunFinalization,
   ) {
     if (!this.running.has(run.runId)) {
-      throw new DynadotSyncError('dynadot_stale_continuation');
+      throw new SyncError('sync_stale_continuation');
     }
     const targets = [...this.listings].filter(
       ([, item]) => item.status === 'active' && item.lastSeenAt < run.startedAt,
@@ -128,17 +186,17 @@ class MemoryStorage implements DynadotIngestionStorage {
     return targets.length;
   }
 
-  async updateRunProgress(run: DynadotRunState) {
+  async updateRunProgress(run: RunState) {
     if (!this.running.has(run.runId)) {
-      throw new DynadotSyncError('dynadot_stale_continuation');
+      throw new SyncError('sync_stale_continuation');
     }
     this.running.set(run.runId, { ...run });
     this.progress.push({ ...run });
   }
 
-  async completeRun(run: DynadotRunState, completion: DynadotRunCompletion) {
+  async completeRun(run: RunState, completion: RunCompletion) {
     if (!this.running.has(run.runId)) {
-      throw new DynadotSyncError('dynadot_stale_continuation');
+      throw new SyncError('sync_stale_continuation');
     }
     this.completions.push(completion);
     this.running.delete(run.runId);
@@ -162,7 +220,7 @@ describe('syncDynadotWithStorage', () => {
     });
     storage.staleRunningRuns = 2;
 
-    const firstSegment = await runDynadotSegment(storage, {
+    const firstSegment = await runSegment(storage, {
       pageSize: 1,
       segmentPages: 1,
       fetchPage: async () => [listing('current', 'current.example')],
@@ -177,8 +235,8 @@ describe('syncDynadotWithStorage', () => {
     expect(storage.listings.get('old')?.status).toBe('active');
     expect(storage.interruptedRuns).toBe(2);
 
-    const run = (firstSegment as { done: false; run: DynadotRunState }).run;
-    const finalSegment = await runDynadotSegment(storage, {
+    const run = (firstSegment as { done: false; run: RunState }).run;
+    const finalSegment = await runSegment(storage, {
       pageSize: 1,
       segmentPages: 1,
       runId: run.runId,
@@ -201,16 +259,16 @@ describe('syncDynadotWithStorage', () => {
 
   it('marks a continued segment failed without reconciliation', async () => {
     const storage = new MemoryStorage();
-    const firstSegment = await runDynadotSegment(storage, {
+    const firstSegment = await runSegment(storage, {
       pageSize: 1,
       segmentPages: 1,
       fetchPage: async () => [listing('current', 'current.example')],
       clock: clock('2026-07-13T00:00:00.000Z'),
     });
-    const run = (firstSegment as { done: false; run: DynadotRunState }).run;
+    const run = (firstSegment as { done: false; run: RunState }).run;
 
     await expect(
-      runDynadotSegment(storage, {
+      runSegment(storage, {
         pageSize: 1,
         segmentPages: 1,
         runId: run.runId,
@@ -219,7 +277,7 @@ describe('syncDynadotWithStorage', () => {
         },
         clock: clock('2026-07-13T00:01:00.000Z'),
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_sync_failed'));
+    ).rejects.toEqual(new SyncError('sync_failed'));
 
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
@@ -235,30 +293,30 @@ describe('syncDynadotWithStorage', () => {
     const fetchPage = vi.fn(async () => []);
 
     await expect(
-      runDynadotSegment(storage, { runId: 999, fetchPage }),
-    ).rejects.toMatchObject({ code: 'dynadot_stale_continuation' });
+      runSegment(storage, { runId: 999, fetchPage }),
+    ).rejects.toMatchObject({ code: 'sync_stale_continuation' });
 
-    const completed = await runDynadotSegment(storage, { fetchPage });
+    const completed = await runSegment(storage, { fetchPage });
     expect(completed.done).toBe(true);
     await expect(
-      runDynadotSegment(storage, { runId: 1, fetchPage }),
-    ).rejects.toMatchObject({ code: 'dynadot_stale_continuation' });
+      runSegment(storage, { runId: 1, fetchPage }),
+    ).rejects.toMatchObject({ code: 'sync_stale_continuation' });
     expect(fetchPage).toHaveBeenCalledOnce();
   });
 
   it('surfaces a stale zero-change progress transition', async () => {
     const storage = new MemoryStorage();
     storage.updateRunProgress = async () => {
-      throw new DynadotSyncError('dynadot_stale_continuation');
+      throw new SyncError('sync_stale_continuation');
     };
 
     await expect(
-      runDynadotSegment(storage, {
+      runSegment(storage, {
         pageSize: 1,
         segmentPages: 1,
         fetchPage: async () => [listing('current', 'current.example')],
       }),
-    ).rejects.toMatchObject({ code: 'dynadot_stale_continuation' });
+    ).rejects.toMatchObject({ code: 'sync_stale_continuation' });
     expect(storage.completions).toHaveLength(0);
   });
 
@@ -266,14 +324,14 @@ describe('syncDynadotWithStorage', () => {
     const storage = new MemoryStorage();
 
     await expect(
-      runDynadotSegment(storage, {
+      runSegment(storage, {
         pageSize: 1,
         fetchPage: async () => {
           storage.running.clear();
           return [listing('stale', 'stale.example', 999)];
         },
       }),
-    ).rejects.toMatchObject({ code: 'dynadot_stale_continuation' });
+    ).rejects.toMatchObject({ code: 'sync_stale_continuation' });
 
     expect(storage.domains).toHaveLength(0);
     expect(storage.listings).toHaveLength(0);
@@ -293,11 +351,11 @@ describe('syncDynadotWithStorage', () => {
       recordsRejected: 0,
     }));
     await expect(
-      runDynadotSegment(storage, {
+      runSegment(storage, {
         runId: 1,
         fetchPage: async () => [],
       }),
-    ).rejects.toMatchObject({ code: 'dynadot_stale_continuation' });
+    ).rejects.toMatchObject({ code: 'sync_stale_continuation' });
   });
 
   it('keeps listings active and marks the run failed when atomic finalization fails', async () => {
@@ -314,7 +372,7 @@ describe('syncDynadotWithStorage', () => {
     };
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         pageSize: 1,
         fetchPage: async () => [],
         clock: clock(
@@ -323,12 +381,12 @@ describe('syncDynadotWithStorage', () => {
           '2026-07-13T00:02:00.000Z',
         ),
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_sync_failed'));
+    ).rejects.toEqual(new SyncError('sync_failed'));
 
     expect(storage.listings.get('old')?.status).toBe('active');
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
-      errorCode: 'dynadot_sync_failed',
+      errorCode: 'sync_failed',
       recordsInactivated: 0,
       recordsRejected: 0,
     });
@@ -346,7 +404,7 @@ describe('syncDynadotWithStorage', () => {
         : [],
     );
 
-    const summary = await syncDynadotWithStorage(storage, {
+    const summary = await syncWithStorage(storage, {
       pageSize: 2,
       fetchPage,
       clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
@@ -369,7 +427,7 @@ describe('syncDynadotWithStorage', () => {
     const storage = new MemoryStorage();
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         pageSize: 1,
         fetchPage: async ({ pageIndex }) => {
           if (pageIndex === 2) {
@@ -379,7 +437,7 @@ describe('syncDynadotWithStorage', () => {
         },
         clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_http_error'));
+    ).rejects.toEqual(new SyncError('dynadot_http_error'));
 
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
@@ -392,20 +450,20 @@ describe('syncDynadotWithStorage', () => {
   it('fails the run without inactivating when the reconciliation guard trips', async () => {
     const storage = new MemoryStorage();
     storage.finalizeSuccessfulRun = async () => {
-      throw new DynadotSyncError('dynadot_reconciliation_guard');
+      throw new SyncError('sync_reconciliation_guard');
     };
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         pageSize: 1,
         fetchPage: async () => [],
         clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_reconciliation_guard'));
+    ).rejects.toEqual(new SyncError('sync_reconciliation_guard'));
 
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
-      errorCode: 'dynadot_reconciliation_guard',
+      errorCode: 'sync_reconciliation_guard',
       failedPage: null,
     });
   });
@@ -415,7 +473,7 @@ describe('syncDynadotWithStorage', () => {
     const first = listing('first', 'first.example');
     const second = listing('second', 'second.example');
 
-    const initial = await syncDynadotWithStorage(storage, {
+    const initial = await syncWithStorage(storage, {
       pageSize: 2,
       fetchPage: async ({ pageIndex }) =>
         pageIndex === 1 ? [first, second] : [],
@@ -423,7 +481,7 @@ describe('syncDynadotWithStorage', () => {
     });
     const originalFirstSeen = storage.listings.get('first')?.firstSeenAt;
 
-    const repeated = await syncDynadotWithStorage(storage, {
+    const repeated = await syncWithStorage(storage, {
       pageSize: 2,
       fetchPage: async ({ pageIndex }) =>
         pageIndex === 1 ? [{ ...first, currentBidCents: 250 }, second] : [],
@@ -455,7 +513,7 @@ describe('syncDynadotWithStorage', () => {
     const first = listing('first', 'first.example');
     const second = listing('second', 'second.example');
 
-    await syncDynadotWithStorage(storage, {
+    await syncWithStorage(storage, {
       pageSize: 2,
       fetchPage: async ({ pageIndex }) =>
         pageIndex === 1 ? [first, second] : [],
@@ -463,7 +521,7 @@ describe('syncDynadotWithStorage', () => {
     });
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         pageSize: 1,
         fetchPage: async ({ pageIndex }) => {
           if (pageIndex === 1) return [first];
@@ -471,12 +529,12 @@ describe('syncDynadotWithStorage', () => {
         },
         clock: clock('2026-07-13T01:00:00.000Z', '2026-07-13T01:01:00.000Z'),
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_sync_failed'));
+    ).rejects.toEqual(new SyncError('sync_failed'));
 
     expect(storage.listings.get('second')?.status).toBe('active');
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
-      errorCode: 'dynadot_sync_failed',
+      errorCode: 'sync_failed',
       pagesFetched: 1,
       recordsFetched: 1,
       recordsUpserted: 1,
@@ -484,7 +542,7 @@ describe('syncDynadotWithStorage', () => {
       recordsRejected: 0,
     });
 
-    const recovered = await syncDynadotWithStorage(storage, {
+    const recovered = await syncWithStorage(storage, {
       pageSize: 2,
       fetchPage: async () => [first],
       clock: clock('2026-07-13T02:00:00.000Z', '2026-07-13T02:01:00.000Z'),
@@ -498,48 +556,61 @@ describe('syncDynadotWithStorage', () => {
     const storage = new MemoryStorage();
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         pageSize: 1,
         maxPages: 1,
         fetchPage: async () => [listing('first', 'first.example')],
         clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
       }),
     ).rejects.toMatchObject({
-      code: 'dynadot_page_limit_exceeded',
-      message: 'dynadot_page_limit_exceeded',
+      code: 'sync_page_limit_exceeded',
+      message: 'sync_page_limit_exceeded',
     });
 
     expect(storage.completions).toEqual([
       expect.objectContaining({
         status: 'failed',
-        errorCode: 'dynadot_page_limit_exceeded',
+        errorCode: 'sync_page_limit_exceeded',
         pagesFetched: 1,
       }),
     ]);
   });
 
   it.each([
-    { pageSize: 0, maxPages: 1 },
-    { pageSize: 1001, maxPages: 1 },
-    { pageSize: 1, maxPages: 0 },
-    { pageSize: 1, maxPages: 1001 },
+    { maxPages: 0 },
+    { maxPages: 10_001 },
+    { maxPages: 1, segmentPages: 0 },
   ])(
     'rejects invalid service bounds before starting a run: %o',
     async (input) => {
       const storage = new MemoryStorage();
       await expect(
-        syncDynadotWithStorage(storage, {
+        runSegment(storage, {
           ...input,
           fetchPage: async () => [],
         }),
-      ).rejects.toMatchObject({ code: 'dynadot_sync_invalid_request' });
+      ).rejects.toMatchObject({ code: 'sync_invalid_request' });
       expect(storage.runCount).toBe(0);
     },
   );
 
+  it('rejects an adapter for a different provider than the storage', async () => {
+    const storage = new MemoryStorage();
+    const adapter: ProviderAdapter = {
+      provider: 'dropcatch',
+      fetchPage: vi.fn(),
+    };
+
+    await expect(runSyncSegment(adapter, storage)).rejects.toMatchObject({
+      code: 'sync_invalid_request',
+    });
+    expect(adapter.fetchPage).not.toHaveBeenCalled();
+    expect(storage.runCount).toBe(0);
+  });
+
   it('uses default bounds and clock', async () => {
     const storage = new MemoryStorage();
-    const summary = await syncDynadotWithStorage(storage, {
+    const summary = await syncWithStorage(storage, {
       fetchPage: async ({ pageIndex, pageSize }) => {
         expect({ pageIndex, pageSize }).toEqual({
           pageIndex: 1,
@@ -555,7 +626,7 @@ describe('syncDynadotWithStorage', () => {
   it('accepts maxPages 1000', async () => {
     const storage = new MemoryStorage();
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         maxPages: 1000,
         fetchPage: async () => [],
       }),
@@ -564,7 +635,7 @@ describe('syncDynadotWithStorage', () => {
 
   it('continues the full-service wrapper across internal segments', async () => {
     const storage = new MemoryStorage();
-    const summary = await syncDynadotWithStorage(storage, {
+    const summary = await syncWithStorage(storage, {
       pageSize: 1,
       maxPages: 25,
       fetchPage: async ({ pageIndex }) =>
@@ -586,11 +657,11 @@ describe('syncDynadotWithStorage', () => {
     };
 
     await expect(
-      syncDynadotWithStorage(storage, {
+      syncWithStorage(storage, {
         fetchPage: async () => {
           throw new Error('provider internals');
         },
       }),
-    ).rejects.toEqual(new DynadotSyncError('dynadot_sync_failed'));
+    ).rejects.toEqual(new SyncError('sync_failed'));
   });
 });
