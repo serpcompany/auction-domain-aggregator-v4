@@ -237,14 +237,27 @@ for (const viewport of [
       element.scrollLeft = 0;
       element.scrollTop = 0;
     });
+    // Chromium animates keyboard scrolling. Wait for each animation to settle
+    // so it cannot move the container after the positions are reset below.
+    const settledScroll = (axis: 'scrollLeft' | 'scrollTop') =>
+      expect
+        .poll(async () => {
+          const before = await container.evaluate(
+            (element, key) => element[key],
+            axis,
+          );
+          await page.waitForTimeout(150);
+          const after = await container.evaluate(
+            (element, key) => element[key],
+            axis,
+          );
+          return before === after && after > 0;
+        })
+        .toBe(true);
     await page.keyboard.press('ArrowRight');
-    await expect
-      .poll(() => container.evaluate((element) => element.scrollLeft))
-      .toBeGreaterThan(0);
+    await settledScroll('scrollLeft');
     await page.keyboard.press('PageDown');
-    await expect
-      .poll(() => container.evaluate((element) => element.scrollTop))
-      .toBeGreaterThan(0);
+    await settledScroll('scrollTop');
     await container.evaluate((element) => {
       element.scrollLeft = 0;
       element.scrollTop = 0;
