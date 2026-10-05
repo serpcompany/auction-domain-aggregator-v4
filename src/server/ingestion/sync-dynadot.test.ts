@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { DynadotListing } from '../providers/dynadot';
+import {
+  DynadotProviderError,
+  type DynadotListing,
+} from '../providers/dynadot';
 import {
   DynadotSyncError,
   runDynadotSegment,
@@ -72,6 +75,7 @@ class MemoryStorage implements DynadotIngestionStorage {
       recordsFetched: 0,
       recordsUpserted: 0,
       recordsInactivated: 0,
+      recordsRejected: 0,
     };
     this.running.set(run.runId, run);
     return { ...run };
@@ -189,6 +193,7 @@ describe('syncDynadotWithStorage', () => {
         pagesFetched: 2,
         recordsFetched: 1,
         recordsInactivated: 1,
+        recordsRejected: 0,
       },
     });
     expect(storage.listings.get('old')?.status).toBe('inactive');
@@ -221,6 +226,7 @@ describe('syncDynadotWithStorage', () => {
       pagesFetched: 1,
       recordsFetched: 1,
       recordsInactivated: 0,
+      recordsRejected: 0,
     });
   });
 
@@ -284,6 +290,7 @@ describe('syncDynadotWithStorage', () => {
       recordsFetched: 0,
       recordsUpserted: 0,
       recordsInactivated: 0,
+      recordsRejected: 0,
     }));
     await expect(
       runDynadotSegment(storage, {
@@ -323,6 +330,83 @@ describe('syncDynadotWithStorage', () => {
       status: 'failed',
       errorCode: 'dynadot_sync_failed',
       recordsInactivated: 0,
+      recordsRejected: 0,
+    });
+  });
+
+  it('uses the received count, not the valid count, to find the final page', async () => {
+    const storage = new MemoryStorage();
+    const fetchPage = vi.fn(async ({ pageIndex }: { pageIndex: number }) =>
+      pageIndex === 1
+        ? {
+            listings: [listing('valid', 'valid.example')],
+            received: 2,
+            rejected: 1,
+          }
+        : [],
+    );
+
+    const summary = await syncDynadotWithStorage(storage, {
+      pageSize: 2,
+      fetchPage,
+      clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
+    });
+
+    expect(fetchPage).toHaveBeenCalledTimes(2);
+    expect(summary).toMatchObject({
+      pagesFetched: 2,
+      recordsFetched: 2,
+      recordsUpserted: 1,
+      recordsRejected: 1,
+    });
+    expect(storage.completions.at(-1)).toMatchObject({
+      status: 'succeeded',
+      recordsRejected: 1,
+    });
+  });
+
+  it('records the provider error code and the failing page', async () => {
+    const storage = new MemoryStorage();
+
+    await expect(
+      syncDynadotWithStorage(storage, {
+        pageSize: 1,
+        fetchPage: async ({ pageIndex }) => {
+          if (pageIndex === 2) {
+            throw new DynadotProviderError('dynadot_http_error');
+          }
+          return [listing(`page-${pageIndex}`, `page-${pageIndex}.example`)];
+        },
+        clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
+      }),
+    ).rejects.toEqual(new DynadotSyncError('dynadot_http_error'));
+
+    expect(storage.completions.at(-1)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dynadot_http_error',
+      failedPage: 2,
+      pagesFetched: 1,
+    });
+  });
+
+  it('fails the run without inactivating when the reconciliation guard trips', async () => {
+    const storage = new MemoryStorage();
+    storage.finalizeSuccessfulRun = async () => {
+      throw new DynadotSyncError('dynadot_reconciliation_guard');
+    };
+
+    await expect(
+      syncDynadotWithStorage(storage, {
+        pageSize: 1,
+        fetchPage: async () => [],
+        clock: clock('2026-07-13T00:00:00.000Z', '2026-07-13T00:01:00.000Z'),
+      }),
+    ).rejects.toEqual(new DynadotSyncError('dynadot_reconciliation_guard'));
+
+    expect(storage.completions.at(-1)).toMatchObject({
+      status: 'failed',
+      errorCode: 'dynadot_reconciliation_guard',
+      failedPage: null,
     });
   });
 
@@ -353,6 +437,7 @@ describe('syncDynadotWithStorage', () => {
       recordsFetched: 2,
       recordsUpserted: 2,
       recordsInactivated: 0,
+      recordsRejected: 0,
     });
     expect(repeated).toEqual(initial);
     expect(storage.domains).toHaveLength(2);
@@ -396,6 +481,7 @@ describe('syncDynadotWithStorage', () => {
       recordsFetched: 1,
       recordsUpserted: 1,
       recordsInactivated: 0,
+      recordsRejected: 0,
     });
 
     const recovered = await syncDynadotWithStorage(storage, {

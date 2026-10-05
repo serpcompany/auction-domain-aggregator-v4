@@ -1,4 +1,4 @@
-import { asc, count, eq, inArray } from 'drizzle-orm';
+import { and, asc, count, eq, inArray, like } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -57,6 +57,124 @@ async function listingCount(
 ) {
   const [row] = await database.select({ value: count() }).from(auctionListings);
   return row?.value ?? 0;
+}
+
+async function activeGuardListings(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const [row] = await database
+    .select({ value: count() })
+    .from(auctionListings)
+    .where(
+      and(
+        like(auctionListings.externalId, 'guard-%'),
+        eq(auctionListings.status, 'active'),
+      ),
+    );
+  return row?.value ?? 0;
+}
+
+// Runs after every other proof: each step reconciles all earlier fixtures,
+// whose auctions have ended by these later timestamps.
+async function proveReconciliationSafety(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+  storage: ReturnType<typeof createDynadotD1Storage>,
+) {
+  const guardEndsAt = new Date('2026-09-01T00:00:00.000Z');
+  const guardListings = Array.from({ length: 600 }, (_, index) => ({
+    ...listing(`guard-${index}`, `guard-${index}.integration.test`, 100),
+    endsAt: guardEndsAt,
+  }));
+
+  const fullRun = await storage.startRun(new Date('2026-07-20T00:00:00.000Z'));
+  await storage.upsertListings(fullRun, guardListings);
+  await storage.finalizeSuccessfulRun(fullRun, {
+    completedAt: new Date('2026-07-20T00:10:00.000Z'),
+    pagesFetched: 1,
+    recordsFetched: guardListings.length,
+    recordsUpserted: guardListings.length,
+    recordsRejected: 0,
+  });
+  assertIntegration(
+    (await activeGuardListings(database)) === 600,
+    'guard_fixture_active',
+  );
+
+  // A short page mid-inventory: most still-running auctions go unseen.
+  const shortRun = await storage.startRun(new Date('2026-07-21T00:00:00.000Z'));
+  await storage.upsertListings(shortRun, guardListings.slice(0, 10));
+  let guardTripped = false;
+  try {
+    await storage.finalizeSuccessfulRun(shortRun, {
+      completedAt: new Date('2026-07-21T00:10:00.000Z'),
+      pagesFetched: 1,
+      recordsFetched: 10,
+      recordsUpserted: 10,
+      recordsRejected: 0,
+    });
+  } catch (error) {
+    guardTripped =
+      error instanceof DynadotSyncError &&
+      error.code === 'dynadot_reconciliation_guard';
+  }
+  assertIntegration(guardTripped, 'reconciliation_guard_trips');
+  assertIntegration(
+    (await activeGuardListings(database)) === 600,
+    'reconciliation_guard_keeps_listings',
+  );
+
+  await storage.completeRun(shortRun, {
+    status: 'failed',
+    completedAt: new Date('2026-07-21T00:11:00.000Z'),
+    pagesFetched: 1,
+    recordsFetched: 10,
+    recordsUpserted: 10,
+    recordsInactivated: 0,
+    recordsRejected: 3,
+    errorCode: 'dynadot_reconciliation_guard',
+    failedPage: 7,
+  });
+  const [failedRun] = await database
+    .select({
+      errorCode: ingestionRuns.errorCode,
+      failedPage: ingestionRuns.failedPage,
+      recordsRejected: ingestionRuns.recordsRejected,
+    })
+    .from(ingestionRuns)
+    .where(eq(ingestionRuns.id, shortRun.runId));
+  assertIntegration(
+    failedRun?.errorCode === 'dynadot_reconciliation_guard' &&
+      failedRun.failedPage === 7 &&
+      failedRun.recordsRejected === 3,
+    'failed_run_diagnostics',
+  );
+
+  // Once the auctions have ended, an empty run inactivates them as normal
+  // churn, and the stored count matches the rows actually changed.
+  const afterEndRun = await storage.startRun(
+    new Date('2026-09-02T00:00:00.000Z'),
+  );
+  const inactivated = await storage.finalizeSuccessfulRun(afterEndRun, {
+    completedAt: new Date('2026-09-02T00:10:00.000Z'),
+    pagesFetched: 1,
+    recordsFetched: 0,
+    recordsUpserted: 0,
+    recordsRejected: 2,
+  });
+  const [succeededRun] = await database
+    .select({
+      recordsInactivated: ingestionRuns.recordsInactivated,
+      recordsRejected: ingestionRuns.recordsRejected,
+    })
+    .from(ingestionRuns)
+    .where(eq(ingestionRuns.id, afterEndRun.runId));
+  assertIntegration(
+    inactivated === 600 &&
+      succeededRun?.recordsInactivated === 600 &&
+      succeededRun.recordsRejected === 2 &&
+      (await activeGuardListings(database)) === 0,
+    'ended_listings_reconciled',
+  );
 }
 
 async function runProof(env: IntegrationEnv) {
@@ -129,7 +247,9 @@ async function runProof(env: IntegrationEnv) {
     recordsFetched: 1,
     recordsUpserted: 1,
     recordsInactivated: 0,
+    recordsRejected: 0,
     errorCode: 'dynadot_sync_failed',
+    failedPage: null,
   });
   const [activeAfterFailure] = await database
     .select({ value: count() })
@@ -204,6 +324,7 @@ async function runProof(env: IntegrationEnv) {
     pagesFetched: 1,
     recordsFetched: activeListings.length,
     recordsUpserted: activeListings.length,
+    recordsRejected: 0,
   });
   assertIntegration(inactivated === 2, 'success_reconcile_count');
 
@@ -216,6 +337,7 @@ async function runProof(env: IntegrationEnv) {
     pagesFetched: 1,
     recordsFetched: activeListings.length,
     recordsUpserted: activeListings.length,
+    recordsRejected: 0,
   });
   assertIntegration(repeatedInactivated === 0, 'repeat_reconciled');
 
@@ -755,6 +877,8 @@ async function runProof(env: IntegrationEnv) {
     .select({ value: count() })
     .from(ingestionRuns)
     .where(eq(ingestionRuns.status, 'succeeded'));
+
+  await proveReconciliationSafety(database, storage);
 
   return {
     status: 'succeeded' as const,

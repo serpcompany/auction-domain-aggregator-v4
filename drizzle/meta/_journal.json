@@ -15,6 +15,13 @@
       "when": 1783941061344,
       "tag": "0001_smooth_alex_wilder",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1791236602560,
+      "tag": "0002_sticky_lily_hollister",
+      "breakpoints": true
     }
   ]
 }

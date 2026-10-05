@@ -136,6 +136,19 @@ function parseContinuation(value: unknown): number | null {
   return Number(state.runId);
 }
 
+// The worker reports only fixed `dynadot_*` codes; anything else is replaced.
+const ERROR_CODE = /^dynadot_[a-z_]+$/;
+
+function reportedErrorCode(body: unknown) {
+  const code =
+    typeof body === 'object' && body !== null && 'errorCode' in body
+      ? body.errorCode
+      : undefined;
+  return typeof code === 'string' && ERROR_CODE.test(code)
+    ? code
+    : 'dynadot_sync_failed';
+}
+
 async function main() {
   const apiKey = process.env.DYNADOT_API_PRODUCTION_KEY;
   if (!apiKey) throw fixedError('missing_dynadot_api_key');
@@ -198,8 +211,8 @@ async function main() {
         SEGMENT_TIMEOUT_MS,
         'dynadot_sync_segment_timeout',
       );
-      if (!response.ok) throw fixedError('dynadot_sync_failed');
-      const body: unknown = await response.json();
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw fixedError(reportedErrorCode(body));
       const next = parseContinuation(body);
       if (next) {
         runId = next;
@@ -219,13 +232,8 @@ async function main() {
 main().catch((error: unknown) => {
   const message =
     error instanceof Error &&
-    [
-      'missing_dynadot_api_key',
-      'dynadot_sync_port_unavailable',
-      'dynadot_sync_runner_failed',
-      'dynadot_sync_runner_timeout',
-      'dynadot_sync_segment_timeout',
-    ].includes(error.message)
+    (error.message === 'missing_dynadot_api_key' ||
+      ERROR_CODE.test(error.message))
       ? error.message
       : 'dynadot_sync_failed';
   process.stderr.write(`${message}\n`);

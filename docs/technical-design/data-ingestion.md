@@ -31,7 +31,7 @@ For a synchronization:
 3. Upsert normalized domains and provider listings in bounded D1 batches.
 4. Persist page position and counts after every completed segment.
 5. Continue until the provider returns fewer than 1,000 rows.
-6. In one D1 batch guarded by the same still-running run, mark older unseen Dynadot listings inactive and mark the run successful.
+6. Apply the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, record the inactivation count, mark older unseen Dynadot listings inactive, and mark the run successful.
 
 A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions.
 
@@ -59,9 +59,13 @@ The command prints only its fixed success summary or a fixed error code. Provide
 
 A listing becomes inactive only when a successful full reconciliation confirms that its `last_seen_at` predates the completed run. It is not deleted. Failure, interruption, a page cap, malformed provider data, and stale continuation cannot trigger reconciliation.
 
+The final page is the first page whose raw auction count is below the page size, counted before validation so a skipped record cannot end a run early. Individual auctions that fail validation are skipped and counted in `records_rejected`; a page where more than 10% of auctions are invalid fails as a response-format change. Internationalized domain names are stored in punycode.
+
+Unseen listings whose auction has already ended are normal churn. Unseen listings whose auction was still scheduled to run usually mean the provider returned a short or empty page partway through the inventory, so finalization fails with `dynadot_reconciliation_guard` and leaves every listing untouched when more than `max(500, 10% of fetched records)` would be removed. An auction wrongly inactivated below that threshold returns to active on the next run that sees it.
+
 ## Ingestion run state
 
-`ingestion_runs` records provider, status, start/completion timestamps, fetched pages, server-owned `next_page`, fetched/upserted/inactivated counts, and a fixed error code. Migration `0001_smooth_alex_wilder.sql` adds `next_page` while preserving existing local rows.
+`ingestion_runs` records provider, status, start/completion timestamps, fetched pages, server-owned `next_page`, fetched/upserted/inactivated/rejected counts, a fixed error code, and the failing page. Failed runs keep the specific provider code (for example `dynadot_http_error` or `dynadot_response_error`) rather than a generic failure, and the sync command prints it. Migration `0001_smooth_alex_wilder.sql` adds `next_page`, and `0002_sticky_lily_hollister.sql` adds `records_rejected` and `failed_page`, both preserving existing local rows.
 
 The run start timestamp also identifies every listing seen in that run. Final reconciliation and run completion are atomic from the application's perspective: if completion cannot update the guarded running row, its batched listing inactivation is rolled back.
 

@@ -22,12 +22,26 @@ const dynadotAuctionSchema = z
   })
   .passthrough();
 
+// Items are validated one at a time so a single malformed auction is skipped
+// rather than failing the whole page.
 const dynadotResponseSchema = z
   .object({
     status: z.literal('success'),
-    auction_list: z.array(dynadotAuctionSchema).max(1000),
+    auction_list: z.array(z.unknown()).max(1000),
   })
   .passthrough();
+
+// A page where more than this share of auctions is invalid indicates a
+// response-format change rather than a few bad records.
+const MAX_REJECTED_RATIO = 0.1;
+
+export type DynadotPage = {
+  listings: DynadotListing[];
+  // Auctions in the provider response, including rejected ones. The sync uses
+  // this, not `listings.length`, to detect the final page.
+  received: number;
+  rejected: number;
+};
 
 export type DynadotListing = {
   provider: 'dynadot';
@@ -106,8 +120,19 @@ async function readBoundedBody(response: Response) {
 
 const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
-function parseDomain(value: string) {
+function toAsciiDomain(value: string) {
   const domain = value.trim().toLowerCase();
+  // Store internationalized names in their punycode (xn--) form.
+  if (/^[\x00-\x7f]*$/.test(domain)) return domain;
+  try {
+    return new URL(`http://${domain}`).hostname;
+  } catch {
+    throw new Error('invalid_domain');
+  }
+}
+
+function parseDomain(value: string) {
+  const domain = toAsciiDomain(value);
   const labels = domain.split('.');
 
   if (
@@ -208,13 +233,31 @@ function normalizeAuction(
   };
 }
 
+function normalizePage(auctions: unknown[]): DynadotPage {
+  const listings: DynadotListing[] = [];
+  for (const auction of auctions) {
+    const parsed = dynadotAuctionSchema.safeParse(auction);
+    if (!parsed.success) continue;
+    try {
+      listings.push(normalizeAuction(parsed.data));
+    } catch {
+      // Counted as rejected below.
+    }
+  }
+  const rejected = auctions.length - listings.length;
+  if (rejected > auctions.length * MAX_REJECTED_RATIO) {
+    throw new Error('too_many_rejected_auctions');
+  }
+  return { listings, received: auctions.length, rejected };
+}
+
 export async function fetchDynadotPage({
   apiKey,
   pageIndex,
   pageSize,
   fetchImpl = fetch,
   signal: suppliedSignal,
-}: FetchDynadotPageInput): Promise<DynadotListing[]> {
+}: FetchDynadotPageInput): Promise<DynadotPage> {
   if (
     apiKey.length === 0 ||
     !Number.isSafeInteger(pageIndex) ||
@@ -280,7 +323,7 @@ export async function fetchDynadotPage({
       if (parsed.auction_list.length > pageSize) {
         throw new Error('page_size_exceeded');
       }
-      return parsed.auction_list.map(normalizeAuction);
+      return normalizePage(parsed.auction_list);
     } catch {
       throw new DynadotProviderError('dynadot_response_error');
     }

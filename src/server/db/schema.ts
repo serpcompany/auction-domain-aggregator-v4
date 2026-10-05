@@ -103,7 +103,9 @@ export const ingestionRuns = sqliteTable(
     recordsFetched: integer('records_fetched').notNull().default(0),
     recordsUpserted: integer('records_upserted').notNull().default(0),
     recordsInactivated: integer('records_inactivated').notNull().default(0),
+    recordsRejected: integer('records_rejected').notNull().default(0),
     errorCode: text('error_code'),
+    failedPage: integer('failed_page'),
   },
   (table) => [
     check(
@@ -126,6 +128,10 @@ export const ingestionRuns = sqliteTable(
     check(
       'ingestion_runs_records_inactivated_nonnegative',
       sql`${table.recordsInactivated} >= 0`,
+    ),
+    check(
+      'ingestion_runs_records_rejected_nonnegative',
+      sql`${table.recordsRejected} >= 0`,
     ),
     index('ingestion_runs_provider_started_at_idx').on(
       table.provider,
