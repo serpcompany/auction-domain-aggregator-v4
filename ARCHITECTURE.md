@@ -11,10 +11,10 @@ The system collects auction and expired-domain listings, stores normalized data 
 ## Current system flow
 
 ```text
-manual `pnpm sync:dynadot`
+manual `pnpm sync <provider>`
         |
         v
-loopback-only Wrangler worker -> Dynadot adapter -> bounded D1 upserts
+loopback-only Wrangler worker -> provider adapter -> bounded D1 upserts
                                                    |
                                                    v
                                             local Cloudflare D1
@@ -37,13 +37,13 @@ The read model derives TLD, domain length, hyphen presence, and digit presence f
 
 The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points.
 
-### Dynadot ingestion
+### Auction ingestion
 
-`pnpm sync:dynadot` is the only implemented ingestion trigger. `scripts/sync-dynadot.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and calls the adapter in `src/server/providers/dynadot/`.
+`pnpm sync <provider>` (`pnpm sync:dynadot` is an alias) is the only implemented ingestion trigger; Dynadot is the only implemented provider. `scripts/sync-provider.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`, which serves `POST /sync/<provider>`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and builds the provider's adapter from `src/server/providers/registry.ts`.
 
-`src/server/ingestion/sync-dynadot.ts` defines synchronization behavior. `src/server/ingestion/sync-dynadot-d1.ts` owns D1 writes and reconciliation. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
+Adapters implement `ProviderAdapter` from `src/server/providers/types.ts`: they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `src/server/ingestion/sync.ts` defines provider-neutral synchronization behavior. `src/server/ingestion/d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so a provider's run never reads, reconciles, or interrupts another provider's listings or runs. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
-The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing the Dynadot key. It removes the file and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
+The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing only that provider's registered secrets. It removes the file and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
 
 ### Domain enrichment
 
@@ -85,9 +85,9 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 - `src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `src/server/db/` owns the server-only Drizzle schema, client, and database types.
 - `src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
-- `src/server/providers/dynadot/` terminates Dynadot response shapes and returns normalized listings.
-- `src/server/ingestion/` owns provider-independent sync flow, Dynadot D1 storage, the protected local worker, and local-runner utilities.
-- `scripts/sync-dynadot.ts` orchestrates the manual loopback sync.
+- `src/server/providers/types.ts` defines the normalized listing and adapter contract; `src/server/providers/registry.ts` maps implemented providers to their secret names and adapters; `src/server/providers/dynadot/` terminates Dynadot response shapes.
+- `src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the protected local worker, and local-runner utilities.
+- `scripts/sync-provider.ts` orchestrates the manual loopback sync for one provider.
 - `e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures.
 - `wrangler.jsonc` and `wrangler.ingestion.jsonc` define application and ingestion workers sharing local D1 only. `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.
 

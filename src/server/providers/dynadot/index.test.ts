@@ -72,7 +72,7 @@ describe('fetchDynadotPage', () => {
         ageYears: 12,
         inboundLinks: null,
         visitors: null,
-        dynadotAppraisalCents: 9990,
+        appraisalCents: 9990,
         renewalPriceCents: null,
       },
     ]);
@@ -465,7 +465,7 @@ describe('fetchDynadotPage', () => {
       ageYears: null,
       inboundLinks: null,
       visitors: null,
-      dynadotAppraisalCents: null,
+      appraisalCents: null,
       renewalPriceCents: null,
     });
   });
@@ -504,7 +504,7 @@ describe('fetchDynadotPage', () => {
       ageYears: null,
       inboundLinks: null,
       visitors: null,
-      dynadotAppraisalCents: null,
+      appraisalCents: null,
       renewalPriceCents: null,
     });
   });

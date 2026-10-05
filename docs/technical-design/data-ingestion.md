@@ -16,9 +16,9 @@ The Next.js application queries local D1 for table contents, filtering, sorting,
 
 ## Implemented Dynadot synchronization
 
-Dynadot is synchronized manually with `pnpm sync:dynadot`. There is no Cloudflare Cron Trigger, public ingestion route, remote D1 database, or deployed worker in the current repository state.
+Dynadot is synchronized manually with `pnpm sync dynadot` (alias `pnpm sync:dynadot`). There is no Cloudflare Cron Trigger, public ingestion route, remote D1 database, or deployed worker in the current repository state.
 
-The command first applies local migrations with remote bindings disabled. `scripts/sync-dynadot.ts` then starts a short-lived Wrangler worker bound to `127.0.0.1`. That worker uses `src/server/providers/dynadot/index.ts` to request `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the ingestion service.
+The command first applies local migrations with remote bindings disabled. `scripts/sync-provider.ts dynadot` then starts a short-lived Wrangler worker bound to `127.0.0.1` and calls `POST /sync/dynadot`. That worker builds the Dynadot adapter from `src/server/providers/registry.ts`, which uses `src/server/providers/dynadot/index.ts` to request `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the ingestion service.
 
 The provider adapter requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
 
@@ -77,7 +77,7 @@ The future schema must enforce domain/metric-provider identity. A later listing 
 
 ## Future providers and scheduling
 
-Additional auction adapters must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID.
+Additional auction adapters implement `ProviderAdapter` (`src/server/providers/types.ts`) and register their secret names and factory in `src/server/providers/registry.ts`; the sync service, D1 storage, worker, and runner need no changes. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID.
 
 Scheduling, Queues, and remote execution require separate implementation and verification. They must not change the D1-only user request path. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
 

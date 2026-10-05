@@ -10,10 +10,10 @@ The user can:
 
 1. Open a server-rendered table of active auction listings collected in local D1. Auctions whose end time has passed are hidden even before the next sync, and the page warns when the inventory is more than 24 hours old.
 2. Narrow the inventory with quick filters for a domain fragment, one or more sources, one or more TLDs, maximum current bid, and ending window.
-3. Open `More filters` for auction type; domain length, age, and shape; current-bid range; renewal-price ceiling; minimum bids, bidders, visitors, inbound links, and Dynadot appraisal.
+3. Open `More filters` for auction type; domain length, age, and shape; current-bid range; renewal-price ceiling; minimum bids, bidders, visitors, inbound links, and provider appraisal.
 4. See every applied constraint as a removable summary, clear all constraints, and use a copied URL or browser Back without losing normalized filter state.
 5. Sort by Domain, Auction, Price, Interest, Ends, Age, Links, or Appraisal and move through fixed 50-row pages. Sorting and pagination preserve active filters.
-6. Compare Domain, Auction, Price, Interest, Ends, Age, Links, Dynadot Appraisal, Majestic Topic, and Ahrefs DR in one table.
+6. Compare Domain, Auction, Price, Interest, Ends, Age, Links, provider Appraisal, Majestic Topic, and Ahrefs DR in one table.
 7. Open the authoritative auction page from the domain link in a new tab.
 
 Filters combine with AND across categories. Repeated values within Source, Auction type, and TLD use OR. Applying, removing, or clearing filters returns to page 1. Unknown numeric values remain eligible until that value is constrained, then are excluded.

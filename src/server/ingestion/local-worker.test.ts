@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { DynadotProviderError } from '../providers/dynadot';
-import type { DynadotIngestionStorage, DynadotRunState } from './sync-dynadot';
+import type { NormalizedListing, ProviderAdapter } from '../providers/types';
+import type { IngestionStorage, RunState } from './sync';
 import worker, {
   handleLocalWorkerRequest,
   type IngestionEnv,
 } from './local-worker';
 
-function runState(runId = 1): DynadotRunState {
+function runState(runId = 1): RunState {
   return {
     runId,
     startedAt: new Date('2026-07-13T00:00:00.000Z'),
@@ -20,14 +21,30 @@ function runState(runId = 1): DynadotRunState {
   };
 }
 
-function storage(): DynadotIngestionStorage {
+function storage(): IngestionStorage {
   return {
+    provider: 'dynadot',
     startRun: vi.fn(async () => runState()),
     loadRunningRun: vi.fn(async (runId) => runState(runId)),
     upsertListings: vi.fn(async () => undefined),
     finalizeSuccessfulRun: vi.fn(async () => 0),
     updateRunProgress: vi.fn(async () => undefined),
     completeRun: vi.fn(async () => undefined),
+  };
+}
+
+function adapter(
+  listings: NormalizedListing[],
+  isLastPage: boolean,
+): ProviderAdapter {
+  return {
+    provider: 'dynadot',
+    fetchPage: async () => ({
+      listings,
+      received: listings.length,
+      rejected: 0,
+      isLastPage,
+    }),
   };
 }
 
@@ -42,25 +59,35 @@ describe('local ingestion worker', () => {
       handleLocalWorkerRequest(new Request('http://local/other'), env),
     ).resolves.toMatchObject({ status: 404 });
     await expect(
-      handleLocalWorkerRequest(new Request('http://local/sync-dynadot'), env),
+      handleLocalWorkerRequest(new Request('http://local/sync/dynadot'), env),
     ).resolves.toMatchObject({ status: 405 });
     await expect(
       worker.fetch(new Request('http://local/other'), env),
+    ).resolves.toMatchObject({ status: 404 });
+    // A known source without an implemented adapter is not routable.
+    await expect(
+      handleLocalWorkerRequest(
+        new Request('http://local/sync/namejet', { method: 'POST' }),
+        env,
+      ),
     ).resolves.toMatchObject({ status: 404 });
   });
 
   it('rejects missing configuration and caller-owned continuation fields', async () => {
     const request = (body: unknown) =>
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: JSON.stringify(body),
       });
-    await expect(
-      handleLocalWorkerRequest(request({}), {
-        ...env,
-        DYNADOT_API_PRODUCTION_KEY: '',
-      }),
-    ).resolves.toMatchObject({ status: 500 });
+    const missing = await handleLocalWorkerRequest(request({}), {
+      ...env,
+      DYNADOT_API_PRODUCTION_KEY: '',
+    });
+    expect(missing.status).toBe(500);
+    expect(await missing.json()).toEqual({
+      status: 'failed',
+      errorCode: 'dynadot_missing_credentials',
+    });
     await expect(
       handleLocalWorkerRequest(request({ runId: 1, nextPage: 99 }), env),
     ).resolves.toMatchObject({ status: 400 });
@@ -72,14 +99,14 @@ describe('local ingestion worker', () => {
   it('resumes using only a server-loaded integer run id', async () => {
     const fakeStorage = storage();
     const response = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: JSON.stringify({ runId: 7 }),
       }),
       env,
       {
         createStorage: () => fakeStorage,
-        fetchPage: async () => [],
+        createAdapter: () => adapter([], true),
       },
     );
 
@@ -96,36 +123,39 @@ describe('local ingestion worker', () => {
       throw new Error('database details');
     });
     const response = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: JSON.stringify({ runId: 999 }),
       }),
       env,
       {
         createStorage: () => fakeStorage,
-        fetchPage: async () => [],
+        createAdapter: () => adapter([], true),
       },
     );
 
     expect(response.status).toBe(500);
     expect(await response.json()).toEqual({
       status: 'failed',
-      errorCode: 'dynadot_sync_failed',
+      errorCode: 'sync_failed',
     });
   });
 
   it('reports the fixed sync error code when a provider page fails', async () => {
     const response = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: JSON.stringify({}),
       }),
       env,
       {
         createStorage: () => storage(),
-        fetchPage: async () => {
-          throw new DynadotProviderError('dynadot_http_error');
-        },
+        createAdapter: () => ({
+          provider: 'dynadot',
+          fetchPage: async () => {
+            throw new DynadotProviderError('dynadot_http_error');
+          },
+        }),
       },
     );
 
@@ -142,7 +172,7 @@ describe('local ingestion worker', () => {
       vi.fn(async () => Response.json({ status: 'success', auction_list: [] })),
     );
     const completed = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: '{}',
       }),
@@ -167,18 +197,18 @@ describe('local ingestion worker', () => {
       ageYears: null,
       inboundLinks: null,
       visitors: null,
-      dynadotAppraisalCents: null,
+      appraisalCents: null,
       renewalPriceCents: null,
     }));
     const continued = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: '{}',
       }),
       env,
       {
         createStorage: () => storage(),
-        fetchPage: async () => fullPage,
+        createAdapter: () => adapter(fullPage, false),
       },
     );
     expect(await continued.json()).toMatchObject({
@@ -191,7 +221,7 @@ describe('local ingestion worker', () => {
 
   it('sanitizes malformed request JSON', async () => {
     const response = await handleLocalWorkerRequest(
-      new Request('http://local/sync-dynadot', {
+      new Request('http://local/sync/dynadot', {
         method: 'POST',
         body: '{',
       }),

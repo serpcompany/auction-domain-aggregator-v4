@@ -13,9 +13,8 @@ export default defineConfig({
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/domain/**/*.{ts,tsx}',
-        'src/providers/**/*.{ts,tsx}',
-        'src/server/providers/dynadot/index.ts',
-        'src/server/ingestion/sync-dynadot.ts',
+        'src/server/providers/**/*.ts',
+        'src/server/ingestion/sync.ts',
         'src/server/ingestion/local-worker.ts',
         'src/server/ingestion/local-runner.ts',
       ],

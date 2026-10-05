@@ -1,48 +1,49 @@
 import { drizzle } from 'drizzle-orm/d1';
 
 import * as schema from '../db/schema';
-import { fetchDynadotPage } from '../providers/dynadot';
 import {
-  DynadotSyncError,
-  runDynadotSegment,
-  type DynadotIngestionStorage,
-  type FetchDynadotListingsPage,
-} from './sync-dynadot';
-import { createDynadotD1Storage } from './sync-dynadot-d1';
+  implementedProvider,
+  PROVIDER_REGISTRY,
+  type ProviderSecrets,
+} from '../providers/registry';
+import type { AuctionProvider, ProviderAdapter } from '../providers/types';
+import { createD1IngestionStorage } from './d1-storage';
+import { runSyncSegment, SyncError, type IngestionStorage } from './sync';
 
-export type IngestionEnv = {
-  DB: D1Database;
-  DYNADOT_API_PRODUCTION_KEY: string;
-};
+export type IngestionEnv = ProviderSecrets & { DB: D1Database };
 
-const PATH = '/sync-dynadot';
+const PATH = /^\/sync\/([a-z]+)$/;
 
 type WorkerDependencies = {
-  createStorage?: (database: D1Database) => DynadotIngestionStorage;
-  fetchPage?: FetchDynadotListingsPage;
+  createStorage?: (
+    database: D1Database,
+    provider: AuctionProvider,
+  ) => IngestionStorage;
+  createAdapter?: (provider: AuctionProvider) => ProviderAdapter;
 };
+
+function failed(errorCode: string, status: number) {
+  return Response.json({ status: 'failed', errorCode }, { status });
+}
 
 export async function handleLocalWorkerRequest(
   request: Request,
   env: IngestionEnv,
   dependencies: WorkerDependencies = {},
 ): Promise<Response> {
-  const url = new URL(request.url);
-  if (url.pathname !== PATH) return new Response(null, { status: 404 });
+  const match = PATH.exec(new URL(request.url).pathname);
+  const provider = match ? implementedProvider(match[1]!) : null;
+  if (!provider) return new Response(null, { status: 404 });
   if (request.method !== 'POST') {
     return new Response(null, { status: 405 });
   }
 
-  const apiKey = env.DYNADOT_API_PRODUCTION_KEY;
-  if (!apiKey) {
-    return Response.json(
-      { status: 'failed', errorCode: 'dynadot_sync_failed' },
-      { status: 500 },
-    );
+  const registration = PROVIDER_REGISTRY[provider]!;
+  if (registration.secretNames.some((name) => !env[name])) {
+    return failed(`${provider}_missing_credentials`, 500);
   }
 
   try {
-    const db = drizzle(env.DB, { schema });
     const body: unknown = await request.json();
     if (
       typeof body !== 'object' ||
@@ -51,22 +52,17 @@ export async function handleLocalWorkerRequest(
       ('runId' in body &&
         (!Number.isSafeInteger(body.runId) || Number(body.runId) < 1))
     ) {
-      return Response.json(
-        { status: 'failed', errorCode: 'dynadot_sync_invalid_request' },
-        { status: 400 },
-      );
+      return failed('sync_invalid_request', 400);
     }
     const runId = 'runId' in body ? Number(body.runId) : undefined;
-    /* v8 ignore next 3 -- default D1 wiring is exercised by the D1 adapter */
+    /* v8 ignore next 6 -- default wiring is exercised by the D1 proof and live sync */
     const storage = dependencies.createStorage
-      ? dependencies.createStorage(env.DB)
-      : createDynadotD1Storage(db);
-    const fetchPage =
-      dependencies.fetchPage ??
-      (({ pageIndex, pageSize }) =>
-        fetchDynadotPage({ apiKey, pageIndex, pageSize }));
-    const result = await runDynadotSegment(storage, {
-      fetchPage,
+      ? dependencies.createStorage(env.DB, provider)
+      : createD1IngestionStorage(drizzle(env.DB, { schema }), provider);
+    const adapter = dependencies.createAdapter
+      ? dependencies.createAdapter(provider)
+      : registration.createAdapter(env);
+    const result = await runSyncSegment(adapter, storage, {
       runId,
       segmentPages: 20,
     });
@@ -75,26 +71,19 @@ export async function handleLocalWorkerRequest(
         ? result.summary
         : {
             status: 'continue',
+            provider,
             runId: result.run.runId,
             nextPage: result.run.nextPage,
             pagesFetched: result.run.pagesFetched,
             recordsFetched: result.run.recordsFetched,
             recordsUpserted: result.run.recordsUpserted,
             recordsInactivated: result.run.recordsInactivated,
+            recordsRejected: result.run.recordsRejected,
           },
     );
   } catch (error) {
-    // Sync error codes are fixed, non-secret identifiers.
-    return Response.json(
-      {
-        status: 'failed',
-        errorCode:
-          error instanceof DynadotSyncError
-            ? error.code
-            : 'dynadot_sync_failed',
-      },
-      { status: 500 },
-    );
+    // Sync and provider error codes are fixed, non-secret identifiers.
+    return failed(error instanceof SyncError ? error.code : 'sync_failed', 500);
   }
 }
 

@@ -417,7 +417,7 @@ function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
     <FilterGroup title="Value">
       <Field
         id="appraisal-min"
-        label="Minimum Dynadot appraisal"
+        label="Minimum provider appraisal"
         name="appraisalMin"
         defaultValue={filters.appraisalMinCents}
         prefix="$"

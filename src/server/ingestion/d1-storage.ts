@@ -2,15 +2,8 @@ import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm';
 
 import { auctionListings, ingestionRuns } from '../db/schema';
 import type { AppDatabase } from '../db/types';
-import type { DynadotListing } from '../providers/dynadot';
-import {
-  syncDynadotWithStorage,
-  type DynadotIngestionStorage,
-  type DynadotRunState,
-  type DynadotSyncSummary,
-  type SyncDynadotOptions,
-} from './sync-dynadot';
-import { DynadotSyncError } from './sync-dynadot';
+import type { AuctionProvider, NormalizedListing } from '../providers/types';
+import { SyncError, type IngestionStorage, type RunState } from './sync';
 
 const DOMAIN_BATCH_SIZE = 100;
 const LISTING_BATCH_SIZE = 25;
@@ -37,7 +30,7 @@ function chunks<T>(values: T[], size: number) {
   return result;
 }
 
-function listingValues(listing: DynadotListing, seenAt: Date) {
+function listingValues(listing: NormalizedListing, seenAt: Date) {
   return {
     provider: listing.provider,
     externalId: listing.externalId,
@@ -53,7 +46,7 @@ function listingValues(listing: DynadotListing, seenAt: Date) {
     ageYears: listing.ageYears,
     inboundLinks: listing.inboundLinks,
     visitors: listing.visitors,
-    dynadotAppraisalCents: listing.dynadotAppraisalCents,
+    appraisalCents: listing.appraisalCents,
     renewalPriceCents: listing.renewalPriceCents,
     status: 'active' as const,
     firstSeenAt: seenAt.getTime(),
@@ -67,7 +60,7 @@ const INSERT_DOMAINS_SQL = `
   FROM json_each(?)
   WHERE EXISTS (
     SELECT 1 FROM ingestion_runs
-    WHERE id = ? AND provider = 'dynadot' AND status = 'running' AND started_at = ?
+    WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
   )
   ON CONFLICT(name) DO NOTHING
 `;
@@ -76,7 +69,7 @@ const UPSERT_LISTINGS_SQL = `
   INSERT INTO auction_listings (
     provider, external_id, domain_name, auction_url, auction_type, currency,
     current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years,
-    inbound_links, visitors, dynadot_appraisal_cents, renewal_price_cents,
+    inbound_links, visitors, appraisal_cents, renewal_price_cents,
     status, first_seen_at, last_seen_at
   )
   SELECT
@@ -87,12 +80,12 @@ const UPSERT_LISTINGS_SQL = `
     json_extract(value, '$.bidderCount'), json_extract(value, '$.startsAt'),
     json_extract(value, '$.endsAt'), json_extract(value, '$.ageYears'),
     json_extract(value, '$.inboundLinks'), json_extract(value, '$.visitors'),
-    json_extract(value, '$.dynadotAppraisalCents'), json_extract(value, '$.renewalPriceCents'),
+    json_extract(value, '$.appraisalCents'), json_extract(value, '$.renewalPriceCents'),
     'active', json_extract(value, '$.firstSeenAt'), json_extract(value, '$.lastSeenAt')
   FROM json_each(?)
   WHERE EXISTS (
     SELECT 1 FROM ingestion_runs
-    WHERE id = ? AND provider = 'dynadot' AND status = 'running' AND started_at = ?
+    WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
   )
   ON CONFLICT(provider, external_id) DO UPDATE SET
     domain_name = excluded.domain_name, auction_url = excluded.auction_url,
@@ -101,15 +94,18 @@ const UPSERT_LISTINGS_SQL = `
     bidder_count = excluded.bidder_count, starts_at = excluded.starts_at,
     ends_at = excluded.ends_at, age_years = excluded.age_years,
     inbound_links = excluded.inbound_links, visitors = excluded.visitors,
-    dynadot_appraisal_cents = excluded.dynadot_appraisal_cents,
+    appraisal_cents = excluded.appraisal_cents,
     renewal_price_cents = excluded.renewal_price_cents,
     status = 'active', last_seen_at = excluded.last_seen_at
 `;
 
-function runningRunFilter(run: Pick<DynadotRunState, 'runId' | 'startedAt'>) {
+function runningRunFilter(
+  provider: AuctionProvider,
+  run: Pick<RunState, 'runId' | 'startedAt'>,
+) {
   return and(
     eq(ingestionRuns.id, run.runId),
-    eq(ingestionRuns.provider, 'dynadot'),
+    eq(ingestionRuns.provider, provider),
     eq(ingestionRuns.status, 'running'),
     eq(ingestionRuns.startedAt, run.startedAt),
   );
@@ -128,15 +124,18 @@ function runSelection() {
   };
 }
 
-function requireRun(run: DynadotRunState | undefined) {
-  if (!run) throw new DynadotSyncError('dynadot_stale_continuation');
+function requireRun(run: RunState | undefined) {
+  if (!run) throw new SyncError('sync_stale_continuation');
   return run;
 }
 
-export function createDynadotD1Storage(
+export function createD1IngestionStorage(
   db: AppDatabase,
-): DynadotIngestionStorage {
+  provider: AuctionProvider,
+): IngestionStorage {
   return {
+    provider,
+
     async startRun(startedAt) {
       const [, inserted] = await db.batch([
         db
@@ -144,17 +143,17 @@ export function createDynadotD1Storage(
           .set({
             status: 'failed',
             completedAt: startedAt,
-            errorCode: 'dynadot_sync_interrupted',
+            errorCode: 'sync_interrupted',
           })
           .where(
             and(
-              eq(ingestionRuns.provider, 'dynadot'),
+              eq(ingestionRuns.provider, provider),
               eq(ingestionRuns.status, 'running'),
             ),
           ),
         db
           .insert(ingestionRuns)
-          .values({ provider: 'dynadot', status: 'running', startedAt })
+          .values({ provider, status: 'running', startedAt })
           .returning(runSelection()),
       ]);
 
@@ -168,7 +167,7 @@ export function createDynadotD1Storage(
         .where(
           and(
             eq(ingestionRuns.id, runId),
-            eq(ingestionRuns.provider, 'dynadot'),
+            eq(ingestionRuns.provider, provider),
             eq(ingestionRuns.status, 'running'),
           ),
         )
@@ -178,6 +177,9 @@ export function createDynadotD1Storage(
 
     async upsertListings(run, listings) {
       if (listings.length === 0) return;
+      if (listings.some((listing) => listing.provider !== provider)) {
+        throw new SyncError('sync_invalid_request');
+      }
       const uniqueDomains = [
         ...new Set(listings.map((listing) => listing.domainName)),
       ];
@@ -189,6 +191,7 @@ export function createDynadotD1Storage(
               run.startedAt.getTime(),
               JSON.stringify(batch.map((name) => ({ name }))),
               run.runId,
+              provider,
               run.startedAt.getTime(),
             ),
       );
@@ -201,6 +204,7 @@ export function createDynadotD1Storage(
                 batch.map((listing) => listingValues(listing, run.startedAt)),
               ),
               run.runId,
+              provider,
               run.startedAt.getTime(),
             ),
       );
@@ -212,18 +216,18 @@ export function createDynadotD1Storage(
         .slice(domainStatements.length)
         .reduce((total, result) => total + (result.meta.changes ?? 0), 0);
       if (listingChanges === 0) {
-        throw new DynadotSyncError('dynadot_stale_continuation');
+        throw new SyncError('sync_stale_continuation');
       }
     },
 
     async finalizeSuccessfulRun(run, finalization) {
-      const runFilter = runningRunFilter(run);
+      const runFilter = runningRunFilter(provider, run);
       const guardedRunningRun = db
         .select({ id: ingestionRuns.id })
         .from(ingestionRuns)
         .where(runFilter);
       const reconciliationFilter = and(
-        eq(auctionListings.provider, 'dynadot'),
+        eq(auctionListings.provider, provider),
         eq(auctionListings.status, 'active'),
         lt(auctionListings.lastSeenAt, run.startedAt),
         exists(guardedRunningRun),
@@ -245,7 +249,7 @@ export function createDynadotD1Storage(
         (vanished?.value ?? 0) >
         vanishedListingsLimit(finalization.recordsFetched)
       ) {
-        throw new DynadotSyncError('dynadot_reconciliation_guard');
+        throw new SyncError('sync_reconciliation_guard');
       }
 
       // One atomic batch: record the count, inactivate exactly those rows
@@ -277,7 +281,7 @@ export function createDynadotD1Storage(
           .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
       ]);
       if (!completed[0]) {
-        throw new DynadotSyncError('dynadot_stale_continuation');
+        throw new SyncError('sync_stale_continuation');
       }
       return completed[0].recordsInactivated;
     },
@@ -293,10 +297,10 @@ export function createDynadotD1Storage(
           recordsInactivated: run.recordsInactivated,
           recordsRejected: run.recordsRejected,
         })
-        .where(runningRunFilter(run))
+        .where(runningRunFilter(provider, run))
         .returning({ id: ingestionRuns.id });
       if (!updated[0]) {
-        throw new DynadotSyncError('dynadot_stale_continuation');
+        throw new SyncError('sync_stale_continuation');
       }
     },
 
@@ -314,18 +318,11 @@ export function createDynadotD1Storage(
           errorCode: completion.errorCode,
           failedPage: completion.failedPage,
         })
-        .where(runningRunFilter(run))
+        .where(runningRunFilter(provider, run))
         .returning({ id: ingestionRuns.id });
       if (!completed[0]) {
-        throw new DynadotSyncError('dynadot_stale_continuation');
+        throw new SyncError('sync_stale_continuation');
       }
     },
   };
-}
-
-export function syncDynadot(
-  db: AppDatabase,
-  options: SyncDynadotOptions,
-): Promise<DynadotSyncSummary> {
-  return syncDynadotWithStorage(createDynadotD1Storage(db), options);
 }
