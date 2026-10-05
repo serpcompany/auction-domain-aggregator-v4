@@ -32,7 +32,7 @@ export const auctionListings = sqliteTable(
     ageYears: integer('age_years'),
     inboundLinks: integer('inbound_links'),
     visitors: integer('visitors'),
-    dynadotAppraisalCents: integer('dynadot_appraisal_cents'),
+    appraisalCents: integer('appraisal_cents'),
     renewalPriceCents: integer('renewal_price_cents'),
     status: text('status', { enum: ['active', 'inactive'] }).notNull(),
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
@@ -70,7 +70,7 @@ export const auctionListings = sqliteTable(
     ),
     check(
       'auction_listings_dynadot_appraisal_cents_nonnegative',
-      sql`${table.dynadotAppraisalCents} is null or ${table.dynadotAppraisalCents} >= 0`,
+      sql`${table.appraisalCents} is null or ${table.appraisalCents} >= 0`,
     ),
     check(
       'auction_listings_renewal_price_cents_nonnegative',

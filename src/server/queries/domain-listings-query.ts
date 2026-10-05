@@ -44,7 +44,7 @@ export interface DomainListingRow {
   ageYears: number | null;
   inboundLinks: number | null;
   visitors: number | null;
-  dynadotAppraisalCents: number | null;
+  appraisalCents: number | null;
   renewalPriceCents: number | null;
   domainLength: number;
   tld: string;
@@ -161,7 +161,7 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
   }
   if (filters.appraisalMinCents !== undefined) {
     conditions.push(
-      gte(auctionListings.dynadotAppraisalCents, filters.appraisalMinCents),
+      gte(auctionListings.appraisalCents, filters.appraisalMinCents),
     );
   }
   if (filters.renewalMaxCents !== undefined) {
@@ -196,7 +196,7 @@ function listingOrder(filters: DomainTableFilters) {
     age: auctionListings.ageYears,
     links: auctionListings.inboundLinks,
     visitors: auctionListings.visitors,
-    appraisal: auctionListings.dynadotAppraisalCents,
+    appraisal: auctionListings.appraisalCents,
     renewal: auctionListings.renewalPriceCents,
     domainLength: domainLengthExpression(),
   };
@@ -252,7 +252,7 @@ export async function queryDomainListingsWithDatabase(
       ageYears: auctionListings.ageYears,
       inboundLinks: auctionListings.inboundLinks,
       visitors: auctionListings.visitors,
-      dynadotAppraisalCents: auctionListings.dynadotAppraisalCents,
+      appraisalCents: auctionListings.appraisalCents,
       renewalPriceCents: auctionListings.renewalPriceCents,
       domainLength: domainLengthExpression(),
       tld: tldExpression(),

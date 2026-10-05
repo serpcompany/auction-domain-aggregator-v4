@@ -35,7 +35,7 @@ function listing(
     ageYears: null,
     inboundLinks: null,
     visitors: null,
-    dynadotAppraisalCents: null,
+    appraisalCents: null,
     renewalPriceCents: null,
   };
 }

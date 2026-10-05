@@ -167,7 +167,7 @@ describe('local ingestion worker', () => {
       ageYears: null,
       inboundLinks: null,
       visitors: null,
-      dynadotAppraisalCents: null,
+      appraisalCents: null,
       renewalPriceCents: null,
     }));
     const continued = await handleLocalWorkerRequest(

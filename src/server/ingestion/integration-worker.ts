@@ -47,7 +47,7 @@ function listing(
     ageYears: 5,
     inboundLinks: 10,
     visitors: 20,
-    dynadotAppraisalCents: 10_000,
+    appraisalCents: 10_000,
     renewalPriceCents: 1_200,
   };
 }
@@ -269,7 +269,7 @@ async function runProof(env: IntegrationEnv) {
     ageYears: 12,
     inboundLinks: 100,
     visitors: 50,
-    dynadotAppraisalCents: 50_000,
+    appraisalCents: 50_000,
     renewalPriceCents: 1_200,
   };
   const nullFixture = {
@@ -281,7 +281,7 @@ async function runProof(env: IntegrationEnv) {
     ageYears: null,
     inboundLinks: null,
     visitors: null,
-    dynadotAppraisalCents: null,
+    appraisalCents: null,
     renewalPriceCents: null,
   };
   const digitFixture = {
@@ -428,7 +428,7 @@ async function runProof(env: IntegrationEnv) {
   assertIntegration(shapeRow?.bidderCount === 5, 'row_bidder_count');
   assertIntegration(shapeRow.inboundLinks === 100, 'row_links');
   assertIntegration(shapeRow.visitors === 50, 'row_visitors');
-  assertIntegration(shapeRow.dynadotAppraisalCents === 50_000, 'row_appraisal');
+  assertIntegration(shapeRow.appraisalCents === 50_000, 'row_appraisal');
   assertIntegration(shapeRow.renewalPriceCents === 1_200, 'row_renewal');
   assertIntegration(
     shapeRow.startsAt?.getTime() ===
@@ -558,7 +558,7 @@ async function runProof(env: IntegrationEnv) {
     ageYears: [3, 1, null, 2][index]!,
     inboundLinks: [null, 30, 10, 20][index]!,
     visitors: [20, null, 30, 10][index]!,
-    dynadotAppraisalCents: [4_000, 1_000, 3_000, null][index]!,
+    appraisalCents: [4_000, 1_000, 3_000, null][index]!,
     renewalPriceCents: [1_000, 4_000, null, 2_000][index]!,
     status: 'active' as const,
     firstSeenAt: fixtureSeenAt,
@@ -584,7 +584,7 @@ async function runProof(env: IntegrationEnv) {
     ageYears: 7,
     inboundLinks: 70,
     visitors: 70,
-    dynadotAppraisalCents: 7_000,
+    appraisalCents: 7_000,
     renewalPriceCents: 700,
     status: 'active' as const,
     firstSeenAt: fixtureSeenAt,

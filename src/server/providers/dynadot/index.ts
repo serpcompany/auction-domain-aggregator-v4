@@ -58,7 +58,7 @@ export type DynadotListing = {
   ageYears: number | null;
   inboundLinks: number | null;
   visitors: number | null;
-  dynadotAppraisalCents: number | null;
+  appraisalCents: number | null;
   renewalPriceCents: number | null;
 };
 
@@ -228,7 +228,7 @@ function normalizeAuction(
     ageYears: parseNullableInteger(auction.age),
     inboundLinks: parseNullableInteger(auction.links),
     visitors: parseNullableInteger(auction.visitors),
-    dynadotAppraisalCents: parseNullableMoney(auction.dyna_appraisal),
+    appraisalCents: parseNullableMoney(auction.dyna_appraisal),
     renewalPriceCents: parseNullableMoney(auction.renewal_price),
   };
 }

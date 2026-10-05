@@ -71,7 +71,7 @@ function fixtureSql(runId: string, now = Date.now()) {
 
   return [
     `INSERT INTO domains (name, first_seen_at) VALUES ${domainValues}`,
-    `INSERT INTO auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years, inbound_links, visitors, dynadot_appraisal_cents, renewal_price_cents, status, first_seen_at, last_seen_at) VALUES ${listingValues}`,
+    `INSERT INTO auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years, inbound_links, visitors, appraisal_cents, renewal_price_cents, status, first_seen_at, last_seen_at) VALUES ${listingValues}`,
     `INSERT INTO ingestion_runs (provider, status, started_at, completed_at, pages_fetched, next_page, records_fetched, records_upserted, records_inactivated) VALUES ('dynadot','succeeded',${firstSeenAt},${now},1,1,60,60,0)`,
   ].join(';');
 }

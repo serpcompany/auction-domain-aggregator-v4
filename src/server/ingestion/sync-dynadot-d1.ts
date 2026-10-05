@@ -53,7 +53,7 @@ function listingValues(listing: DynadotListing, seenAt: Date) {
     ageYears: listing.ageYears,
     inboundLinks: listing.inboundLinks,
     visitors: listing.visitors,
-    dynadotAppraisalCents: listing.dynadotAppraisalCents,
+    appraisalCents: listing.appraisalCents,
     renewalPriceCents: listing.renewalPriceCents,
     status: 'active' as const,
     firstSeenAt: seenAt.getTime(),
@@ -76,7 +76,7 @@ const UPSERT_LISTINGS_SQL = `
   INSERT INTO auction_listings (
     provider, external_id, domain_name, auction_url, auction_type, currency,
     current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years,
-    inbound_links, visitors, dynadot_appraisal_cents, renewal_price_cents,
+    inbound_links, visitors, appraisal_cents, renewal_price_cents,
     status, first_seen_at, last_seen_at
   )
   SELECT
@@ -87,7 +87,7 @@ const UPSERT_LISTINGS_SQL = `
     json_extract(value, '$.bidderCount'), json_extract(value, '$.startsAt'),
     json_extract(value, '$.endsAt'), json_extract(value, '$.ageYears'),
     json_extract(value, '$.inboundLinks'), json_extract(value, '$.visitors'),
-    json_extract(value, '$.dynadotAppraisalCents'), json_extract(value, '$.renewalPriceCents'),
+    json_extract(value, '$.appraisalCents'), json_extract(value, '$.renewalPriceCents'),
     'active', json_extract(value, '$.firstSeenAt'), json_extract(value, '$.lastSeenAt')
   FROM json_each(?)
   WHERE EXISTS (
@@ -101,7 +101,7 @@ const UPSERT_LISTINGS_SQL = `
     bidder_count = excluded.bidder_count, starts_at = excluded.starts_at,
     ends_at = excluded.ends_at, age_years = excluded.age_years,
     inbound_links = excluded.inbound_links, visitors = excluded.visitors,
-    dynadot_appraisal_cents = excluded.dynadot_appraisal_cents,
+    appraisal_cents = excluded.appraisal_cents,
     renewal_price_cents = excluded.renewal_price_cents,
     status = 'active', last_seen_at = excluded.last_seen_at
 `;

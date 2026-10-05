@@ -59,8 +59,8 @@ const shapes: Shape[] = [
   },
   {
     name: 'appraisal_min',
-    countSql: `select count(*) as count from auction_listings where ${active} and dynadot_appraisal_cents>=10000`,
-    rowSql: `select current_bid_cents from auction_listings where ${active} and dynadot_appraisal_cents>=10000 order by dynadot_appraisal_cents desc,${tieBreakers} limit 50`,
+    countSql: `select count(*) as count from auction_listings where ${active} and appraisal_cents>=10000`,
+    rowSql: `select current_bid_cents from auction_listings where ${active} and appraisal_cents>=10000 order by appraisal_cents desc,${tieBreakers} limit 50`,
   },
   {
     name: 'renewal_max',

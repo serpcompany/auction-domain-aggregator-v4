@@ -256,14 +256,14 @@ function LinksCell({ row }: { row: DomainListingRow }) {
 function AppraisalCell({ row }: { row: DomainListingRow }) {
   return (
     <td className="h-16 px-3 py-2 text-right align-middle tabular-nums">
-      {row.dynadotAppraisalCents === null ? (
-        <UnknownValue label="Dynadot appraisal" />
+      {row.appraisalCents === null ? (
+        <UnknownValue label={`${formatProvider(row.provider)} appraisal`} />
       ) : (
         <>
           <div className="font-medium">
-            {formatMoney(row.dynadotAppraisalCents, row.currency)}
+            {formatMoney(row.appraisalCents, row.currency)}
           </div>
-          <Secondary>Dynadot appraisal</Secondary>
+          <Secondary>{formatProvider(row.provider)} appraisal</Secondary>
         </>
       )}
     </td>
