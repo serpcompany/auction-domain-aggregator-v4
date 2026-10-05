@@ -14,13 +14,13 @@ The page request parses untrusted search parameters into one normalized `DomainT
 
 The URL is canonical state. Filter submission uses GET and omits `page`, so applying a change returns to page 1. Removing one summary changes only that filter family and also returns to page 1. Sorting and pagination preserve all filters. Invalid enum values are rejected, numeric inputs are bounded, reversed ranges are normalized, and page size is always 50.
 
-Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 82 bindings, below D1's 100-bound-parameter ceiling.
+Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 83 bindings, below D1's 100-bound-parameter ceiling.
 
 ## D1 query behavior
 
 `queryDomainListingsWithDatabase` accepts only normalized filters and an application database. It selects active listings, applies parameterized predicates, counts the complete result, returns one stable page, and separately reads bounded source, auction-type, and TLD facets plus the latest successful sync time.
 
-Nullable numeric fields remain visible when unconstrained. A constraint on that field excludes nulls because an unknown value cannot honestly satisfy a minimum or maximum. Nullable sorts place unknown values last in both directions. Domain, provider, and external ID complete deterministic tie-breaking. Ending-window filters use an injected reference time and an upper bound; an active row that has just ended remains eligible until synchronization reconciles its status.
+Nullable numeric fields remain visible when unconstrained. A constraint on that field excludes nulls because an unknown value cannot honestly satisfy a minimum or maximum. Nullable sorts place unknown values last in both directions. Domain, provider, and external ID complete deterministic tie-breaking. Every read (rows, count, and facets) excludes listings whose `ends_at` is at or before the injected reference time, because status changes only when a sync reconciles and sync is not continuous. Listings without an end time remain visible. Ending-window filters add an upper bound to that same reference time. When the latest successful sync is more than 24 hours old, the page shows a stale-inventory notice.
 
 Reads remain sequential. Local D1 produced snapshot locking when the count, row, facet, and freshness reads ran concurrently, and no measured navigation need justifies reintroducing that failure mode.
 

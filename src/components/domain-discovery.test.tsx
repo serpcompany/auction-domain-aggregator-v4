@@ -122,6 +122,9 @@ describe('DomainDiscovery', () => {
     expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
       'Synced 2 minutes ago',
     );
+    expect(
+      screen.queryByText(/inventory is out of date/i),
+    ).not.toBeInTheDocument();
 
     const table = screen.getByRole('table');
     expect(within(table).getAllByRole('row')).toHaveLength(3);
@@ -269,6 +272,31 @@ describe('DomainDiscovery', () => {
       'true',
     );
     expect(screen.getByText('Next')).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('warns when the inventory is stale', () => {
+    render(
+      <DomainDiscovery
+        filters={parseDomainTableFilters({})}
+        result={{
+          rows: rows.slice(0, 1),
+          total: 1,
+          page: 1,
+          sources: [],
+          auctionTypes: [],
+          tlds: [],
+          latestSuccessfulSync: new Date(now.getTime() - 2 * 86_400_000),
+        }}
+        now={now}
+      />,
+    );
+
+    expect(screen.getByRole('status')).toHaveTextContent(
+      /inventory is out of date/i,
+    );
+    expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
+      'Synced 2 days ago',
+    );
   });
 
   it('renders a useful empty state and zero range', async () => {

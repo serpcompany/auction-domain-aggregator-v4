@@ -8,7 +8,7 @@ The first user is the repository owner. The product replaces the part of SpamZil
 
 The user can:
 
-1. Open a server-rendered table of active auction listings collected in local D1.
+1. Open a server-rendered table of active auction listings collected in local D1. Auctions whose end time has passed are hidden even before the next sync, and the page warns when the inventory is more than 24 hours old.
 2. Narrow the inventory with quick filters for a domain fragment, one or more sources, one or more TLDs, maximum current bid, and ending window.
 3. Open `More filters` for auction type; domain length, age, and shape; current-bid range; renewal-price ceiling; minimum bids, bidders, visitors, inbound links, and Dynadot appraisal.
 4. See every applied constraint as a removable summary, clear all constraints, and use a copied URL or browser Back without losing normalized filter state.

@@ -4,12 +4,15 @@ import {
   count,
   desc,
   eq,
+  gt,
   gte,
   inArray,
+  isNull,
   like,
   lte,
   max,
   not,
+  or,
   type AnyColumn,
   sql,
   type SQL,
@@ -85,8 +88,17 @@ function tldExpression() {
   return sql<string>`lower(json_extract('["' || replace(${auctionListings.domainName}, '.', '","') || '"]', '$[#-1]'))`;
 }
 
+// Status changes only when a sync reconciles, so an auction whose end time has
+// passed is hidden at read time even if the inventory is stale.
+function openListingWhere(now: Date) {
+  return and(
+    eq(auctionListings.status, 'active'),
+    or(isNull(auctionListings.endsAt), gt(auctionListings.endsAt, now)),
+  )!;
+}
+
 function activeListingWhere(filters: DomainTableFilters, now: Date) {
-  const conditions: SQL[] = [eq(auctionListings.status, 'active')];
+  const conditions: SQL[] = [openListingWhere(now)];
 
   if (filters.query) {
     conditions.push(
@@ -258,7 +270,7 @@ export async function queryDomainListingsWithDatabase(
     .from(auctionListings)
     .where(
       and(
-        eq(auctionListings.status, 'active'),
+        openListingWhere(now),
         inArray(auctionListings.provider, DOMAIN_TABLE_AUCTION_SOURCES),
       ),
     )
@@ -271,7 +283,7 @@ export async function queryDomainListingsWithDatabase(
     .from(auctionListings)
     .where(
       and(
-        eq(auctionListings.status, 'active'),
+        openListingWhere(now),
         inArray(auctionType, DOMAIN_TABLE_AUCTION_TYPES),
       ),
     )
@@ -282,7 +294,7 @@ export async function queryDomainListingsWithDatabase(
   const tldRows = await database
     .select({ tld, listings: count() })
     .from(auctionListings)
-    .where(eq(auctionListings.status, 'active'))
+    .where(openListingWhere(now))
     .groupBy(tld)
     .orderBy(desc(count()), asc(tld))
     .limit(TLD_FACET_LIMIT);
