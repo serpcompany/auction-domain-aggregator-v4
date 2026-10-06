@@ -1,5 +1,6 @@
 import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm';
 
+import { refreshListingFacetsQueries } from '../db/listing-facets';
 import { auctionListings, ingestionRuns } from '../db/schema';
 import type { AppDatabase } from '../db/types';
 import type { AuctionProvider, NormalizedListing } from '../providers/types';
@@ -307,7 +308,8 @@ export function createD1IngestionStorage(
       }
 
       // One atomic batch: record the count, inactivate exactly those rows
-      // while the run is still running, then mark the run succeeded.
+      // while the run is still running, mark the run succeeded, then rebuild
+      // the facet values from the reconciled active inventory.
       const [, , completed] = await db.batch([
         db
           .update(ingestionRuns)
@@ -333,6 +335,7 @@ export function createD1IngestionStorage(
           })
           .where(runFilter)
           .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
+        ...refreshListingFacetsQueries(db),
       ]);
       if (!completed[0]) {
         throw new SyncError('sync_stale_continuation');

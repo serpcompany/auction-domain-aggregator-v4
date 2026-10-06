@@ -12,7 +12,7 @@ This document defines the current external-data write path and its persistence r
 
 The Next.js application queries D1 for table contents, filtering, sorting, pagination, source options, and latest successful sync time. A normal page or health request does not call Dynadot, Ahrefs, Majestic, or another external provider.
 
-`src/server/queries/domain-listings.ts` is the implemented table read model. User input is normalized or selected from allowlists before Drizzle constructs parameterized queries. Only active listings and the fields needed by the table are selected.
+`src/server/queries/domain-listings.ts` is the implemented table read model. User input is normalized or selected from allowlists before Drizzle constructs parameterized queries. Only active listings and the fields needed by the table are selected. The source, auction-type, and TLD filter options come from `listing_facets`, which the write path rebuilds (below).
 
 ## Ingestion Worker and Workflow
 
@@ -45,7 +45,7 @@ For a synchronization:
 3. Upsert normalized domains and provider listings in bounded D1 batches.
 4. Persist page position and counts after every completed segment.
 5. Continue until the adapter reports the last page (for Dynadot, the first page with fewer than 1,000 rows).
-6. Apply the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, record the inactivation count, mark older unseen listings of that provider inactive, and mark the run successful.
+6. Apply the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, record the inactivation count, mark older unseen listings of that provider inactive, and mark the run successful; the same batch then rebuilds `listing_facets` (see Facet read model).
 
 A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions. Because a new run interrupts an older running one, two overlapping instances of the same provider leave only the newer run able to finish; the older one fails with `sync_stale_continuation`.
 
@@ -83,6 +83,12 @@ Record mapping:
 ## Feed-published SEO metrics
 
 `domain_seo_metrics` has one row per domain with typed integer columns (`majestic_tf`, `majestic_cf`, `majestic_backlinks`, `majestic_ref_domains`, `semrush_as`, `semrush_ref_domains`, `semrush_backlinks`), the publishing `source`, and `updated_at` (the run start). TF, CF, and AS are checked to 0 to 100, counts to be nonnegative, and the four filtered columns are indexed. Each page's metrics are upserted in the same guarded D1 batch as its listings, in JSON batches of 100, so a stale run cannot write them. Unlike write-once Ahrefs DR in `domain_metrics`, every sync that carries metrics replaces them (latest wins). A listing without metrics, such as any Dynadot listing, leaves the stored row alone. Rows are not deleted when a domain leaves the feed; they keep their last values and `updated_at`.
+
+## Facet read model
+
+`listing_facets` holds the source, auction-type, and TLD values of the active inventory, across every provider, each with the latest `ends_at` among its active listings. The successful-finalization batch ends with the two statements from `src/server/db/listing-facets.ts`: delete every row, then insert the grouped values. The rebuild reads the whole table rather than one provider's rows, so it is correct whichever provider finishes last, and it is idempotent; it does not need the running-run guard. A failed or still-running run does not rebuild it, so values that only its upserted listings carry are offered after the next successful run. The rebuild took 1.7 to 3.3 seconds against the 1.02-million-active-listing local inventory, once per successful run. Migration `0006_listing_tld_length_facets.sql` backfilled it once.
+
+`auction_listings.tld` and `domain_length` are virtual generated columns, so ingestion writes neither of them.
 
 ## Local runs
 

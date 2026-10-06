@@ -41,7 +41,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `.node-version` pins the
 - `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
-- `corepack pnpm benchmark:filters`: rerun sanitized aggregate filter timings against the populated local D1 inventory without loading credentials or printing rows.
+- `corepack pnpm benchmark:filters`: time whole table requests through `queryDomainListingsWithDatabase` (the page's read path) against the populated local D1 inventory, without loading credentials or printing rows.
 - `corepack pnpm check`: run the quick checks, isolated D1 integration proof, and isolated browser acceptance.
 - `corepack pnpm preview`: migrate local D1, build with OpenNext, and serve the Cloudflare Worker locally.
 - `corepack pnpm build`: verify the standard Next.js production build.

@@ -45,6 +45,8 @@ type ProofSummary = {
   wildcardEscapeProof: true;
   godaddyFeedProof: true;
   cloudFeedProof: true;
+  derivedNameColumnProof: true;
+  uncappedTldFacetProof: true;
   feedErrorProof: true;
 };
 
@@ -160,6 +162,8 @@ function parseSummary(value: unknown): ProofSummary {
     wildcardEscapeProof: true,
     godaddyFeedProof: true,
     cloudFeedProof: true,
+    derivedNameColumnProof: true,
+    uncappedTldFacetProof: true,
     feedErrorProof: true,
   } as const;
   const mismatched = Object.entries(expected)

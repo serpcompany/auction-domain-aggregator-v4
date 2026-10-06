@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, inArray, like } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -7,6 +7,7 @@ import {
   parseDomainTableFilters,
   type DomainTableSearchParams,
 } from '../../domain/domain-table';
+import { refreshListingFacetsQueries } from '../db/listing-facets';
 import {
   auctionListings,
   domains,
@@ -352,6 +353,115 @@ async function proveDomainRatingEnrichment(
   );
 }
 
+// TLD and domain length are generated columns over the stored name. Only the
+// final label is the TLD, and quotes or backslashes in a name (which broke the
+// earlier JSON-based TLD expression) must not fail any read.
+async function proveDerivedNameColumns(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const seenAt = new Date('2026-07-13T04:00:00.000Z');
+  const names = [
+    'tld-proof.example.co.uk',
+    'tld-proof-"quoted".com',
+    'tld-proof-back\\slash.Ba\\Ck',
+    'tld-proof.qu"ote',
+  ];
+  await database
+    .insert(domains)
+    .values(names.map((name) => ({ name, firstSeenAt: seenAt })));
+  await database.insert(auctionListings).values(
+    names.map((domainName, index) => ({
+      ...listing(`tld-proof-${index}`, domainName, 100),
+      startsAt: null,
+      endsAt: new Date('2026-07-20T00:00:00.000Z'),
+      status: 'active' as const,
+      firstSeenAt: seenAt,
+      lastSeenAt: seenAt,
+    })),
+  );
+  await database.batch(refreshListingFacetsQueries(database));
+
+  const query = (searchParams: DomainTableSearchParams) =>
+    queryDomainListingsWithDatabase(
+      parseDomainTableFilters(searchParams),
+      database,
+      QUERY_NOW,
+    );
+  const all = await query({ q: 'tld-proof' });
+  const expected = new Map(
+    names.map((name) => [
+      name,
+      { tld: name.split('.').at(-1)!.toLowerCase(), length: name.length },
+    ]),
+  );
+  assertIntegration(
+    all.total === names.length &&
+      all.rows.every(
+        (row) =>
+          row.tld === expected.get(row.domainName)?.tld &&
+          row.domainLength === expected.get(row.domainName)?.length,
+      ),
+    'derived_name_columns',
+  );
+  const multiLabel = await query({ q: 'tld-proof', tld: 'uk' });
+  const exactLength = await query({
+    q: 'tld-proof',
+    domainLengthMin: '23',
+    domainLengthMax: '23',
+  });
+  const facets = await query({});
+  assertIntegration(
+    multiLabel.total === 1 &&
+      multiLabel.rows[0]?.domainName === 'tld-proof.example.co.uk' &&
+      exactLength.total === 1 &&
+      exactLength.rows[0]?.domainName === 'tld-proof.example.co.uk' &&
+      ['uk', 'qu"ote', 'ba\\ck'].every((tld) => facets.tlds.includes(tld)),
+    'derived_name_filters',
+  );
+
+  await database
+    .delete(auctionListings)
+    .where(like(auctionListings.externalId, 'tld-proof-%'));
+  await database.delete(domains).where(inArray(domains.name, names));
+  await database.batch(refreshListingFacetsQueries(database));
+}
+
+// Every active TLD is offered: there is no facet cap (it was 250).
+async function proveUncappedTldFacets(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const tldCount = 300;
+  const seenAt = new Date('2026-07-13T04:00:00.000Z').getTime();
+  const endsAt = new Date('2026-07-20T00:00:00.000Z').getTime();
+  const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < ${tldCount - 1})`;
+  await database.run(
+    sql`${numbers} insert into domains (name, first_seen_at) select 'facet-proof.t' || printf('%03d', i), ${seenAt} from n`,
+  );
+  await database.run(
+    sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, status, first_seen_at, last_seen_at) select 'dynadot', 'facet-proof-' || i, 'facet-proof.t' || printf('%03d', i), 'https://example.invalid/facet/' || i, 'EXPIRED', 'USD', 100, 0, ${endsAt}, 'active', ${seenAt}, ${seenAt} from n`,
+  );
+  await database.batch(refreshListingFacetsQueries(database));
+
+  const result = await queryDomainListingsWithDatabase(
+    parseDomainTableFilters({}),
+    database,
+    QUERY_NOW,
+  );
+  const proofTlds = result.tlds.filter((tld) => /^t\d{3}$/.test(tld));
+  assertIntegration(
+    proofTlds.length === tldCount &&
+      result.tlds.length > 250 &&
+      result.tlds.join() === [...result.tlds].sort().join(),
+    'tld_facets_uncapped',
+  );
+
+  await database
+    .delete(auctionListings)
+    .where(like(auctionListings.externalId, 'facet-proof-%'));
+  await database.delete(domains).where(like(domains.name, 'facet-proof.t%'));
+  await database.batch(refreshListingFacetsQueries(database));
+}
+
 function godaddyListing(
   externalId: string,
   domainName: string,
@@ -477,9 +587,16 @@ async function proveGodaddyFeedStorage(
     'seo_metrics_row_shape',
   );
 
+  // Facets are rebuilt when a sync succeeds, so a still-running run's new
+  // auction type is filterable before it is offered as an option.
+  const buyNowBeforeRebuild = await query({ type: 'buy_now' });
+  await database.batch(refreshListingFacetsQueries(database));
   const buyNow = await query({ type: 'buy_now' });
   assertIntegration(
-    buyNow.total === 1 && buyNow.auctionTypes.includes('buy_now'),
+    buyNowBeforeRebuild.total === 1 &&
+      !buyNowBeforeRebuild.auctionTypes.includes('buy_now') &&
+      buyNow.total === 1 &&
+      buyNow.auctionTypes.includes('buy_now'),
     'buy_now_type_filter',
   );
 
@@ -613,6 +730,18 @@ async function proveCloudFeedSync(
     return { ...outcome, steps, stagedObjects };
   };
 
+  const facetsAt = async () =>
+    queryDomainListingsWithDatabase(
+      parseDomainTableFilters({}),
+      database,
+      QUERY_NOW,
+    );
+  const beforeSync = await facetsAt();
+  // One active listing of another provider, which GoDaddy's rebuild must keep.
+  const dynadot = createD1IngestionStorage(database, 'dynadot');
+  await dynadot.upsertListings(await dynadot.startRun(STARTED_AT), [
+    listing('cloud-other', 'cloud-other.integration.test', 100),
+  ]);
   const records = Array.from({ length: 2_500 }, (_, index) =>
     inventedFeedRecord(index),
   );
@@ -645,6 +774,16 @@ async function proveCloudFeedSync(
   assertIntegration(
     stored?.value === 2_500 && metrics?.semrushAs === 9,
     'cloud_feed_stored',
+  );
+  // The Workflow's successful finalization rebuilt the facet values for
+  // every provider, not only the one that finished.
+  const afterSync = await facetsAt();
+  assertIntegration(
+    !beforeSync.sources.includes('godaddy') &&
+      afterSync.sources.includes('godaddy') &&
+      afterSync.sources.includes('dynadot') &&
+      afterSync.auctionTypes.includes('auction'),
+    `cloud_feed_facets_rebuilt: ${beforeSync.sources.join('+')} -> ${afterSync.sources.join('+')}`,
   );
 
   // More than a tenth of the first page is invalid: the run fails on page 1.
@@ -1389,6 +1528,8 @@ async function runProof(env: IntegrationEnv) {
     externalId: 'unsupported-facet',
     auctionType: 'UNSUPPORTED-TYPE',
   });
+  // These fixtures bypass ingestion, so rebuild the facets as a sync would.
+  await database.batch(refreshListingFacetsQueries(database));
   const boundedFacets = await query({});
   assertIntegration(
     boundedFacets.sources.join(',') === 'dynadot,godaddy,namecheap,namesilo',
@@ -1430,6 +1571,8 @@ async function runProof(env: IntegrationEnv) {
     .from(ingestionRuns)
     .where(eq(ingestionRuns.status, 'succeeded'));
 
+  await proveDerivedNameColumns(database);
+  await proveUncappedTldFacets(database);
   await proveGodaddyFeedStorage(database);
   await proveProviderIsolation(database);
   await proveDomainRatingEnrichment(database);
@@ -1464,6 +1607,8 @@ async function runProof(env: IntegrationEnv) {
     wildcardEscapeProof: true as const,
     godaddyFeedProof: true as const,
     cloudFeedProof: true as const,
+    derivedNameColumnProof: true as const,
+    uncappedTldFacetProof: true as const,
     feedErrorProof: true as const,
   };
 }

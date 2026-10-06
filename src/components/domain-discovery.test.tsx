@@ -1103,4 +1103,40 @@ describe('DomainDiscovery', () => {
       within(navigatedDialog).getByRole('checkbox', { name: 'No digits' }),
     ).not.toBeChecked();
   });
+
+  it('offers and submits every TLD option it is given, even hundreds', async () => {
+    // The local inventory has 479 active TLDs; the facet once returned 250.
+    const tlds = Array.from(
+      { length: 479 },
+      (_, index) => `t${String(index).padStart(3, '0')}`,
+    );
+    render(
+      <DomainDiscovery
+        filters={parseDomainTableFilters({})}
+        result={{
+          rows,
+          total: 2,
+          page: 1,
+          sources: ['dynadot'],
+          auctionTypes: ['expired'],
+          tlds,
+          latestSuccessfulSync: now,
+        }}
+        now={now}
+      />,
+    );
+
+    const input = screen.getByRole('combobox', { name: 'TLD' });
+    input.focus();
+    fireEvent.keyDown(input, { key: 'ArrowDown' });
+    expect(await screen.findAllByRole('option')).toHaveLength(tlds.length);
+    fireEvent.keyDown(input, { key: 'Escape' });
+
+    await toggleComboboxOption('TLD', '.t478');
+    expect(comboboxChips('TLD')).toEqual(['.t478']);
+    const form = screen.getByRole('form', {
+      name: 'Domain filters',
+    }) as HTMLFormElement;
+    expect(new FormData(form).getAll('tld')).toEqual(['t478']);
+  });
 });
