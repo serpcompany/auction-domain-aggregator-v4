@@ -3,11 +3,14 @@
 // its step runner and bindings as arguments so it is tested directly.
 //
 //   [stage feed]                  file feeds only: zip -> R2 page files
+//   start run                     a new running row in D1
 //   sync pages, segment 1..n      runSyncSegment over 20 pages per step
 //   [delete staged pages]         file feeds only, also after a failure
 //
-// Each completed step's result is persisted by Workflows. A step interrupted
-// by the platform is retried; a sync step resumes from the run's
+// Each completed step's result is persisted by Workflows. A step may run
+// again: after a retryable error, or when the platform interrupts it before
+// its result is persisted. Re-staging rewrites the same page keys, starting
+// again interrupts the earlier run, and a sync step resumes the run from its
 // server-owned `next_page` in D1. A sync error has already marked the run
 // failed, so it is not retried within the instance.
 import { drizzle } from 'drizzle-orm/d1';
@@ -27,9 +30,14 @@ import {
   feedPagesPrefix,
   type FeedPageBucket,
 } from './feed-pages';
-import { FeedError, stageZippedFeed } from './feed-stage';
+import {
+  feedErrorCode,
+  stageZippedFeed,
+  type FeedErrorCode,
+} from './feed-stage';
 import {
   runSyncSegment,
+  startSyncRun,
   SyncError,
   type IngestionStorage,
   type SyncSummary,
@@ -80,11 +88,12 @@ const SEGMENT_PAGES = 20;
 const FEED_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
 const FEED_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
 const FEED_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024 * 1024;
-// A truncated or failed download may succeed on retry; a malformed or
-// oversized feed will not.
-const RETRYABLE_FEED_ERRORS = new Set([
+// A failed or truncated download, or a failed page write, may succeed on
+// retry; an unsupported, malformed, or oversized feed will not.
+const RETRYABLE_FEED_ERRORS = new Set<FeedErrorCode>([
   'feed_download_failed',
   'feed_extract_failed',
+  'feed_page_write_failed',
 ]);
 
 type SegmentOutcome =
@@ -147,13 +156,17 @@ export async function runProviderSync({
             pageSize: fileFeed.pageSize,
             maxArchiveBytes: FEED_ARCHIVE_MAX_BYTES,
             maxDocumentBytes: FEED_DOCUMENT_MAX_BYTES,
+            limits: {
+              maxPages: fileFeed.maxPages,
+              maxPageBytes: fileFeed.maxPageBytes,
+            },
             timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
             sink: createR2PageSink(bucket, prefix),
             fetchImpl: dependencies.fetchImpl,
           });
         } catch (error) {
-          const code =
-            error instanceof FeedError ? error.code : 'feed_stage_failed';
+          const code = feedErrorCode(error);
+          if (!code) throw nonRetryable('feed_stage_failed');
           throw RETRYABLE_FEED_ERRORS.has(code)
             ? new Error(code)
             : nonRetryable(code);
@@ -161,7 +174,15 @@ export async function runProviderSync({
       });
     }
 
-    let runId: number | undefined;
+    // A failure here (a D1 error) changed nothing that a retry would not
+    // replace, so it is retried.
+    let runId = await step.do('start run', SYNC_STEP, async () => {
+      try {
+        return await startSyncRun(storage);
+      } catch {
+        throw new Error('sync_failed');
+      }
+    });
     for (let segment = 1; ; segment += 1) {
       const outcome = await step.do(
         `sync pages, segment ${segment}`,
@@ -176,10 +197,11 @@ export async function runProviderSync({
               ? { done: true, summary: result.summary }
               : { done: false, runId: result.run.runId };
           } catch (error) {
-            // The run is already marked failed with this code.
-            throw nonRetryable(
-              error instanceof SyncError ? error.code : 'sync_failed',
-            );
+            // A SyncError is final: the run is already marked failed with
+            // its code, or is no longer running. Any other error came from
+            // loading the run before a page was read, so it is retried.
+            if (error instanceof SyncError) throw nonRetryable(error.code);
+            throw new Error('sync_failed');
           }
         },
       );

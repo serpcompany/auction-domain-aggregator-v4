@@ -10,12 +10,20 @@
 // Only web-platform APIs are used. Records are copied as raw JSON bytes and
 // validated later by the provider adapter, one record at a time.
 
-export type FeedErrorCode =
-  | 'feed_download_failed'
-  | 'feed_too_large'
-  | 'feed_extract_failed'
-  | 'feed_parse_error'
-  | 'feed_empty';
+// `feed_download_failed`, `feed_extract_failed` (a truncated or corrupt
+// download) and `feed_page_write_failed` may succeed on a retry; the others
+// describe the feed itself and will not.
+const FEED_ERROR_CODES = [
+  'feed_download_failed',
+  'feed_too_large',
+  'feed_extract_failed',
+  'feed_unsupported_archive',
+  'feed_parse_error',
+  'feed_empty',
+  'feed_page_write_failed',
+] as const;
+
+export type FeedErrorCode = (typeof FEED_ERROR_CODES)[number];
 
 export class FeedError extends Error {
   readonly code: FeedErrorCode;
@@ -25,6 +33,23 @@ export class FeedError extends Error {
     this.name = 'FeedError';
     this.code = code;
   }
+}
+
+// The code of a FeedError, or null for any other error. workerd re-creates an
+// error that passes through a native stream such as DecompressionStream, so
+// it is no longer a FeedError instance there; its name and code survive.
+export function feedErrorCode(error: unknown): FeedErrorCode | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  return name === 'FeedError' &&
+    (FEED_ERROR_CODES as readonly unknown[]).includes(code)
+    ? (code as FeedErrorCode)
+    : null;
+}
+
+// The FeedError `error` stands for, or a new one with `fallback`.
+function asFeedError(error: unknown, fallback: FeedErrorCode) {
+  return new FeedError(feedErrorCode(error) ?? fallback);
 }
 
 // Cancelling a stream that has already failed rejects; the original failure
@@ -137,12 +162,15 @@ async function readLocalHeader(
   const size = view.getUint32(18, true);
   const nameLength = view.getUint16(26, true);
   const extraLength = view.getUint16(28, true);
+  // Anything but a zip (an error page, a cut-off body) may be transient.
+  if (view.getUint32(0, true) !== LOCAL_FILE_HEADER) {
+    throw new FeedError('feed_extract_failed');
+  }
   if (
-    view.getUint32(0, true) !== LOCAL_FILE_HEADER ||
     flags & FLAG_ENCRYPTED ||
     (method !== METHOD_STORED && method !== METHOD_DEFLATE)
   ) {
-    throw new FeedError('feed_extract_failed');
+    throw new FeedError('feed_unsupported_archive');
   }
 
   const headerLength = LOCAL_HEADER_BYTES + nameLength + extraLength;
@@ -154,16 +182,22 @@ async function readLocalHeader(
     header.subarray(LOCAL_HEADER_BYTES, LOCAL_HEADER_BYTES + nameLength),
   );
   // The archive's first entry must be the expected document.
-  if (name !== entry) throw new FeedError('feed_extract_failed');
+  if (name !== entry) throw new FeedError('feed_unsupported_archive');
   const extra = header.subarray(LOCAL_HEADER_BYTES + nameLength, headerLength);
   input.consume(headerLength);
 
+  // With a data descriptor, the local header's sizes are not reliable:
+  // streaming writers leave them 0, or 0xFFFFFFFF with a zip64 field of 0.
+  // The central directory has the real size.
+  if (flags & FLAG_DATA_DESCRIPTOR) {
+    return { method, compressedSize: null, headerLength };
+  }
   let compressedSize: number | null = size;
   if (size === ZIP64_MARKER) {
     compressedSize = zip64CompressedSize(extra);
-    if (compressedSize === null) throw new FeedError('feed_extract_failed');
-  } else if (flags & FLAG_DATA_DESCRIPTOR && size === 0) {
-    compressedSize = null;
+    if (compressedSize === null) {
+      throw new FeedError('feed_unsupported_archive');
+    }
   }
   return { method, compressedSize, headerLength };
 }
@@ -198,7 +232,13 @@ function centralDirectorySize(tail: Uint8Array, tailOffset: number) {
   const view = new DataView(tail.buffer, tail.byteOffset, tail.byteLength);
   for (let end = tail.byteLength - 22; end >= 0; end -= 1) {
     if (view.getUint32(end, true) !== END_OF_CENTRAL_DIRECTORY) continue;
-    const entry = view.getUint32(end + 16, true) - tailOffset;
+    const offset = view.getUint32(end + 16, true);
+    // Zip64 end records and directory sizes are not read. GoDaddy's archive
+    // is far below 4 GiB, so it does not need them.
+    if (offset === ZIP64_MARKER) {
+      throw new FeedError('feed_unsupported_archive');
+    }
+    const entry = offset - tailOffset;
     if (
       entry < 0 ||
       entry + 46 > end ||
@@ -207,7 +247,9 @@ function centralDirectorySize(tail: Uint8Array, tailOffset: number) {
     ) {
       break;
     }
-    return view.getUint32(entry + 20, true);
+    const size = view.getUint32(entry + 20, true);
+    if (size === ZIP64_MARKER) throw new FeedError('feed_unsupported_archive');
+    return size;
   }
   throw new FeedError('feed_extract_failed');
 }
@@ -257,7 +299,8 @@ function streamFrom(chunks: AsyncGenerator<Uint8Array>) {
         if (done) controller.close();
         else controller.enqueue(value);
       } catch (error) {
-        controller.error(error);
+        // A raw error here is the download failing mid-archive.
+        controller.error(asFeedError(error, 'feed_download_failed'));
       }
     },
     async cancel() {
@@ -280,7 +323,8 @@ export async function openZipEntry(
     local = await readLocalHeader(input, entry);
   } catch (error) {
     await input.cancel();
-    throw error;
+    // A raw error is the download failing while the header is read.
+    throw asFeedError(error, 'feed_download_failed');
   }
   if (
     local.compressedSize !== null &&
@@ -358,10 +402,12 @@ export type RawElement = Uint8Array[];
 // is scanned as bytes without decoding. Other members are skipped. The
 // scanner checks the document's outer structure and string and bracket
 // nesting only; element contents are copied verbatim and fully parsed when
-// their page is read, so a malformed element fails that page.
+// their page is read, so a malformed element fails that page. An element is
+// held until it ends, so one longer than `maxElementBytes` fails the feed.
 export function createJsonArrayScanner(
   field: string,
   onElement: (element: RawElement) => void,
+  maxElementBytes = Number.POSITIVE_INFINITY,
 ) {
   const fieldBytes = new TextEncoder().encode(field);
   let state: ScannerState = 'root';
@@ -376,6 +422,7 @@ export function createJsonArrayScanner(
   let escaped = false;
   let scalar = false;
   let pieces: Uint8Array[] = [];
+  let pieceBytes = 0;
   // Position of the next backslash in the current chunk (-1 for none, -2
   // before the first search), so strings without escapes are skipped with
   // one native search each.
@@ -383,6 +430,12 @@ export function createJsonArrayScanner(
 
   const fail = (): never => {
     throw new FeedError('feed_parse_error');
+  };
+
+  const keep = (piece: Uint8Array) => {
+    pieceBytes += piece.byteLength;
+    if (pieceBytes > maxElementBytes) throw new FeedError('feed_too_large');
+    pieces.push(piece);
   };
 
   // Starts a value whose first byte is `byte`.
@@ -479,13 +532,14 @@ export function createJsonArrayScanner(
       if (state === 'in-item' || state === 'in-member') {
         const end = scanValue(chunk, index);
         if (end === -1) {
-          if (state === 'in-item') pieces.push(chunk.subarray(itemStart));
+          if (state === 'in-item') keep(chunk.subarray(itemStart));
           return;
         }
         if (state === 'in-item') {
-          pieces.push(chunk.subarray(itemStart, end));
+          keep(chunk.subarray(itemStart, end));
           const element = pieces;
           pieces = [];
+          pieceBytes = 0;
           onElement(element);
           state = 'after-item';
         } else {
@@ -568,7 +622,7 @@ export function createJsonArrayScanner(
       index += 1;
     }
     // An element that began on this chunk's last byte.
-    if (state === 'in-item') pieces.push(chunk.subarray(itemStart));
+    if (state === 'in-item') keep(chunk.subarray(itemStart));
   };
 
   return {
@@ -623,10 +677,24 @@ export function pageBody(
   return body;
 }
 
+export type FeedPageLimits = {
+  // The adapter's limits for reading pages back. A feed beyond them fails
+  // while staging, rather than in every sync that follows.
+  maxPages?: number;
+  maxPageBytes?: number;
+};
+
 // Groups records into pages of `pageSize`. A full page is held back until
 // the next record arrives, so the final page is always marked `isLastPage`,
 // even when the record count is an exact multiple of the page size.
-export function createPageWriter(pageSize: number, sink: FeedPageSink) {
+export function createPageWriter(
+  pageSize: number,
+  sink: FeedPageSink,
+  {
+    maxPages = Number.POSITIVE_INFINITY,
+    maxPageBytes = Number.POSITIVE_INFINITY,
+  }: FeedPageLimits = {},
+) {
   let current: RawElement[] = [];
   let held: RawElement[] | null = null;
   let pages = 0;
@@ -634,7 +702,15 @@ export function createPageWriter(pageSize: number, sink: FeedPageSink) {
 
   const write = async (pageRecords: RawElement[], isLastPage: boolean) => {
     pages += 1;
-    await sink(pages, pageBody(pages, isLastPage, pageRecords));
+    if (pages > maxPages) throw new FeedError('feed_too_large');
+    const body = pageBody(pages, isLastPage, pageRecords);
+    if (body.byteLength > maxPageBytes) throw new FeedError('feed_too_large');
+    try {
+      await sink(pages, body);
+    } catch {
+      // Writing a page again under the same key is safe, so this is retried.
+      throw new FeedError('feed_page_write_failed');
+    }
   };
 
   return {
@@ -672,20 +748,27 @@ export async function writeFeedPages({
   field,
   pageSize,
   maxBytes,
+  limits = {},
   sink,
 }: {
   document: ReadableStream<Uint8Array>;
   field: string;
   pageSize: number;
   maxBytes: number;
+  limits?: FeedPageLimits;
   sink: FeedPageSink;
 }): Promise<FeedPagesSummary> {
-  const writer = createPageWriter(pageSize, sink);
+  const writer = createPageWriter(pageSize, sink, limits);
   const ready: RawElement[][] = [];
-  const scanner = createJsonArrayScanner(field, (element) => {
-    const page = writer.add(element);
-    if (page) ready.push(page);
-  });
+  const scanner = createJsonArrayScanner(
+    field,
+    (element) => {
+      const page = writer.add(element);
+      if (page) ready.push(page);
+    },
+    // A record that cannot fit in a page fails before it is held whole.
+    limits.maxPageBytes,
+  );
   const reader = document.getReader();
   let bytes = 0;
   try {
@@ -694,10 +777,8 @@ export async function writeFeedPages({
       try {
         chunk = await reader.read();
       } catch (error) {
-        // Corrupt deflate data or a truncated download.
-        throw error instanceof FeedError
-          ? error
-          : new FeedError('feed_extract_failed');
+        // A FeedError from the archive, or corrupt deflate data.
+        throw asFeedError(error, 'feed_extract_failed');
       }
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
@@ -724,6 +805,7 @@ export async function stageZippedFeed({
   pageSize,
   maxArchiveBytes,
   maxDocumentBytes,
+  limits,
   timeoutMs,
   sink,
   fetchImpl = fetch,
@@ -734,6 +816,7 @@ export async function stageZippedFeed({
   pageSize: number;
   maxArchiveBytes: number;
   maxDocumentBytes: number;
+  limits?: FeedPageLimits;
   timeoutMs: number;
   sink: FeedPageSink;
   fetchImpl?: typeof fetch;
@@ -767,6 +850,7 @@ export async function stageZippedFeed({
     field,
     pageSize,
     maxBytes: maxDocumentBytes,
+    limits,
     sink,
   });
 }

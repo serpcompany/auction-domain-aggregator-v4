@@ -23,6 +23,7 @@ import { queryDomainListingsWithDatabase } from '../queries/domain-listings-quer
 import { SyncError } from './sync';
 import { enrichDomainRatings } from '../enrichment/domain-rating';
 import { createD1IngestionStorage } from './d1-storage';
+import { feedErrorCode, stageZippedFeed } from './feed-stage';
 import { runProviderSync } from './provider-sync-workflow';
 import { buildZipFixture } from './zip-fixture';
 import { GODADDY_FEED_ENTRY } from '../providers/godaddy';
@@ -747,7 +748,7 @@ async function proveCloudFeedSync(
       succeeded.summary.recordsRejected === 0 &&
       succeeded.stagedObjects === 3 &&
       succeeded.steps.join('|') ===
-        'stage feed|sync pages, segment 1|delete staged pages' &&
+        'stage feed|start run|sync pages, segment 1|delete staged pages' &&
       (await cloudFeedObjects(env.FEED_PAGES)) === 0,
     'cloud_feed_synced',
   );
@@ -811,6 +812,62 @@ async function proveCloudFeedSync(
       failedRun.failedPage === 1 &&
       stillActive?.value === 2_500,
     'cloud_feed_failure_contained',
+  );
+}
+
+// workerd re-creates an error that passes through DecompressionStream, so a
+// staging failure raised inside the archive must keep its code there.
+async function proveFeedErrorCodes() {
+  const text = JSON.stringify({
+    meta: {},
+    data: Array.from({ length: 2_500 }, (_, index) =>
+      inventedFeedRecord(index),
+    ),
+  });
+  const stage = async (body: BodyInit) => {
+    try {
+      await stageZippedFeed({
+        url: 'https://feed.invalid/feed.zip',
+        entry: GODADDY_FEED_ENTRY,
+        field: 'data',
+        pageSize: 1_000,
+        maxArchiveBytes: 1e8,
+        maxDocumentBytes: 1e9,
+        timeoutMs: 10_000,
+        sink: async () => undefined,
+        fetchImpl: (async () => new Response(body)) as typeof fetch,
+      });
+      return 'staged';
+    } catch (error) {
+      return feedErrorCode(error) ?? 'unknown';
+    }
+  };
+
+  // The connection drops halfway through a deflated entry.
+  const zip = await buildZipFixture(text, { entry: GODADDY_FEED_ENTRY });
+  const dropped = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(zip.slice(0, zip.byteLength / 2));
+    },
+    pull(controller) {
+      controller.error(new Error('connection reset'));
+    },
+  });
+  // A zip64 compressed size in the central directory of a streamed entry.
+  const described = await buildZipFixture(text, {
+    entry: GODADDY_FEED_ENTRY,
+    dataDescriptor: true,
+  });
+  const view = new DataView(described.buffer);
+  const central = view.getUint32(described.byteLength - 22 + 16, true);
+  view.setUint32(central + 20, 0xffffffff, true);
+
+  const droppedCode = await stage(dropped);
+  const zip64Code = await stage(described);
+  assertIntegration(
+    droppedCode === 'feed_download_failed' &&
+      zip64Code === 'feed_unsupported_archive',
+    `feed_error_codes_lost: ${droppedCode}, ${zip64Code}`,
   );
 }
 
@@ -1514,6 +1571,7 @@ async function runProof(env: IntegrationEnv) {
   await proveDomainRatingEnrichment(database);
   await proveReconciliationSafety(database, storage);
   await proveCloudFeedSync(env, database);
+  await proveFeedErrorCodes();
 
   return {
     status: 'succeeded' as const,
@@ -1544,6 +1602,7 @@ async function runProof(env: IntegrationEnv) {
     cloudFeedProof: true as const,
     derivedNameColumnProof: true as const,
     uncappedTldFacetProof: true as const,
+    feedErrorProof: true as const,
   };
 }
 

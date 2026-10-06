@@ -47,6 +47,7 @@ type ProofSummary = {
   cloudFeedProof: true;
   derivedNameColumnProof: true;
   uncappedTldFacetProof: true;
+  feedErrorProof: true;
 };
 
 function fixedError(code: string) {
@@ -163,6 +164,7 @@ function parseSummary(value: unknown): ProofSummary {
     cloudFeedProof: true,
     derivedNameColumnProof: true,
     uncappedTldFacetProof: true,
+    feedErrorProof: true,
   } as const;
   const mismatched = Object.entries(expected)
     .filter(([key, expectedValue]) => summary[key] !== expectedValue)
