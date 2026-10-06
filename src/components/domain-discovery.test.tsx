@@ -223,9 +223,8 @@ describe('DomainDiscovery', () => {
     expect(within(table).getByText('$12.50')).toBeInTheDocument();
     expect(within(table).getByText('$12 renewal')).toBeInTheDocument();
     expect(within(table).getByText('3 bids')).toBeInTheDocument();
-    expect(within(table).getByText('2 bidders')).toBeInTheDocument();
     expect(within(table).getByText('0 bids')).toBeInTheDocument();
-    expect(within(table).queryByText(/0 bidders/)).not.toBeInTheDocument();
+    expect(within(table).queryByText(/bidder/)).not.toBeInTheDocument();
     expect(within(table).getByLabelText('20 visitors')).toHaveTextContent(
       '20 visitors',
     );
@@ -538,7 +537,7 @@ describe('DomainDiscovery', () => {
   it('offers one clear path when any filter produces an empty result', () => {
     render(
       <DomainDiscovery
-        filters={parseDomainTableFilters({ biddersMin: '2' })}
+        filters={parseDomainTableFilters({ bidsMin: '2' })}
         result={{
           rows: [],
           total: 0,
@@ -607,7 +606,6 @@ describe('DomainDiscovery', () => {
     expect(screen.getByText('Ended 12m ago')).toHaveClass('text-destructive');
     expect(screen.getByText('digits')).toBeInTheDocument();
     expect(screen.getByText('1 bid')).toBeInTheDocument();
-    expect(screen.getByText('1 bidder')).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: 'Price' })).toHaveAttribute(
       'aria-sort',
       'ascending',
@@ -681,7 +679,6 @@ describe('DomainDiscovery', () => {
       renewalMax: '18.50',
       endingWithin: '24h',
       bidsMin: '5',
-      biddersMin: '2',
       visitorsMin: '10',
       linksMin: '20',
       appraisalMin: '1000',
@@ -726,7 +723,7 @@ describe('DomainDiscovery', () => {
     expect(screen.getByLabelText('Max current bid')).toHaveValue(450);
     expect(screen.getByText('TLD: .com, .org')).toBeInTheDocument();
 
-    const more = screen.getByRole('button', { name: /More filters 12/ });
+    const more = screen.getByRole('button', { name: /More filters 11/ });
     expect(more).toHaveAttribute('aria-expanded', 'false');
     fireEvent.click(more);
 

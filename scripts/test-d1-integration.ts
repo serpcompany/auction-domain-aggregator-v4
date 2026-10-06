@@ -34,7 +34,7 @@ type ProofSummary = {
   secondPageCount: 1;
   successfulRunCount: 2;
   expandedFilterProof: true;
-  sortCount: 12;
+  sortCount: 11;
   facetTldCount: 4;
   nullSemantics: true;
   categoryBindCap: 64;
@@ -147,7 +147,7 @@ function parseSummary(value: unknown): ProofSummary {
     secondPageCount: 1,
     successfulRunCount: 2,
     expandedFilterProof: true,
-    sortCount: 12,
+    sortCount: 11,
     facetTldCount: 4,
     nullSemantics: true,
     categoryBindCap: 64,

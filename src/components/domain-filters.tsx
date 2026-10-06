@@ -271,7 +271,6 @@ function PreservedAdvancedFilters({
         : majorMoney(filters.renewalMaxCents),
     ],
     ['bidsMin', filters.bidsMin],
-    ['biddersMin', filters.biddersMin],
     ['visitorsMin', filters.visitorsMin],
     ['linksMin', filters.linksMin],
     ['majesticTfMin', filters.majesticTfMin],
@@ -498,12 +497,6 @@ function ActivityFilterGroup({ filters }: { filters: DomainTableFilters }) {
           label="Minimum bids"
           name="bidsMin"
           defaultValue={filters.bidsMin}
-        />
-        <NumberField
-          id="bidders-min"
-          label="Minimum bidders"
-          name="biddersMin"
-          defaultValue={filters.biddersMin}
         />
         <NumberField
           id="visitors-min"

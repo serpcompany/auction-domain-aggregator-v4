@@ -171,9 +171,6 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
   if (filters.bidsMin !== undefined) {
     conditions.push(gte(auctionListings.bidCount, filters.bidsMin));
   }
-  if (filters.biddersMin !== undefined) {
-    conditions.push(gte(auctionListings.bidderCount, filters.biddersMin));
-  }
   if (filters.ageMin !== undefined) {
     conditions.push(gte(auctionListings.ageYears, filters.ageMin));
   }
@@ -242,7 +239,6 @@ function listingOrder(filters: DomainTableFilters) {
     source: auctionListings.provider,
     price: auctionListings.currentBidCents,
     bids: auctionListings.bidCount,
-    bidders: auctionListings.bidderCount,
     endsAt: auctionListings.endsAt,
     age: auctionListings.ageYears,
     links: auctionListings.inboundLinks,
@@ -254,7 +250,6 @@ function listingOrder(filters: DomainTableFilters) {
   const column = columns[filters.sort];
   const order = filters.direction === 'desc' ? desc : asc;
   const nullBearing = [
-    'bidders',
     'age',
     'links',
     'visitors',

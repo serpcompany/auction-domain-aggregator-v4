@@ -37,7 +37,6 @@ describe('domain table filters', () => {
       priceMinCents: undefined,
       priceMaxCents: undefined,
       bidsMin: undefined,
-      biddersMin: undefined,
       ageMin: undefined,
       ageMax: undefined,
       linksMin: undefined,
@@ -70,7 +69,6 @@ describe('domain table filters', () => {
         priceMin: '500.5',
         priceMax: '12.34',
         bidsMin: '2',
-        biddersMin: '3',
         ageMin: '25',
         ageMax: '4',
         linksMin: '10',
@@ -98,7 +96,6 @@ describe('domain table filters', () => {
       priceMinCents: 1234,
       priceMaxCents: 50050,
       bidsMin: 2,
-      biddersMin: 3,
       ageMin: 4,
       ageMax: 25,
       linksMin: 10,
@@ -143,7 +140,6 @@ describe('domain table filters', () => {
       priceMin: '-1',
       priceMax: '1.234',
       bidsMin: '1e2',
-      biddersMin: '99999999999999999',
       ageMin: 'NaN',
       ageMax: '',
       linksMin: '-2',
@@ -204,7 +200,6 @@ describe('domain table links and sort direction', () => {
     priceMin: '12.34',
     priceMax: '500.50',
     bidsMin: '2',
-    biddersMin: '3',
     ageMin: '4',
     ageMax: '25',
     linksMin: '10',
@@ -237,7 +232,6 @@ describe('domain table links and sort direction', () => {
       priceMin: '12.34',
       priceMax: '500.50',
       bidsMin: '2',
-      biddersMin: '3',
       ageMin: '4',
       ageMax: '25',
       linksMin: '10',
@@ -271,7 +265,6 @@ describe('domain table links and sort direction', () => {
       priceMinCents: undefined,
       priceMaxCents: undefined,
       bidsMin: undefined,
-      biddersMin: undefined,
       ageMin: undefined,
       ageMax: undefined,
       linksMin: undefined,
@@ -431,7 +424,6 @@ describe('domain table filter summaries', () => {
     renewalMax: '18',
     endingWithin: '24h',
     bidsMin: '5',
-    biddersMin: '2',
     visitorsMin: '10',
     linksMin: '20',
     appraisalMin: '1000',
@@ -471,7 +463,7 @@ describe('domain table filter summaries', () => {
   });
 
   it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(16);
+    expect(countAdvancedDomainTableFilters(active)).toBe(15);
     expect(
       countAdvancedDomainTableFilters(
         parseDomainTableFilters({
@@ -501,7 +493,6 @@ describe('domain table filter summaries', () => {
       'Renewal: up to $18',
       'Ends: next 24 hours',
       'Bids: 5+',
-      'Bidders: 2+',
       'Visitors: 10+',
       'Links: 20+',
       'Appraisal: $1,000+',
