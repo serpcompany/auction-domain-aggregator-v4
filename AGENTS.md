@@ -37,7 +37,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `.node-version` pins the
 - `corepack pnpm db:generate`: generate a migration after an intentional Drizzle schema change.
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
-- `corepack pnpm sync <provider>`: migrate and manually synchronize one implemented provider (currently `dynadot`; `sync:dynadot` is an alias) into local D1 using `.secrets/providers.env`.
+- `corepack pnpm sync <provider>`: migrate and manually synchronize one implemented provider into local D1. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` needs no credentials: it downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped, about 4 minutes end to end) and needs the system `unzip`. GoDaddy content is licensed for the owner's internal use only.
 - `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
