@@ -30,7 +30,11 @@ import {
   feedPagesPrefix,
   type FeedPageBucket,
 } from './feed-pages';
-import { FeedError, stageZippedFeed, type FeedErrorCode } from './feed-stage';
+import {
+  feedErrorCode,
+  stageZippedFeed,
+  type FeedErrorCode,
+} from './feed-stage';
 import {
   runSyncSegment,
   startSyncRun,
@@ -161,12 +165,11 @@ export async function runProviderSync({
             fetchImpl: dependencies.fetchImpl,
           });
         } catch (error) {
-          if (!(error instanceof FeedError)) {
-            throw nonRetryable('feed_stage_failed');
-          }
-          throw RETRYABLE_FEED_ERRORS.has(error.code)
-            ? new Error(error.code)
-            : nonRetryable(error.code);
+          const code = feedErrorCode(error);
+          if (!code) throw nonRetryable('feed_stage_failed');
+          throw RETRYABLE_FEED_ERRORS.has(code)
+            ? new Error(code)
+            : nonRetryable(code);
         }
       });
     }

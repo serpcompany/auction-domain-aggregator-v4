@@ -6,6 +6,7 @@ import {
   createPageWriter,
   FEED_USER_AGENT,
   FeedError,
+  feedErrorCode,
   openZipEntry,
   pageBody,
   stageZippedFeed,
@@ -523,19 +524,52 @@ describe('feed pages', () => {
   });
 
   it('fails a record too large for a page before holding it whole', async () => {
+    const encoder = new TextEncoder();
     const record = `{"padding":"${'x'.repeat(200)}"}`;
-    const document = (records: string[]) =>
-      streamOf(new TextEncoder().encode(`{"data":[${records.join(',')}]}`), 16);
-    const elements = vi.fn();
-    const scanner = createJsonArrayScanner('data', elements, 100);
-    expect(() =>
-      scanner.push(new TextEncoder().encode(`{"data":[${record}`)),
-    ).toThrow(new FeedError('feed_too_large'));
-    expect(elements).not.toHaveBeenCalled();
+    // Fed in 16-byte chunks, as decompressed output arrives in many chunks,
+    // so the cap only fires if it counts across them.
+    const pushChunks = (text: string, cap: number) => {
+      const elements: number[] = [];
+      const scanner = createJsonArrayScanner(
+        'data',
+        (element) =>
+          elements.push(element.reduce((sum, p) => sum + p.byteLength, 0)),
+        cap,
+      );
+      const bytes = encoder.encode(text);
+      for (let offset = 0; offset < bytes.byteLength; offset += 16) {
+        scanner.push(bytes.subarray(offset, offset + 16));
+      }
+      scanner.end();
+      return elements;
+    };
+    expect(() => pushChunks(`{"data":[${record}]}`, 100)).toThrow(
+      new FeedError('feed_too_large'),
+    );
+    // The skipped `meta` member is not capped, and a record at the cap fits.
+    const fits = `{"a":"${'y'.repeat(92)}"}`;
+    expect(fits.length).toBe(100);
+    expect(pushChunks(`{"meta":${record},"data":[${fits},1]}`, 100)).toEqual([
+      100, 1,
+    ]);
 
+    // `writeFeedPages` passes the page limit to the scanner, so the record
+    // fails while it is still arriving, before the download's own failure.
+    const truncated = encoder.encode(`{"data":[1,${record}`);
+    let offset = 0;
+    const arriving = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= truncated.byteLength) {
+          controller.error(new FeedError('feed_download_failed'));
+          return;
+        }
+        controller.enqueue(truncated.slice(offset, offset + 16));
+        offset += 16;
+      },
+    });
     await expect(
       writeFeedPages({
-        document: document(['1', record]),
+        document: arriving,
         field: 'data',
         pageSize: 3,
         maxBytes: 1e6,
@@ -543,16 +577,43 @@ describe('feed pages', () => {
         sink: async () => undefined,
       }),
     ).rejects.toThrow(new FeedError('feed_too_large'));
-    await expect(
-      writeFeedPages({
-        document: document(['1', '2']),
-        field: 'data',
-        pageSize: 3,
-        maxBytes: 1e6,
-        limits: { maxPageBytes: 100 },
-        sink: async () => undefined,
-      }),
-    ).resolves.toEqual({ pages: 1, records: 2 });
+  });
+
+  it('keeps the code of a FeedError that a native stream re-created', async () => {
+    // How workerd delivers a FeedError after DecompressionStream: not an
+    // instance, but with its name and code.
+    const recreated = (code: string) =>
+      Object.assign(new Error(code), { name: 'FeedError', code });
+    expect(feedErrorCode(new FeedError('feed_empty'))).toBe('feed_empty');
+    expect(feedErrorCode(recreated('feed_download_failed'))).toBe(
+      'feed_download_failed',
+    );
+    expect(feedErrorCode(recreated('not_a_feed_code'))).toBeNull();
+    expect(feedErrorCode(new Error('feed_empty'))).toBeNull();
+    expect(feedErrorCode('feed_empty')).toBeNull();
+    expect(feedErrorCode(null)).toBeNull();
+
+    const failing = (error: Error) =>
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(error);
+        },
+      });
+    for (const [error, expected] of [
+      [recreated('feed_download_failed'), 'feed_download_failed'],
+      [recreated('feed_unsupported_archive'), 'feed_unsupported_archive'],
+      [recreated('not_a_feed_code'), 'feed_extract_failed'],
+    ] as const) {
+      await expect(
+        writeFeedPages({
+          document: failing(error),
+          field: 'data',
+          pageSize: 3,
+          maxBytes: 1e6,
+          sink: async () => undefined,
+        }),
+      ).rejects.toThrow(new FeedError(expected));
+    }
   });
 });
 

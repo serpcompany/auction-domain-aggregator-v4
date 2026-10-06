@@ -13,14 +13,17 @@
 // `feed_download_failed`, `feed_extract_failed` (a truncated or corrupt
 // download) and `feed_page_write_failed` may succeed on a retry; the others
 // describe the feed itself and will not.
-export type FeedErrorCode =
-  | 'feed_download_failed'
-  | 'feed_too_large'
-  | 'feed_extract_failed'
-  | 'feed_unsupported_archive'
-  | 'feed_parse_error'
-  | 'feed_empty'
-  | 'feed_page_write_failed';
+const FEED_ERROR_CODES = [
+  'feed_download_failed',
+  'feed_too_large',
+  'feed_extract_failed',
+  'feed_unsupported_archive',
+  'feed_parse_error',
+  'feed_empty',
+  'feed_page_write_failed',
+] as const;
+
+export type FeedErrorCode = (typeof FEED_ERROR_CODES)[number];
 
 export class FeedError extends Error {
   readonly code: FeedErrorCode;
@@ -30,6 +33,23 @@ export class FeedError extends Error {
     this.name = 'FeedError';
     this.code = code;
   }
+}
+
+// The code of a FeedError, or null for any other error. workerd re-creates an
+// error that passes through a native stream such as DecompressionStream, so
+// it is no longer a FeedError instance there; its name and code survive.
+export function feedErrorCode(error: unknown): FeedErrorCode | null {
+  if (typeof error !== 'object' || error === null) return null;
+  const { name, code } = error as { name?: unknown; code?: unknown };
+  return name === 'FeedError' &&
+    (FEED_ERROR_CODES as readonly unknown[]).includes(code)
+    ? (code as FeedErrorCode)
+    : null;
+}
+
+// The FeedError `error` stands for, or a new one with `fallback`.
+function asFeedError(error: unknown, fallback: FeedErrorCode) {
+  return new FeedError(feedErrorCode(error) ?? fallback);
 }
 
 // Cancelling a stream that has already failed rejects; the original failure
@@ -280,11 +300,7 @@ function streamFrom(chunks: AsyncGenerator<Uint8Array>) {
         else controller.enqueue(value);
       } catch (error) {
         // A raw error here is the download failing mid-archive.
-        controller.error(
-          error instanceof FeedError
-            ? error
-            : new FeedError('feed_download_failed'),
-        );
+        controller.error(asFeedError(error, 'feed_download_failed'));
       }
     },
     async cancel() {
@@ -308,9 +324,7 @@ export async function openZipEntry(
   } catch (error) {
     await input.cancel();
     // A raw error is the download failing while the header is read.
-    throw error instanceof FeedError
-      ? error
-      : new FeedError('feed_download_failed');
+    throw asFeedError(error, 'feed_download_failed');
   }
   if (
     local.compressedSize !== null &&
@@ -763,10 +777,8 @@ export async function writeFeedPages({
       try {
         chunk = await reader.read();
       } catch (error) {
-        // Corrupt deflate data or a truncated download.
-        throw error instanceof FeedError
-          ? error
-          : new FeedError('feed_extract_failed');
+        // A FeedError from the archive, or corrupt deflate data.
+        throw asFeedError(error, 'feed_extract_failed');
       }
       if (chunk.done) break;
       bytes += chunk.value.byteLength;
