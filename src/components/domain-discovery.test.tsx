@@ -20,6 +20,40 @@ vi.mock('next/navigation', () => ({
 }));
 
 afterEach(cleanup);
+
+// Stock shadcn combobox and select helpers. Base UI opens the combobox from
+// the keyboard and selects a select item on a full pointer sequence.
+function comboboxChips(label: string, container: HTMLElement = document.body) {
+  const input = within(container).getByRole('combobox', { name: label });
+  return [
+    ...input
+      .closest('[data-slot=combobox-chips]')!
+      .querySelectorAll('[data-slot=combobox-chip]'),
+  ].map((chip) => chip.textContent);
+}
+
+async function toggleComboboxOption(
+  label: string,
+  option: string,
+  container: HTMLElement = document.body,
+) {
+  const input = within(container).getByRole('combobox', { name: label });
+  input.focus();
+  fireEvent.keyDown(input, { key: 'ArrowDown' });
+  fireEvent.click(await screen.findByRole('option', { name: option }));
+  fireEvent.keyDown(input, { key: 'Escape' });
+}
+
+async function chooseSelectOption(trigger: HTMLElement, option: string) {
+  fireEvent.click(trigger);
+  const item = await screen.findByRole('option', { name: option });
+  fireEvent.pointerDown(item, { pointerType: 'mouse' });
+  fireEvent.mouseDown(item);
+  fireEvent.pointerUp(item, { pointerType: 'mouse' });
+  fireEvent.mouseUp(item);
+  fireEvent.click(item);
+  await waitFor(() => expect(trigger).toHaveTextContent(option));
+}
 beforeAll(() => {
   // DR enrichment requests from the results table; covered separately.
   vi.stubGlobal(
@@ -111,9 +145,7 @@ describe('DomainDiscovery', () => {
       screen.getByRole('heading', { level: 1, name: 'Domain discovery' }),
     ).toBeInTheDocument();
     expect(screen.getByLabelText('Domain contains')).toHaveValue('garden');
-    expect(
-      screen.getByRole('button', { name: 'Auction source: Dynadot' }),
-    ).toBeInTheDocument();
+    expect(comboboxChips('Auction source')).toEqual(['Dynadot']);
     expect(
       [...document.querySelectorAll('input[name="source"]')].map(
         (input) => (input as HTMLInputElement).value,
@@ -232,11 +264,13 @@ describe('DomainDiscovery', () => {
     }
 
     expect(screen.getByText('Showing 1–50 of 51')).toBeInTheDocument();
-    expect(screen.getByText('Previous')).toHaveAttribute(
+    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute(
       'aria-disabled',
       'true',
     );
-    expect(screen.getByRole('link', { name: 'Next' })).toHaveAttribute(
+    expect(
+      screen.getByRole('link', { name: 'Go to next page' }),
+    ).toHaveAttribute(
       'href',
       '/?q=garden&source=dynadot&sort=endsAt&direction=asc&page=2',
     );
@@ -273,11 +307,14 @@ describe('DomainDiscovery', () => {
     expect(
       screen.getByRole('columnheader', { name: 'Domain' }),
     ).toHaveAttribute('aria-sort', 'descending');
-    expect(screen.getByText('Previous')).toHaveAttribute(
+    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute(
       'aria-disabled',
       'true',
     );
-    expect(screen.getByText('Next')).toHaveAttribute('aria-disabled', 'true');
+    expect(screen.getByLabelText('Go to next page')).toHaveAttribute(
+      'aria-disabled',
+      'true',
+    );
   });
 
   it('warns when the inventory is stale', () => {
@@ -330,6 +367,37 @@ describe('DomainDiscovery', () => {
       expect(link).toHaveAttribute('target', '_blank');
       expect(link.getAttribute('rel')).toContain('noopener');
     }
+  });
+
+  it('keeps unlisted selections visible and omits an "Any time" ending', async () => {
+    render(
+      <DomainDiscovery
+        filters={parseDomainTableFilters({
+          source: 'namejet',
+          endingWithin: '6h',
+        })}
+        result={{
+          rows,
+          total: rows.length,
+          page: 1,
+          sources: ['dynadot'],
+          auctionTypes: ['expired'],
+          tlds: ['com'],
+          latestSuccessfulSync: now,
+        }}
+        now={now}
+      />,
+    );
+
+    // The facet no longer lists NameJet, but the active selection stays.
+    expect(comboboxChips('Auction source')).toEqual(['namejet']);
+
+    const form = screen.getByRole('form', {
+      name: 'Domain filters',
+    }) as HTMLFormElement;
+    expect(new FormData(form).getAll('endingWithin')).toEqual(['6h']);
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Any time');
+    expect(new FormData(form).getAll('endingWithin')).toEqual([]);
   });
 
   it('distinguishes a domain Ahrefs has no rating for from one not fetched yet', () => {
@@ -451,9 +519,9 @@ describe('DomainDiscovery', () => {
     expect(resultsRegion).toHaveAttribute('tabindex', '0');
     expect(resultsRegion).toHaveClass('focus-visible:ring-2');
 
-    expect(screen.getByText('48m')).toHaveClass('text-red-700');
-    expect(screen.getByText('2h 14m')).toHaveClass('text-amber-700');
-    expect(screen.getByText('Ended 12m ago')).toHaveClass('text-red-700');
+    expect(screen.getByText('48m')).toHaveClass('text-destructive');
+    expect(screen.getByText('2h 14m')).toHaveClass('text-warning-foreground');
+    expect(screen.getByText('Ended 12m ago')).toHaveClass('text-destructive');
     expect(screen.getByText('digits')).toBeInTheDocument();
     expect(screen.getByText('1 bid')).toBeInTheDocument();
     expect(screen.getByText('1 bidder')).toBeInTheDocument();
@@ -487,7 +555,7 @@ describe('DomainDiscovery', () => {
     expect(chip).toHaveClass('max-w-full', 'min-w-0');
     expect(chip).toHaveAttribute('title', `Search: ${query}`);
     expect(chip.querySelector('span')).toHaveClass('min-w-0', 'truncate');
-    expect(chip.querySelector('svg')).toHaveClass('shrink-0');
+    expect(chip.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
   });
 
   it('renders the clamped page returned by the query', () => {
@@ -509,10 +577,9 @@ describe('DomainDiscovery', () => {
 
     expect(screen.getByText('Showing 51–51 of 51')).toBeInTheDocument();
     expect(screen.getByText('Page 2')).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Previous' })).toHaveAttribute(
-      'href',
-      '/?sort=endsAt&direction=asc&page=1',
-    );
+    expect(
+      screen.getByRole('link', { name: 'Go to previous page' }),
+    ).toHaveAttribute('href', '/?sort=endsAt&direction=asc&page=1');
   });
 
   it('renders repeated quick selections and accessible grouped advanced filters', async () => {
@@ -568,15 +635,12 @@ describe('DomainDiscovery', () => {
     expect(form.querySelector('input[name="priceMin"]')).toHaveValue('10.25');
     expect(form.querySelector('input[name="renewalMax"]')).toHaveValue('18.50');
     expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveValue('24h');
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
     fireEvent.change(screen.getByLabelText('Max current bid'), {
       target: { value: '450' },
     });
-    fireEvent.change(screen.getByLabelText('Ending'), {
-      target: { value: '6h' },
-    });
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 6 hours');
     expect(screen.getByLabelText('Max current bid')).toHaveValue(450);
-    expect(screen.getByLabelText('Ending')).toHaveValue('6h');
     expect(screen.getByText('TLD: .com, .org')).toBeInTheDocument();
 
     const more = screen.getByRole('button', { name: /More filters 12/ });
@@ -596,20 +660,19 @@ describe('DomainDiscovery', () => {
     expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(
       450,
     );
-    expect(within(dialog).getByLabelText('Ending window')).toHaveValue('6h');
+    expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent(
+      'Next 6 hours',
+    );
     fireEvent.change(within(dialog).getByLabelText('Maximum current bid'), {
       target: { value: '425' },
     });
-    fireEvent.change(within(dialog).getByLabelText('Ending window'), {
-      target: { value: '3d' },
-    });
+    await chooseSelectOption(
+      within(dialog).getByLabelText('Ending window'),
+      'Next 3 days',
+    );
     expect(screen.getByLabelText('Max current bid')).toHaveValue(425);
-    expect(screen.getByLabelText('Ending')).toHaveValue('3d');
-    expect(
-      within(dialog).getByRole('button', {
-        name: 'Auction type: Expired',
-      }),
-    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 3 days');
+    expect(comboboxChips('Auction type', dialog)).toEqual(['Expired']);
     expect(
       within(dialog).getByRole('checkbox', { name: 'No digits' }),
     ).toBeChecked();
@@ -619,17 +682,7 @@ describe('DomainDiscovery', () => {
     fireEvent.click(
       within(dialog).getByRole('checkbox', { name: 'No digits' }),
     );
-    fireEvent.click(
-      within(dialog).getByRole('button', {
-        name: 'Auction type: Expired',
-      }),
-    );
-    const auctionTypeDialog = await screen.findByRole('dialog', {
-      name: 'Auction type',
-    });
-    fireEvent.click(
-      within(auctionTypeDialog).getByRole('checkbox', { name: 'Closeout' }),
-    );
+    await toggleComboboxOption('Auction type', 'Closeout', dialog);
 
     const portalSubmission = new FormData(form);
     expect(portalSubmission.getAll('bidsMin')).toEqual(['7']);
@@ -638,7 +691,7 @@ describe('DomainDiscovery', () => {
     expect(portalSubmission.getAll('type')).toEqual(['expired', 'closeout']);
     expect(portalSubmission.getAll('priceMin')).toEqual(['10.25']);
     expect(portalSubmission.getAll('renewalMax')).toEqual(['18.50']);
-    fireEvent.keyDown(auctionTypeDialog, { key: 'Escape' });
+    expect(portalSubmission.getAll('endingWithin')).toEqual(['3d']);
     expect(
       within(dialog).getByRole('button', { name: 'Dismiss' }),
     ).toBeInTheDocument();
@@ -835,9 +888,10 @@ describe('DomainDiscovery', () => {
       fireEvent.change(within(dialog).getByLabelText('Maximum current bid'), {
         target: { value: '75' },
       });
-      fireEvent.change(within(dialog).getByLabelText('Ending window'), {
-        target: { value: '3d' },
-      });
+      await chooseSelectOption(
+        within(dialog).getByLabelText('Ending window'),
+        'Next 3 days',
+      );
       fireEvent.change(within(dialog).getByLabelText('Minimum current bid'), {
         target: { value: '20' },
       });
@@ -847,24 +901,16 @@ describe('DomainDiscovery', () => {
       fireEvent.click(
         within(dialog).getByRole('checkbox', { name: 'No digits' }),
       );
-      fireEvent.click(
-        within(dialog).getByRole('button', {
-          name: 'Auction type: Expired',
-        }),
-      );
-      const typeDialog = await screen.findByRole('dialog', {
-        name: 'Auction type',
-      });
-      fireEvent.click(
-        within(typeDialog).getByRole('checkbox', { name: 'Expired' }),
-      );
-      fireEvent.keyDown(typeDialog, { key: 'Escape' });
+      await toggleComboboxOption('Auction type', 'Expired', dialog);
+      expect(comboboxChips('Auction type', dialog)).toEqual([]);
     };
     const expectBaseline = (dialog: HTMLElement) => {
       expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(
         500,
       );
-      expect(within(dialog).getByLabelText('Ending window')).toHaveValue('24h');
+      expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent(
+        'Next 24 hours',
+      );
       expect(within(dialog).getByLabelText('Minimum current bid')).toHaveValue(
         10,
       );
@@ -872,11 +918,7 @@ describe('DomainDiscovery', () => {
       expect(
         within(dialog).getByRole('checkbox', { name: 'No digits' }),
       ).toBeChecked();
-      expect(
-        within(dialog).getByRole('button', {
-          name: 'Auction type: Expired',
-        }),
-      ).toBeInTheDocument();
+      expect(comboboxChips('Auction type', dialog)).toEqual(['Expired']);
     };
 
     let dialog = await open();
@@ -884,7 +926,7 @@ describe('DomainDiscovery', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveValue('24h');
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
     dialog = await open();
     expectBaseline(dialog);
 
@@ -892,7 +934,7 @@ describe('DomainDiscovery', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
     expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveValue('24h');
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
     dialog = await open();
     expectBaseline(dialog);
   });
@@ -923,9 +965,7 @@ describe('DomainDiscovery', () => {
     fireEvent.change(screen.getByLabelText('Max current bid'), {
       target: { value: '999' },
     });
-    fireEvent.change(screen.getByLabelText('Ending'), {
-      target: { value: '7d' },
-    });
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 7 days');
     fireEvent.click(screen.getByRole('button', { name: /More filters 2/ }));
     expect(
       await screen.findByRole('dialog', { name: 'More filters' }),
@@ -948,14 +988,10 @@ describe('DomainDiscovery', () => {
       screen.queryByRole('dialog', { name: 'More filters' }),
     ).not.toBeInTheDocument();
     expect(screen.getByLabelText('Domain contains')).toHaveValue('');
-    expect(
-      screen.getByRole('button', { name: 'Auction source: GoDaddy' }),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'TLD: .net' }),
-    ).toBeInTheDocument();
+    expect(comboboxChips('Auction source')).toEqual(['GoDaddy']);
+    expect(comboboxChips('TLD')).toEqual(['.net']);
     expect(screen.getByLabelText('Max current bid')).toHaveValue(25);
-    expect(screen.getByLabelText('Ending')).toHaveValue('1h');
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 1 hour');
     expect(
       screen.getByRole('button', { name: /More filters 1/ }),
     ).toHaveAttribute('aria-expanded', 'false');

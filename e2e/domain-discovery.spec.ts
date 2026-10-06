@@ -39,16 +39,12 @@ test('serves the deterministic domain inventory with a healthy database', async 
     'off',
   );
   await expect(page.getByLabel('Auction source')).toBeVisible();
-  await page.getByRole('button', { name: 'TLD: Any' }).click();
-  await expect(page.getByLabel('Search tld')).toHaveAttribute(
-    'autocomplete',
-    'off',
-  );
-  await expect(page.getByLabel('Search tld')).toHaveAttribute(
-    'placeholder',
-    'Search tld…',
-  );
+  const tld = page.getByRole('combobox', { name: 'TLD' });
+  await expect(tld).toHaveAttribute('placeholder', 'Any TLD');
+  await tld.fill('co');
+  await expect(page.getByRole('option', { name: '.com' })).toBeVisible();
   await page.keyboard.press('Escape');
+  await tld.fill('');
   await expect(
     page.getByRole('button', { name: 'Apply filters', exact: true }),
   ).toBeVisible();
@@ -96,7 +92,8 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
 
   await page.getByLabel('Domain contains').fill('garden');
   await page.getByLabel('Max current bid').fill('30');
-  await page.getByLabel('Ending').selectOption('1h');
+  await page.getByLabel('Ending').click();
+  await page.getByRole('option', { name: 'Next 1 hour' }).click();
   await page
     .getByRole('button', { name: 'Apply filters', exact: true })
     .click();
@@ -149,7 +146,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'q', 'garden');
   await expect(page.getByLabel('Domain contains')).toHaveValue('garden');
   await expect(page.getByLabel('Max current bid')).toHaveValue('30');
-  await expect(page.getByLabel('Ending')).toHaveValue('1h');
+  await expect(page.getByLabel('Ending')).toContainText('Next 1 hour');
   await expect(
     page.getByText('1 active listing', { exact: true }),
   ).toBeVisible();

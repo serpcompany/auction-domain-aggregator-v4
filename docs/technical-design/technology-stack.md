@@ -50,11 +50,11 @@ Use Drizzle ORM 0.44.7 and Drizzle Kit 0.31.x. Keep database construction behind
 
 ### UI components: shadcn/ui
 
-Use shadcn/ui as the component foundation for the Next.js interface. Components added through shadcn become code owned by this repository and may be adapted to the domain-table workflow.
+Follow the SERP web UI rules (serp.co `docs/agents/web.md`, "Rules for UI work"). Build from stock shadcn components first: style `base-nova` on `@base-ui/react`, added with `corepack pnpm exec shadcn add <component>` and kept stock in `src/components/ui/`, styled through `className`. Write a custom component only when shadcn has no equivalent. Color only through the tokens in `src/app/globals.css`, never Tailwind palette colors; add a token when a new color is needed. Check every UI change at 1440px and 390px wide. There is no client table framework (no TanStack): the results use the stock shadcn `Table`.
 
 Do not treat the default appearance of generated components as the product's finished UI design. The first domain-discovery table establishes the current dense, server-rendered application pattern; later UI changes should preserve its accessible table and URL-backed filtering behavior unless a product decision replaces them.
 
-Initialize shadcn/ui against the existing application and add components only as they are needed. The repository currently owns the generated Card, Table, Input, Button, Badge, Checkbox, Popover, Sheet, Scroll Area, and Separator primitives; no client table framework is used.
+Add components only as they are needed. The current set includes Alert, Badge, Button, Card, Checkbox, Combobox, Empty, Field, Input, Input Group, Pagination (container parts only, see below), Select, Sheet, and Table. Page links are Next links styled with `buttonVariants`, because the stock `PaginationLink` renders through a client `Button` that causes a hydration mismatch when used from a server component, and announces page links as buttons.
 
 ### Validation and continuous integration
 
