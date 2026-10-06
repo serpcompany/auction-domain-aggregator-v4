@@ -7,9 +7,17 @@ import {
   parseDomainTableFilters,
   type DomainTableSearchParams,
 } from '../../domain/domain-table';
-import { auctionListings, domains, ingestionRuns } from '../db/schema';
+import {
+  auctionListings,
+  domains,
+  domainSeoMetrics,
+  ingestionRuns,
+} from '../db/schema';
 import * as schema from '../db/schema';
-import type { NormalizedListing } from '../providers/types';
+import type {
+  NormalizedListing,
+  NormalizedSeoMetrics,
+} from '../providers/types';
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query';
 import { SyncError } from './sync';
 import { enrichDomainRatings } from '../enrichment/domain-rating';
@@ -338,6 +346,206 @@ async function proveDomainRatingEnrichment(
       unrated.domainRatingFetched,
     'dr_table_read',
   );
+}
+
+function godaddyListing(
+  externalId: string,
+  domainName: string,
+  seoMetrics?: NormalizedSeoMetrics,
+): NormalizedListing {
+  return {
+    ...listing(externalId, domainName, 1_000),
+    provider: 'godaddy',
+    auctionUrl: `https://example.invalid/godaddy/${externalId}`,
+    auctionType: 'AUCTION',
+    bidderCount: null,
+    endsAt: new Date('2026-07-13T06:00:00.000Z'),
+    inboundLinks: null,
+    renewalPriceCents: null,
+    ...(seoMetrics ? { seoMetrics } : {}),
+  };
+}
+
+async function seoMetricsFor(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+  domainName: string,
+) {
+  const [row] = await database
+    .select()
+    .from(domainSeoMetrics)
+    .where(eq(domainSeoMetrics.domainName, domainName));
+  return row;
+}
+
+// GoDaddy-bound storage writes nullable bidder counts and the feed's
+// domain-level SEO metrics. Metrics are refreshed by each sync that carries
+// them (latest wins), are left alone by listings without them, are guarded by
+// the running run, and drive index-backed table filters.
+async function proveGodaddyFeedStorage(
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const godaddy = createD1IngestionStorage(database, 'godaddy');
+  const metrics = (majesticTf: number): NormalizedSeoMetrics => ({
+    majesticTf,
+    majesticCf: 20,
+    majesticBacklinks: 900,
+    majesticRefDomains: 40,
+    semrushAs: 15,
+    semrushRefDomains: null,
+    semrushBacklinks: 120,
+  });
+
+  const firstStartedAt = new Date('2026-07-13T03:40:00.000Z');
+  const first = await godaddy.startRun(firstStartedAt);
+  await godaddy.upsertListings(first, [
+    godaddyListing('900001', 'seo-feed.integration.test', metrics(10)),
+    // The same domain as a Dynadot listing: metrics are domain-level.
+    godaddyListing('900002', 'garden.com', metrics(30)),
+    {
+      ...godaddyListing('900003', 'seo-buy-now.integration.test'),
+      auctionType: 'BUY_NOW',
+    },
+  ]);
+  const stored = await seoMetricsFor(database, 'seo-feed.integration.test');
+  assertIntegration(
+    stored?.source === 'godaddy' &&
+      stored.majesticTf === 10 &&
+      stored.semrushRefDomains === null &&
+      stored.updatedAt.getTime() === firstStartedAt.getTime() &&
+      (await seoMetricsFor(database, 'seo-buy-now.integration.test')) ===
+        undefined,
+    'seo_metrics_stored',
+  );
+
+  const secondStartedAt = new Date('2026-07-13T03:50:00.000Z');
+  const second = await godaddy.startRun(secondStartedAt);
+  await godaddy.upsertListings(second, [
+    godaddyListing('900001', 'seo-feed.integration.test', metrics(12)),
+    // Without metrics, the stored ones stay as they are.
+    godaddyListing('900002', 'garden.com'),
+  ]);
+  const refreshed = await seoMetricsFor(database, 'seo-feed.integration.test');
+  const untouched = await seoMetricsFor(database, 'garden.com');
+  assertIntegration(
+    refreshed?.majesticTf === 12 &&
+      refreshed.updatedAt.getTime() === secondStartedAt.getTime() &&
+      untouched?.majesticTf === 30 &&
+      untouched.updatedAt.getTime() === firstStartedAt.getTime(),
+    'seo_metrics_latest_wins',
+  );
+
+  // The first run was interrupted by the second, so its writes are stale.
+  let staleRejected = false;
+  try {
+    await godaddy.upsertListings(first, [
+      godaddyListing('900001', 'seo-feed.integration.test', metrics(99)),
+    ]);
+  } catch (error) {
+    staleRejected =
+      error instanceof SyncError && error.code === 'sync_stale_continuation';
+  }
+  assertIntegration(
+    staleRejected &&
+      (await seoMetricsFor(database, 'seo-feed.integration.test'))
+        ?.majesticTf === 12,
+    'seo_metrics_stale_guarded',
+  );
+
+  const query = (searchParams: DomainTableSearchParams) =>
+    queryDomainListingsWithDatabase(
+      parseDomainTableFilters(searchParams),
+      database,
+      QUERY_NOW,
+    );
+  const feedRows = await query({ source: 'godaddy', sort: 'bidders' });
+  const feedRow = feedRows.rows.find(
+    (row) => row.domainName === 'seo-feed.integration.test',
+  );
+  assertIntegration(
+    feedRows.total === 3 &&
+      feedRow?.bidderCount === null &&
+      feedRow.seoMetrics?.majesticTf === 12 &&
+      feedRow.seoMetrics.majesticRefDomains === 40 &&
+      feedRow.seoMetrics.source === 'godaddy' &&
+      feedRows.rows.find(
+        (row) => row.domainName === 'seo-buy-now.integration.test',
+      )?.seoMetrics === null,
+    'seo_metrics_row_shape',
+  );
+
+  const buyNow = await query({ type: 'buy_now' });
+  assertIntegration(
+    buyNow.total === 1 && buyNow.auctionTypes.includes('buy_now'),
+    'buy_now_type_filter',
+  );
+
+  const tf = await query({ majesticTfMin: '11' });
+  const cf = await query({ source: 'godaddy', majesticCfMin: '20' });
+  const refDomains = await query({ majesticRefDomainsMin: '41' });
+  const authority = await query({ source: 'godaddy', semrushAsMin: '15' });
+  // garden.com has both a Dynadot and a GoDaddy listing.
+  assertIntegration(
+    tf.total === 3 &&
+      cf.total === 2 &&
+      refDomains.total === 0 &&
+      authority.total === 2 &&
+      tf.rows.every((row) => (row.seoMetrics?.majesticTf ?? 0) >= 11),
+    'seo_metric_filters',
+  );
+
+  // The worst accepted query: 64 category values, every scalar filter, and
+  // every SEO metric filter bind 87 values on real D1.
+  const worstCase = parseDomainTableFilters({
+    q: 'garden',
+    source: 'dynadot',
+    type: 'expired',
+    tld: ['com', ...Array.from({ length: 80 }, (_, index) => `cap${index}`)],
+    domainLengthMin: '0',
+    domainLengthMax: '253',
+    noHyphens: '1',
+    noDigits: '1',
+    priceMin: '0',
+    priceMax: '999999',
+    bidsMin: '0',
+    biddersMin: '0',
+    ageMin: '0',
+    ageMax: '999',
+    linksMin: '0',
+    visitorsMin: '0',
+    appraisalMin: '0',
+    renewalMax: '999999',
+    majesticTfMin: '30',
+    majesticCfMin: '20',
+    majesticRefDomainsMin: '40',
+    semrushAsMin: '15',
+    endingWithin: '7d',
+  });
+  const worstCaseResult = await queryDomainListingsWithDatabase(
+    worstCase,
+    database,
+    QUERY_NOW,
+  );
+  assertIntegration(
+    worstCaseResult.total === 1 &&
+      worstCaseResult.rows[0]?.domainName === 'garden.com' &&
+      worstCaseResult.rows[0].seoMetrics?.majesticTf === 30,
+    'seo_bind_budget_query',
+  );
+
+  await godaddy.completeRun(second, {
+    status: 'failed',
+    completedAt: new Date('2026-07-13T03:55:00.000Z'),
+    pagesFetched: 0,
+    recordsFetched: 0,
+    recordsUpserted: 0,
+    recordsInactivated: 0,
+    recordsRejected: 0,
+    errorCode: 'sync_failed',
+    failedPage: null,
+  });
+  await database
+    .delete(auctionListings)
+    .where(eq(auctionListings.provider, 'godaddy'));
 }
 
 async function runProof(env: IntegrationEnv) {
@@ -1040,6 +1248,7 @@ async function runProof(env: IntegrationEnv) {
     .from(ingestionRuns)
     .where(eq(ingestionRuns.status, 'succeeded'));
 
+  await proveGodaddyFeedStorage(database);
   await proveProviderIsolation(database);
   await proveDomainRatingEnrichment(database);
   await proveReconciliationSafety(database, storage);
@@ -1069,6 +1278,7 @@ async function runProof(env: IntegrationEnv) {
     pageClampProof: true as const,
     independentFilterProof: true as const,
     wildcardEscapeProof: true as const,
+    godaddyFeedProof: true as const,
   };
 }
 

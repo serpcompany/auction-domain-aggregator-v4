@@ -65,6 +65,8 @@ Three relevant documents: the GoDaddy API Terms of Use (revised 2026-07-07), the
 
 The inventory download page is arguably a way of access GoDaddy "may designate", but that only covers access, not the internal-use limit on what you may do with the content.
 
+**Current use (2026-10-06, issue #16):** `pnpm sync godaddy` downloads `all_biddable_auctions.json.zip` from these public files into the owner's local D1 for the owner's own use, which is internal use. That includes the file's Majestic and SEMrush metrics. Nothing from it may be shown to other people, including paying customers, until GoDaddy grants written permission.
+
 ## 4. Ahrefs
 
 ### Domain Rating

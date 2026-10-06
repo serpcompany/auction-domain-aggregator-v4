@@ -42,6 +42,10 @@ export async function handleLocalWorkerRequest(
   if (registration.secretNames.some((name) => !env[name])) {
     return failed(`${provider}_missing_credentials`, 500);
   }
+  // A file-feed provider reads pages the runner staged on loopback.
+  if (registration.fileFeed && !env[registration.fileFeed.pagesUrlName]) {
+    return failed(`${provider}_missing_feed`, 500);
+  }
 
   try {
     const body: unknown = await request.json();

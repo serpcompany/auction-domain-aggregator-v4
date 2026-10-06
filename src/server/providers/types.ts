@@ -13,7 +13,8 @@ export type NormalizedListing = {
   currency: string;
   currentBidCents: number;
   bidCount: number;
-  bidderCount: number;
+  // Null when the provider does not publish a bidder count.
+  bidderCount: number | null;
   startsAt: Date | null;
   endsAt: Date;
   ageYears: number | null;
@@ -22,6 +23,21 @@ export type NormalizedListing = {
   // The provider's own valuation of the domain, when it publishes one.
   appraisalCents: number | null;
   renewalPriceCents: number | null;
+  // Domain-level SEO metrics carried by the provider's feed. Absent when the
+  // provider publishes none, which leaves any stored metrics untouched.
+  seoMetrics?: NormalizedSeoMetrics;
+};
+
+// Third-party metrics for the listing's domain, as the provider reports them.
+// Each value is null when the provider omits it.
+export type NormalizedSeoMetrics = {
+  majesticTf: number | null;
+  majesticCf: number | null;
+  majesticBacklinks: number | null;
+  majesticRefDomains: number | null;
+  semrushAs: number | null;
+  semrushRefDomains: number | null;
+  semrushBacklinks: number | null;
 };
 
 export type ProviderPage = {

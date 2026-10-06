@@ -1,7 +1,8 @@
 export const DOMAIN_TABLE_PAGE_SIZE = 50;
 export const MAX_DOMAIN_TABLE_PAGE = 100_000;
-// Leaves at least 18 bindings below D1's 100-parameter statement limit for
-// active status, every scalar filter, row limit, and offset together.
+// With active status, the reference time, every scalar filter (19 values),
+// row limit, and offset, the worst accepted row query binds 87 values, below
+// D1's 100-parameter statement limit.
 export const DOMAIN_TABLE_CATEGORY_VALUE_LIMIT = 64;
 
 export const DOMAIN_TABLE_SORTS = [
@@ -37,6 +38,7 @@ export const DOMAIN_TABLE_AUCTION_SOURCES = [
 ] as const;
 export const DOMAIN_TABLE_AUCTION_TYPES = [
   'auction',
+  'buy_now',
   'closeout',
   'expired',
 ] as const;
@@ -67,6 +69,12 @@ export interface DomainTableFilters {
   visitorsMin?: number;
   appraisalMinCents?: number;
   renewalMaxCents?: number;
+  // Feed-provided SEO metrics (domain_seo_metrics). Each minimum excludes
+  // domains without that metric.
+  majesticTfMin?: number;
+  majesticCfMin?: number;
+  majesticRefDomainsMin?: number;
+  semrushAsMin?: number;
   endingWithin?: DomainTableEndingWindow;
   sort: DomainTableSort;
   direction: SortDirection;
@@ -226,6 +234,18 @@ export function parseDomainTableFilters(
     visitorsMin: normalizeInteger(firstValue(searchParams.visitorsMin)),
     appraisalMinCents: normalizeMoney(firstValue(searchParams.appraisalMin)),
     renewalMaxCents: normalizeMoney(firstValue(searchParams.renewalMax)),
+    majesticTfMin: normalizeInteger(
+      firstValue(searchParams.majesticTfMin),
+      100,
+    ),
+    majesticCfMin: normalizeInteger(
+      firstValue(searchParams.majesticCfMin),
+      100,
+    ),
+    majesticRefDomainsMin: normalizeInteger(
+      firstValue(searchParams.majesticRefDomainsMin),
+    ),
+    semrushAsMin: normalizeInteger(firstValue(searchParams.semrushAsMin), 100),
     endingWithin: DOMAIN_TABLE_ENDING_WINDOWS.includes(
       endingWithin as DomainTableEndingWindow,
     )
@@ -279,6 +299,14 @@ export function buildDomainTableHref(
     params.set('visitorsMin', String(next.visitorsMin));
   appendMoney(params, 'appraisalMin', next.appraisalMinCents);
   appendMoney(params, 'renewalMax', next.renewalMaxCents);
+  if (next.majesticTfMin !== undefined)
+    params.set('majesticTfMin', String(next.majesticTfMin));
+  if (next.majesticCfMin !== undefined)
+    params.set('majesticCfMin', String(next.majesticCfMin));
+  if (next.majesticRefDomainsMin !== undefined)
+    params.set('majesticRefDomainsMin', String(next.majesticRefDomainsMin));
+  if (next.semrushAsMin !== undefined)
+    params.set('semrushAsMin', String(next.semrushAsMin));
   if (next.endingWithin) params.set('endingWithin', next.endingWithin);
   params.set('sort', next.sort);
   params.set('direction', next.direction);
@@ -307,6 +335,10 @@ export function hasActiveDomainTableFilters(filters: DomainTableFilters) {
     filters.visitorsMin !== undefined ||
     filters.appraisalMinCents !== undefined ||
     filters.renewalMaxCents !== undefined ||
+    filters.majesticTfMin !== undefined ||
+    filters.majesticCfMin !== undefined ||
+    filters.majesticRefDomainsMin !== undefined ||
+    filters.semrushAsMin !== undefined ||
     filters.endingWithin !== undefined
   );
 }
@@ -326,6 +358,10 @@ export function countAdvancedDomainTableFilters(filters: DomainTableFilters) {
     filters.visitorsMin !== undefined,
     filters.linksMin !== undefined,
     filters.appraisalMinCents !== undefined,
+    filters.majesticTfMin !== undefined,
+    filters.majesticCfMin !== undefined,
+    filters.majesticRefDomainsMin !== undefined,
+    filters.semrushAsMin !== undefined,
   ].filter(Boolean).length;
 }
 
@@ -462,6 +498,24 @@ export function getDomainTableFilterChips(
   if (filters.appraisalMinCents !== undefined)
     add('appraisal', `Appraisal: ${filterMoney(filters.appraisalMinCents)}+`, {
       appraisalMinCents: undefined,
+    });
+  if (filters.majesticTfMin !== undefined)
+    add('majestic-tf', `Majestic TF: ${filters.majesticTfMin}+`, {
+      majesticTfMin: undefined,
+    });
+  if (filters.majesticCfMin !== undefined)
+    add('majestic-cf', `Majestic CF: ${filters.majesticCfMin}+`, {
+      majesticCfMin: undefined,
+    });
+  if (filters.majesticRefDomainsMin !== undefined)
+    add(
+      'majestic-ref-domains',
+      `Referring domains: ${filters.majesticRefDomainsMin}+`,
+      { majesticRefDomainsMin: undefined },
+    );
+  if (filters.semrushAsMin !== undefined)
+    add('semrush-as', `SEMrush AS: ${filters.semrushAsMin}+`, {
+      semrushAsMin: undefined,
     });
 
   return chips;

@@ -7,6 +7,7 @@ import { SyncError, type IngestionStorage, type RunState } from './sync';
 
 const DOMAIN_BATCH_SIZE = 100;
 const LISTING_BATCH_SIZE = 25;
+const METRICS_BATCH_SIZE = 100;
 
 // Unseen listings whose auction has ended are expected churn. Unseen listings
 // that were still scheduled to run usually mean the provider returned a short
@@ -97,6 +98,37 @@ const UPSERT_LISTINGS_SQL = `
     appraisal_cents = excluded.appraisal_cents,
     renewal_price_cents = excluded.renewal_price_cents,
     status = 'active', last_seen_at = excluded.last_seen_at
+`;
+
+// Feed metrics are refreshed by every sync that carries them: latest wins.
+const UPSERT_SEO_METRICS_SQL = `
+  INSERT INTO domain_seo_metrics (
+    domain_name, source, majestic_tf, majestic_cf, majestic_backlinks,
+    majestic_ref_domains, semrush_as, semrush_ref_domains, semrush_backlinks,
+    updated_at
+  )
+  SELECT
+    json_extract(value, '$.domainName'), ?,
+    json_extract(value, '$.majesticTf'), json_extract(value, '$.majesticCf'),
+    json_extract(value, '$.majesticBacklinks'),
+    json_extract(value, '$.majesticRefDomains'),
+    json_extract(value, '$.semrushAs'),
+    json_extract(value, '$.semrushRefDomains'),
+    json_extract(value, '$.semrushBacklinks'), ?
+  FROM json_each(?)
+  WHERE EXISTS (
+    SELECT 1 FROM ingestion_runs
+    WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
+  )
+  ON CONFLICT(domain_name) DO UPDATE SET
+    source = excluded.source, majestic_tf = excluded.majestic_tf,
+    majestic_cf = excluded.majestic_cf,
+    majestic_backlinks = excluded.majestic_backlinks,
+    majestic_ref_domains = excluded.majestic_ref_domains,
+    semrush_as = excluded.semrush_as,
+    semrush_ref_domains = excluded.semrush_ref_domains,
+    semrush_backlinks = excluded.semrush_backlinks,
+    updated_at = excluded.updated_at
 `;
 
 function runningRunFilter(
@@ -208,12 +240,34 @@ export function createD1IngestionStorage(
               run.startedAt.getTime(),
             ),
       );
+      const metrics = listings.flatMap((listing) =>
+        listing.seoMetrics
+          ? [{ domainName: listing.domainName, ...listing.seoMetrics }]
+          : [],
+      );
+      const metricStatements = chunks(metrics, METRICS_BATCH_SIZE).map(
+        (batch) =>
+          db.$client
+            .prepare(UPSERT_SEO_METRICS_SQL)
+            .bind(
+              provider,
+              run.startedAt.getTime(),
+              JSON.stringify(batch),
+              run.runId,
+              provider,
+              run.startedAt.getTime(),
+            ),
+      );
       const results = await db.$client.batch([
         ...domainStatements,
         ...listingStatements,
+        ...metricStatements,
       ]);
       const listingChanges = results
-        .slice(domainStatements.length)
+        .slice(
+          domainStatements.length,
+          domainStatements.length + listingStatements.length,
+        )
         .reduce((total, result) => total + (result.meta.changes ?? 0), 0);
       if (listingChanges === 0) {
         throw new SyncError('sync_stale_continuation');

@@ -2,7 +2,7 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot auction ingestion and the D1-backed discovery table are implemented locally. Scheduling, remote Cloudflare resources, additional auction providers, and domain-metric ingestion are not implemented.
+This document maps the current application and its stable boundaries. Dynadot and GoDaddy auction ingestion, GoDaddy's per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented locally. Scheduling, remote Cloudflare resources, and other auction providers are not implemented.
 
 ## System purpose
 
@@ -12,7 +12,8 @@ The system collects auction and expired-domain listings, stores normalized data 
 
 ```text
 manual `pnpm sync <provider>`
-        |
+        |   (file-feed providers: download zip -> stream-split into page files
+        |    -> loopback-only page server)
         v
 loopback-only Wrangler worker -> provider adapter -> bounded D1 upserts
                                                    |
@@ -24,7 +25,7 @@ loopback-only Wrangler worker -> provider adapter -> bounded D1 upserts
                                              Next.js application
                                                    |
                                                    v
-                                        Dynadot auction page link
+                                   provider auction page link
 ```
 
 ## Major responsibilities
@@ -39,11 +40,13 @@ The request boundary is D1-only: normal page and health requests may construct t
 
 ### Auction ingestion
 
-`pnpm sync <provider>` (`pnpm sync:dynadot` is an alias) is the only implemented ingestion trigger; Dynadot is the only implemented provider. `scripts/sync-provider.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`, which serves `POST /sync/<provider>`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and builds the provider's adapter from `src/server/providers/registry.ts`.
+`pnpm sync <provider>` (`pnpm sync:dynadot` is an alias) is the only implemented ingestion trigger; Dynadot and GoDaddy are the implemented providers. `scripts/sync-provider.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`, which serves `POST /sync/<provider>`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and builds the provider's adapter from `src/server/providers/registry.ts`.
 
 Adapters implement `ProviderAdapter` from `src/server/providers/types.ts`: they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `src/server/ingestion/sync.ts` defines provider-neutral synchronization behavior. `src/server/ingestion/d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so a provider's run never reads, reconciles, or interrupts another provider's listings or runs. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
-The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing only that provider's registered secrets. It removes the file and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
+GoDaddy publishes no paged API for its inventory, only a daily zipped JSON file of about 600,000 listings that is too large for a Worker request. Its registry entry declares a file feed: before starting the worker, the Node runner downloads the archive, streams the file's `data` array through the system `unzip` and `stream-json` into numbered page files of 1,000 records (`src/server/ingestion/file-feed.ts`), and serves them read-only on an ephemeral `127.0.0.1` port. The worker's GoDaddy adapter fetches `page-N.json` from that URL, which it accepts only for `http://127.0.0.1`, and the run then follows the same sync, storage, and reconciliation path as Dynadot. The runner marks the final page explicitly, so a full last page cannot be mistaken for more data.
+
+The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing only that provider's registered secrets (and, for a file feed, the page URL). It removes that directory, including staged feed pages, and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
 
 ### Domain enrichment
 
@@ -63,9 +66,10 @@ D1 is the current source of truth. `src/server/db/schema.ts` defines:
 - `domains`: normalized domain identity and first-seen time.
 - `auction_listings`: provider/external-ID identity, domain foreign key, outbound URL, mutable auction fields, active state, and first/last-seen times.
 - `domain_metrics`: write-once domain enrichment keyed by domain and metric (`ahrefs_dr`), with an `ok`/`not_found` status.
+- `domain_seo_metrics`: one row per domain of feed-published Majestic and SEMrush metrics in typed, indexed columns, with the publishing source. Every sync that carries metrics overwrites them (latest wins).
 - `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, and a fixed diagnostic code.
 
-Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
+Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
 
 ## Architectural invariants
 
@@ -74,7 +78,8 @@ Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persi
 - A domain and an auction listing are separate concepts. Listings use provider plus external ID as identity.
 - Synchronization is idempotent and safe to resume or retry.
 - A failed, partial, stale, or interrupted run cannot reconcile unseen listings as inactive.
-- Successfully stored Ahrefs and Majestic enrichment will be write-once and never automatically refreshed.
+- Successfully stored Ahrefs DR is write-once and never automatically refreshed. Metrics published inside a provider's auction feed are different: they arrive with every sync and the latest values replace the stored ones.
+- Unknown provider values are stored as null, never as an invented zero.
 - Provider credentials remain outside the repository and must not appear in logs, fixtures, errors, or documentation.
 - Remote D1, deployment, and provider calls are not part of routine checks.
 
@@ -93,8 +98,8 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 - `src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `src/server/db/` owns the server-only Drizzle schema, client, and database types.
 - `src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
-- `src/server/providers/types.ts` defines the normalized listing and adapter contract; `src/server/providers/registry.ts` maps implemented providers to their secret names and adapters; `src/server/providers/dynadot/` terminates Dynadot response shapes.
-- `src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the protected local worker, and local-runner utilities.
+- `src/server/providers/types.ts` defines the normalized listing and adapter contract; `src/server/providers/registry.ts` maps implemented providers to their secret names, optional file feed, and adapters; `src/server/providers/normalize.ts` holds shared domain, money, and bounded-body parsing; `src/server/providers/dynadot/` and `src/server/providers/godaddy/` terminate each provider's shapes.
+- `src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the protected local worker, local-runner utilities, and Node-only file-feed staging.
 - `scripts/sync-provider.ts` orchestrates the manual loopback sync for one provider.
 - `e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures.
 - `wrangler.jsonc` and `wrangler.ingestion.jsonc` define application and ingestion workers sharing local D1 only. `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.

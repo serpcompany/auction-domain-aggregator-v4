@@ -88,6 +88,16 @@ describe('local ingestion worker', () => {
       status: 'failed',
       errorCode: 'dynadot_missing_credentials',
     });
+    // A file-feed provider needs the runner's loopback page URL.
+    const missingFeed = await handleLocalWorkerRequest(
+      new Request('http://local/sync/godaddy', { method: 'POST', body: '{}' }),
+      env,
+    );
+    expect(missingFeed.status).toBe(500);
+    expect(await missingFeed.json()).toEqual({
+      status: 'failed',
+      errorCode: 'godaddy_missing_feed',
+    });
     await expect(
       handleLocalWorkerRequest(request({ runId: 1, nextPage: 99 }), env),
     ).resolves.toMatchObject({ status: 400 });

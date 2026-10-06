@@ -86,17 +86,20 @@ export function installSignalCleanup({
   removeDirectory = (path: string) =>
     rmSync(path, { recursive: true, force: true }),
 }: {
-  child: ChildProcess;
+  // Omitted while the runner prepares work before starting the child; pass
+  // it later with `attachChild`.
+  child?: ChildProcess;
   temporaryDirectory: string;
   processTarget?: ProcessTarget;
   killChild?: (child: ChildProcess) => void;
   removeDirectory?: (path: string) => void;
 }) {
   let cleaned = false;
+  let attached = child;
   const cleanup = () => {
     if (cleaned) return;
     cleaned = true;
-    killChild(child);
+    if (attached) killChild(attached);
     removeDirectory(temporaryDirectory);
   };
   const onInterrupt = () => {
@@ -112,6 +115,9 @@ export function installSignalCleanup({
 
   return {
     cleanup,
+    attachChild(next: ChildProcess) {
+      attached = next;
+    },
     unregister() {
       processTarget.off('SIGINT', onInterrupt);
       processTarget.off('SIGTERM', onTerminate);

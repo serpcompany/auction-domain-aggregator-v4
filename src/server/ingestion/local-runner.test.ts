@@ -92,6 +92,39 @@ describe('local runner utilities', () => {
     lifecycle.unregister();
   });
 
+  it('cleans up before a child starts and kills one attached later', () => {
+    const processTarget = new EventEmitter() as EventEmitter & {
+      exit: (code: number) => void;
+    };
+    processTarget.exit = vi.fn();
+    const killChild = vi.fn();
+    const removeDirectory = vi.fn();
+
+    const early = installSignalCleanup({
+      temporaryDirectory: '/temporary/staging',
+      processTarget,
+      killChild,
+      removeDirectory,
+    });
+    early.cleanup();
+    expect(killChild).not.toHaveBeenCalled();
+    expect(removeDirectory).toHaveBeenCalledWith('/temporary/staging');
+    early.unregister();
+
+    const late = installSignalCleanup({
+      temporaryDirectory: '/temporary/staging',
+      processTarget,
+      killChild,
+      removeDirectory,
+    });
+    const child = {} as ChildProcess;
+    late.attachChild(child);
+    processTarget.emit('SIGINT');
+    expect(killChild).toHaveBeenCalledWith(child);
+    expect(processTarget.exit).toHaveBeenCalledWith(130);
+    late.unregister();
+  });
+
   it('handles interruption and process-group kill fallbacks', () => {
     const processTarget = new EventEmitter() as EventEmitter & {
       exit: (code: number) => void;

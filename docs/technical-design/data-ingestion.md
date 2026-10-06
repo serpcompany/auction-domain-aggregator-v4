@@ -1,8 +1,8 @@
 # Data ingestion and persistence
 
-Status: Implemented locally for Dynadot; future-provider sections are design constraints
+Status: Implemented locally for Dynadot and GoDaddy; future-provider sections are design constraints
 
-Last updated: 2026-07-13
+Last updated: 2026-10-06
 
 ## Purpose
 
@@ -35,7 +35,41 @@ For a synchronization:
 
 A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions.
 
+## Implemented GoDaddy synchronization
+
+GoDaddy is synchronized manually with `pnpm sync godaddy`. It needs no credentials: the source is the public, daily `all_biddable_auctions.json.zip` from `https://inventory.auctions.godaddy.com/` (index at `/metadata.json`), about 37 MB zipped and 450 MB unzipped, shaped as `{ "meta": {...}, "data": [ ...listings ] }`. GoDaddy licenses this content for internal use only (`docs/references/data-licensing.md`), so it is for the owner's own use.
+
+The file is too large for one workerd request and has no paging, so the registry declares it as a file feed and the Node runner stages it before starting the worker (`src/server/ingestion/file-feed.ts`):
+
+1. Download the archive into the run's mode-0700 temporary directory, failing above 512 MiB or after 10 minutes.
+2. Stream the archive entry through the system `unzip -p` into `stream-json`, which emits one element of the top-level `data` array at a time; the document is never held in memory. Unzipped output above 4 GiB fails the run.
+3. Write elements into `page-N.json` files of 1,000 raw records as `{ page, isLastPage, records }`. A full page is held back until the next record arrives, so the last page is always marked even when the record count is a multiple of 1,000. An empty feed fails with `feed_empty`.
+4. Delete the archive, serve the pages read-only (`GET /page-N.json`) on an ephemeral `127.0.0.1` port, and pass that base URL to the worker as `GODADDY_FEED_PAGES_URL` in the mode-0600 env file.
+
+The worker's GoDaddy adapter (`src/server/providers/godaddy/index.ts`) accepts the page URL only when it is `http://127.0.0.1:<port>/`. It fetches each page with a 30-second timeout and 10 MiB limit, requires the envelope's page number to match, and validates each record separately with the same 10% page rejection threshold as Dynadot. The run then uses the unchanged sync service, storage, segmenting, and reconciliation guard. Staging failures print fixed codes (`feed_download_failed`, `feed_too_large`, `feed_extract_failed`, `feed_parse_error`, `feed_empty`); adapter failures use `godaddy_*` codes, and a worker without the page URL answers `godaddy_missing_feed`.
+
+Record mapping:
+
+| Feed field | Stored as |
+| --- | --- |
+| numeric suffix of `link` path | `external_id` |
+| `link` (must be `https://www.godaddy.com/domain-auctions/...`) | `auction_url`, unchanged |
+| `domainName` | lowercase, punycode `domain_name` |
+| `auctionType` `Bid` / `BuyNow` | `AUCTION` / `BUY_NOW` |
+| `price`, `valuation` (`"$1,234"`) | `current_bid_cents`, `appraisal_cents` |
+| `numberOfBids` (required for `Bid`, 0 for `BuyNow` when absent) | `bid_count` |
+| `auctionEndTime` (ISO UTC) | `ends_at` |
+| `domainAge`, `pageviews` | `age_years`, `visitors` |
+| not published | `bidder_count`, `starts_at`, `inbound_links`, `renewal_price_cents` are null |
+| `majesticTf`, `majesticCf`, `majesticBacklinks`, `majesticReferringDomains`, `semrushAs`, `semrushReferringDomains`, `semrushBacklinks` | one `domain_seo_metrics` row |
+
+## Feed-published SEO metrics
+
+`domain_seo_metrics` has one row per domain with typed integer columns (`majestic_tf`, `majestic_cf`, `majestic_backlinks`, `majestic_ref_domains`, `semrush_as`, `semrush_ref_domains`, `semrush_backlinks`), the publishing `source`, and `updated_at` (the run start). TF, CF, and AS are checked to 0 to 100, counts to be nonnegative, and the four filtered columns are indexed. Each page's metrics are upserted in the same guarded D1 batch as its listings, in JSON batches of 100, so a stale run cannot write them. Unlike write-once Ahrefs DR in `domain_metrics`, every sync that carries metrics replaces them (latest wins). A listing without metrics, such as any Dynadot listing, leaves the stored row alone. Rows are not deleted when a domain leaves the feed; they keep their last values and `updated_at`.
+
 ## Verified local evidence
+
+GoDaddy evidence (2026-10-06, the 2026-10-05 feed build, fresh local D1 in a worktree, owner's Mac): `corepack pnpm sync godaddy` succeeded in 233 seconds wall time, including migrations, download, about 2 minutes of staging, and 587 worker pages. It fetched and upserted 586,958 records with 0 rejected and 0 inactivated. Local D1 then held 586,958 active GoDaddy listings, all with null bidder counts and type `AUCTION`, and 586,958 `domain_seo_metrics` rows. Peak resident memory was about 294 MiB for the Node runner and about 376 MiB for the worker's workerd processes; the temporary directory was removed. A selective metric filter (`semrush_as >= 20`, 144 listings) counted in about 130 ms; a filter matching every metrics row (`majestic_cf >= 0`, 529,860 open listings) took about 2 seconds, because the subquery then returns the whole inventory.
 
 The initial live synchronization completed in 427 pages with 426,328 fetched/upserted records and no inactivations. A second complete pre-hardening synchronization completed in 427 pages with 426,398 fetched/upserted records and 2 inactivations. The resulting local database contained 426,400 domains and listings: 426,398 active and 2 inactive, with no duplicate domain identities, duplicate provider/external-ID identities, running ingestion rows, or foreign-key violations.
 
@@ -49,7 +83,7 @@ Implementation uncovered three important runtime constraints:
 
 ## Credentials and local process isolation
 
-The package command loads `.secrets/providers.env` only into the Node orchestrator. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment. The Dynadot key is supplied only through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
+The package command loads `.secrets/providers.env`, when it exists, only into the Node orchestrator; GoDaddy needs no secrets, and Dynadot fails with `dynadot_missing_credentials` without it. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment. The Dynadot key is supplied only through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
 
 The command prints only its fixed success summary or a fixed error code. Provider response bodies, URLs containing query credentials, authorization material, and credential values must never be logged, committed, or copied into tests or documentation.
 

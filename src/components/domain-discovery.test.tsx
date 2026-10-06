@@ -90,6 +90,7 @@ const rows: DomainListingsResult['rows'] = [
     hasDigit: false,
     domainRating: 42.4,
     domainRatingFetched: true,
+    seoMetrics: null,
   },
   {
     provider: 'other-provider',
@@ -100,7 +101,8 @@ const rows: DomainListingsResult['rows'] = [
     currency: 'USD',
     currentBidCents: 999,
     bidCount: 0,
-    bidderCount: 0,
+    // A provider without bidder counts, like GoDaddy.
+    bidderCount: null,
     startsAt: null,
     endsAt: new Date('2026-07-15T12:00:00.000Z'),
     ageYears: null,
@@ -114,6 +116,7 @@ const rows: DomainListingsResult['rows'] = [
     hasDigit: false,
     domainRating: null,
     domainRatingFetched: false,
+    seoMetrics: null,
   },
 ];
 
@@ -211,6 +214,8 @@ describe('DomainDiscovery', () => {
     expect(within(table).getByText('$12 renewal')).toBeInTheDocument();
     expect(within(table).getByText('3 bids')).toBeInTheDocument();
     expect(within(table).getByText('2 bidders')).toBeInTheDocument();
+    expect(within(table).getByText('0 bids')).toBeInTheDocument();
+    expect(within(table).queryByText(/0 bidders/)).not.toBeInTheDocument();
     expect(within(table).getByLabelText('20 visitors')).toHaveTextContent(
       '20 visitors',
     );

@@ -1,10 +1,15 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { rmSync } from 'node:fs';
-import { mkdtemp, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  downloadFeed,
+  serveFeedPages,
+  stageZippedFeed,
+} from '../src/server/ingestion/file-feed';
 import {
   createChildEnvironment,
   fetchWithTimeout,
@@ -14,9 +19,10 @@ import {
 import {
   implementedProvider,
   PROVIDER_REGISTRY,
+  type FileFeed,
 } from '../src/server/providers/registry';
 
-// Usage: node --env-file=.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
+// Usage: node --env-file-if-exists=.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
 const PROVIDER = implementedProvider(process.argv[2] ?? '');
 
 const HOST = '127.0.0.1';
@@ -24,6 +30,11 @@ const PORT = 8790;
 const SYNC_URL = `http://${HOST}:${PORT}/sync/${PROVIDER}`;
 const READY_TIMEOUT_MS = 30_000;
 const SEGMENT_TIMEOUT_MS = 120_000;
+// Bounds for file feeds. GoDaddy's biddable inventory is about 37 MB zipped
+// and 450 MB unzipped.
+const FEED_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
+const FEED_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
+const FEED_JSON_MAX_BYTES = 4 * 1024 * 1024 * 1024;
 
 type SafeSummary = {
   provider: string;
@@ -167,14 +178,24 @@ async function main() {
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'provider-sync-'));
   const environmentFile = join(temporaryDirectory, 'worker.env');
   let child: ChildProcess | undefined;
-  let unregisterSignals: (() => void) | undefined;
+  let closeFeedServer: (() => Promise<void>) | undefined;
+  // Installed before any download so an interruption also removes staged
+  // feed files; the worker process is attached once it starts.
+  const signalCleanup = installSignalCleanup({ temporaryDirectory });
 
   try {
+    // Only this provider's secrets reach the worker.
+    const workerValues = secretNames.map((name) => [name, process.env[name]!]);
+    const { fileFeed } = PROVIDER_REGISTRY[PROVIDER]!;
+    if (fileFeed) {
+      const feedServer = await stageFileFeed(fileFeed, temporaryDirectory);
+      closeFeedServer = feedServer.close;
+      workerValues.push([fileFeed.pagesUrlName, feedServer.url]);
+    }
     await writeFile(
       environmentFile,
-      // Only this provider's secrets reach the worker.
-      secretNames
-        .map((name) => `${name}=${JSON.stringify(process.env[name])}\n`)
+      workerValues
+        .map(([name, value]) => `${name}=${JSON.stringify(value)}\n`)
         .join(''),
       { mode: 0o600 },
     );
@@ -202,14 +223,10 @@ async function main() {
       },
     );
     child = spawnedChild;
+    signalCleanup.attachChild(spawnedChild);
     spawnedChild.stdout?.resume();
     spawnedChild.stderr?.resume();
 
-    const signalCleanup = installSignalCleanup({
-      child: spawnedChild,
-      temporaryDirectory,
-    });
-    unregisterSignals = signalCleanup.unregister;
     await waitUntilReady(spawnedChild);
     let runId: number | undefined;
     while (true) {
@@ -236,10 +253,33 @@ async function main() {
       break;
     }
   } finally {
-    unregisterSignals?.();
+    signalCleanup.unregister();
     if (child) await stopChild(child);
+    await closeFeedServer?.();
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
+}
+
+// Downloads a provider's zipped feed, splits it into page files, and serves
+// them on loopback for the worker's adapter. Only the pages stay on disk.
+async function stageFileFeed(fileFeed: FileFeed, temporaryDirectory: string) {
+  const archive = join(temporaryDirectory, 'feed.zip');
+  const pages = join(temporaryDirectory, 'pages');
+  await downloadFeed({
+    url: fileFeed.url,
+    destination: archive,
+    maxBytes: FEED_ARCHIVE_MAX_BYTES,
+    timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
+  });
+  await stageZippedFeed({
+    archive,
+    entry: fileFeed.entry,
+    directory: pages,
+    pageSize: fileFeed.pageSize,
+    maxBytes: FEED_JSON_MAX_BYTES,
+  });
+  await rm(archive, { force: true });
+  return serveFeedPages(pages);
 }
 
 main().catch((error: unknown) => {
