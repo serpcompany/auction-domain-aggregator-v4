@@ -3,6 +3,8 @@ import {
   createGodaddyAdapter,
   GODADDY_FEED_ENTRY,
   GODADDY_FEED_URL,
+  GODADDY_MAX_PAGES,
+  GODADDY_PAGE_BYTE_LIMIT,
   GODADDY_PAGE_SIZE,
 } from './godaddy';
 import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types';
@@ -15,12 +17,15 @@ export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>;
 // A provider that publishes one zipped JSON file instead of a paged API. The
 // ingestion Workflow downloads `url`, splits the `field` array of archive
 // entry `entry` into page files of `pageSize` records, and gives the adapter
-// a source for those pages.
+// a source for those pages. `maxPages` and `maxPageBytes` are the adapter's
+// limits for reading them back.
 export type FileFeed = {
   url: string;
   entry: string;
   field: string;
   pageSize: number;
+  maxPages: number;
+  maxPageBytes: number;
 };
 
 export type AdapterContext = {
@@ -55,6 +60,8 @@ export const PROVIDER_REGISTRY: Partial<
       entry: GODADDY_FEED_ENTRY,
       field: 'data',
       pageSize: GODADDY_PAGE_SIZE,
+      maxPages: GODADDY_MAX_PAGES,
+      maxPageBytes: GODADDY_PAGE_BYTE_LIMIT,
     },
     createAdapter: ({ feedPages }) =>
       createGodaddyAdapter({ pages: feedPages }),

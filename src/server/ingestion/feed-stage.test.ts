@@ -6,6 +6,7 @@ import {
   createPageWriter,
   FEED_USER_AGENT,
   FeedError,
+  feedErrorCode,
   openZipEntry,
   pageBody,
   stageZippedFeed,
@@ -102,16 +103,23 @@ describe('zip entry', () => {
 
   it('rejects archives it cannot read with a fixed code', async () => {
     const zip = await buildZipFixture('{}', { entry: ENTRY });
-    const variants: Uint8Array[] = [
+    // Cut off or not a zip at all: a retry may get a whole archive.
+    for (const bytes of [
       zip.slice(0, 20),
       zip.slice(0, 32),
       Object.assign(zip.slice(), { 0: 0 }),
-      Object.assign(zip.slice(), { 6: 1 }),
-      Object.assign(zip.slice(), { 8: 12 }),
-    ];
-    for (const bytes of variants) {
+    ]) {
       await expect(open(bytes)).rejects.toThrow(
         new FeedError('feed_extract_failed'),
+      );
+    }
+    // Encrypted, or an unsupported method: a retry gets the same archive.
+    for (const bytes of [
+      Object.assign(zip.slice(), { 6: 1 }),
+      Object.assign(zip.slice(), { 8: 12 }),
+    ]) {
+      await expect(open(bytes)).rejects.toThrow(
+        new FeedError('feed_unsupported_archive'),
       );
     }
     await expect(
@@ -119,7 +127,18 @@ describe('zip entry', () => {
         entry: 'other.json',
         maxCompressedBytes: 1e6,
       }),
-    ).rejects.toThrow(new FeedError('feed_extract_failed'));
+    ).rejects.toThrow(new FeedError('feed_unsupported_archive'));
+  });
+
+  it('reports a download that fails while the header is read', async () => {
+    const dropped = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        controller.error(new TypeError('connection reset'));
+      },
+    });
+    await expect(
+      openZipEntry(dropped, { entry: ENTRY, maxCompressedBytes: 1e6 }),
+    ).rejects.toThrow(new FeedError('feed_download_failed'));
   });
 
   it('rejects zip64 headers without a usable size', async () => {
@@ -129,14 +148,48 @@ describe('zip entry', () => {
     const otherId = zip.slice();
     otherId[extraStart] = 0x99;
     await expect(open(otherId)).rejects.toThrow(
-      new FeedError('feed_extract_failed'),
+      new FeedError('feed_unsupported_archive'),
     );
     // A compressed size above Number.MAX_SAFE_INTEGER.
     const huge = zip.slice();
     huge.fill(0xff, extraStart + 12, extraStart + 20);
     await expect(open(huge)).rejects.toThrow(
-      new FeedError('feed_extract_failed'),
+      new FeedError('feed_unsupported_archive'),
     );
+  });
+
+  it('reads a streamed zip64 entry, whose header sizes are placeholders, from the central directory', async () => {
+    const text = feedDocument(30);
+    const zip = await buildZipFixture(text, {
+      entry: ENTRY,
+      dataDescriptor: true,
+      zip64: true,
+    });
+    // As streaming writers leave it: 0xFFFFFFFF sizes and a zip64 field of 0.
+    const view = new DataView(zip.buffer);
+    view.setUint32(18, 0xffffffff, true);
+    view.setUint32(22, 0xffffffff, true);
+    zip.fill(0, 30 + ENTRY.length + 4, 30 + ENTRY.length + 20);
+    await expect(readText(await open(zip))).resolves.toBe(text);
+  });
+
+  it('rejects zip64 central directory records it does not read', async () => {
+    const zip = await buildZipFixture('{"data":[1]}', {
+      entry: ENTRY,
+      dataDescriptor: true,
+    });
+    const view = (bytes: Uint8Array) => new DataView(bytes.buffer);
+    const endOffset = zip.byteLength - 22;
+    const centralOffset = view(zip).getUint32(endOffset + 16, true);
+    const zip64Offset = zip.slice();
+    view(zip64Offset).setUint32(endOffset + 16, 0xffffffff, true);
+    const zip64Size = zip.slice();
+    view(zip64Size).setUint32(centralOffset + 20, 0xffffffff, true);
+    for (const bytes of [zip64Offset, zip64Size]) {
+      await expect(readText(await open(bytes))).rejects.toThrow(
+        new FeedError('feed_unsupported_archive'),
+      );
+    }
   });
 
   it('skips unrelated extra fields before the zip64 record', async () => {
@@ -231,7 +284,7 @@ describe('zip entry', () => {
     }
   });
 
-  it('reports a download that fails mid-archive as an extraction failure', async () => {
+  it('reports a download that fails mid-archive as a download failure', async () => {
     const zip = await buildZipFixture(feedDocument(200), { entry: ENTRY });
     let sent = false;
     const failing = new ReadableStream<Uint8Array>({
@@ -256,7 +309,7 @@ describe('zip entry', () => {
         maxBytes: 1e6,
         sink: async () => undefined,
       }),
-    ).rejects.toThrow(new FeedError('feed_extract_failed'));
+    ).rejects.toThrow(new FeedError('feed_download_failed'));
   });
 });
 
@@ -358,6 +411,42 @@ describe('page writer', () => {
     await expect(writer.finish()).rejects.toThrow(new FeedError('feed_empty'));
   });
 
+  it('enforces the page count and page size limits', async () => {
+    const write = async (count: number, limits: object) => {
+      const writer = createPageWriter(1, async () => undefined, limits);
+      for (let index = 0; index < count; index += 1) {
+        const ready = writer.add(record(index));
+        if (ready) await writer.flush(ready);
+      }
+      return writer.finish();
+    };
+    await expect(write(2, { maxPages: 2 })).resolves.toEqual({
+      pages: 2,
+      records: 2,
+    });
+    await expect(write(3, { maxPages: 2 })).rejects.toThrow(
+      new FeedError('feed_too_large'),
+    );
+    // `{"page":1,"isLastPage":true,"records":[0]}` is 42 bytes.
+    await expect(write(1, { maxPageBytes: 42 })).resolves.toEqual({
+      pages: 1,
+      records: 1,
+    });
+    await expect(write(1, { maxPageBytes: 41 })).rejects.toThrow(
+      new FeedError('feed_too_large'),
+    );
+  });
+
+  it('reports a failed page write as retryable', async () => {
+    const writer = createPageWriter(3, async () => {
+      throw new Error('R2 unavailable');
+    });
+    writer.add(record(1));
+    await expect(writer.finish()).rejects.toThrow(
+      new FeedError('feed_page_write_failed'),
+    );
+  });
+
   it('writes an empty page body as valid JSON', () => {
     expect(decoder.decode(pageBody(1, true, []))).toBe(
       '{"page":1,"isLastPage":true,"records":[]}',
@@ -432,6 +521,100 @@ describe('feed pages', () => {
         sink,
       }),
     ).rejects.toThrow(new FeedError('feed_parse_error'));
+  });
+
+  it('fails a record too large for a page before holding it whole', async () => {
+    const encoder = new TextEncoder();
+    const record = `{"padding":"${'x'.repeat(200)}"}`;
+    // Fed in 16-byte chunks, as decompressed output arrives in many chunks,
+    // so the cap only fires if it counts across them.
+    const pushChunks = (text: string, cap: number) => {
+      const elements: number[] = [];
+      const scanner = createJsonArrayScanner(
+        'data',
+        (element) =>
+          elements.push(element.reduce((sum, p) => sum + p.byteLength, 0)),
+        cap,
+      );
+      const bytes = encoder.encode(text);
+      for (let offset = 0; offset < bytes.byteLength; offset += 16) {
+        scanner.push(bytes.subarray(offset, offset + 16));
+      }
+      scanner.end();
+      return elements;
+    };
+    expect(() => pushChunks(`{"data":[${record}]}`, 100)).toThrow(
+      new FeedError('feed_too_large'),
+    );
+    // The skipped `meta` member is not capped, and a record at the cap fits.
+    const fits = `{"a":"${'y'.repeat(92)}"}`;
+    expect(fits.length).toBe(100);
+    expect(pushChunks(`{"meta":${record},"data":[${fits},1]}`, 100)).toEqual([
+      100, 1,
+    ]);
+
+    // `writeFeedPages` passes the page limit to the scanner, so a record
+    // fails while it is still arriving: this one never closes, and the
+    // download fails only after its bytes pass the cap.
+    const truncated = encoder.encode(`{"data":[1,${record.slice(0, -2)}`);
+    let offset = 0;
+    const arriving = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (offset >= truncated.byteLength) {
+          controller.error(new FeedError('feed_download_failed'));
+          return;
+        }
+        controller.enqueue(truncated.slice(offset, offset + 16));
+        offset += 16;
+      },
+    });
+    await expect(
+      writeFeedPages({
+        document: arriving,
+        field: 'data',
+        pageSize: 3,
+        maxBytes: 1e6,
+        limits: { maxPageBytes: 100 },
+        sink: async () => undefined,
+      }),
+    ).rejects.toThrow(new FeedError('feed_too_large'));
+  });
+
+  it('keeps the code of a FeedError that a native stream re-created', async () => {
+    // How workerd delivers a FeedError after DecompressionStream: not an
+    // instance, but with its name and code.
+    const recreated = (code: string) =>
+      Object.assign(new Error(code), { name: 'FeedError', code });
+    expect(feedErrorCode(new FeedError('feed_empty'))).toBe('feed_empty');
+    expect(feedErrorCode(recreated('feed_download_failed'))).toBe(
+      'feed_download_failed',
+    );
+    expect(feedErrorCode(recreated('not_a_feed_code'))).toBeNull();
+    expect(feedErrorCode(new Error('feed_empty'))).toBeNull();
+    expect(feedErrorCode('feed_empty')).toBeNull();
+    expect(feedErrorCode(null)).toBeNull();
+
+    const failing = (error: Error) =>
+      new ReadableStream<Uint8Array>({
+        pull(controller) {
+          controller.error(error);
+        },
+      });
+    for (const [error, expected] of [
+      [recreated('feed_download_failed'), 'feed_download_failed'],
+      [recreated('feed_unsupported_archive'), 'feed_unsupported_archive'],
+      [recreated('not_a_feed_code'), 'feed_extract_failed'],
+    ] as const) {
+      await expect(
+        writeFeedPages({
+          document: failing(error),
+          field: 'data',
+          pageSize: 3,
+          maxBytes: 1e6,
+          sink: async () => undefined,
+        }),
+      ).rejects.toThrow(new FeedError(expected));
+    }
   });
 });
 

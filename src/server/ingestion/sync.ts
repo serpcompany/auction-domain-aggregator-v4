@@ -132,6 +132,18 @@ function runErrorCode(error: unknown): RunErrorCode {
   return 'sync_failed';
 }
 
+// Starts a run of `storage`'s provider, interrupting any run of that provider
+// still marked running, and returns its ID for `runSyncSegment`. Kept apart
+// from the first segment so a segment that is run again resumes this run
+// from its committed page instead of starting another.
+export async function startSyncRun(
+  storage: IngestionStorage,
+  clock: () => Date = () => new Date(),
+) {
+  const run = await storage.startRun(clock());
+  return run.runId;
+}
+
 export async function runSyncSegment(
   adapter: ProviderAdapter,
   storage: IngestionStorage,
