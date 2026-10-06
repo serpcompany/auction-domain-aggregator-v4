@@ -13,4 +13,11 @@
       "remote": false,
     },
   ],
+  "r2_buckets": [
+    {
+      "binding": "FEED_PAGES",
+      "bucket_name": "auction-domain-aggregator-integration-feed-pages-local",
+      "remote": false,
+    },
+  ],
 }

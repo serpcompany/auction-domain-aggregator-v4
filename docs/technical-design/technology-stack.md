@@ -2,7 +2,7 @@
 
 Status: Accepted foundation
 
-Last updated: 2026-07-13
+Last updated: 2026-10-06
 
 ## Purpose
 
@@ -30,7 +30,11 @@ The local adapter and runtime path are verified. `pnpm upload` and `pnpm deploy`
 
 Host the website on Cloudflare. Use Cloudflare-native compute for server-side application behavior and domain-ingestion workloads when it fits their runtime and execution requirements. Use Cloudflare Cron Triggers to start periodic auction synchronization outside the user request path.
 
-Whether ingestion code is deployed with the web application or as a separate Worker remains undecided until the provider APIs and runtime requirements are understood. Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
+Ingestion is a separate Worker (`wrangler.ingestion.jsonc`, entry `src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one Cloudflare Workflow instance per provider; Workflow steps give each stage of a sync its own CPU budget, persisted results, and retries, which replaced a loopback continuation loop on the owner's machine. Measured on 2026-10-06, staging GoDaddy's 450 MB feed inside one step used about 3 to 8 seconds of Worker CPU and about 10 MiB of JavaScript heap, so no Container is needed (`docs/plans/completed/cloud-ingestion.md`). The Worker sets `limits.cpu_ms` to 60,000 (Workers Paid). Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
+
+### Object storage: Cloudflare R2
+
+Use R2 for transient ingestion files: a file feed's page files live under a per-Workflow-instance prefix in the `FEED_PAGES` bucket only for the duration of one run and are deleted by its last step. Nothing user-facing reads R2. The binding is local-only until deployment is authorized.
 
 ### Database: Cloudflare D1
 
@@ -58,7 +62,7 @@ Add components only as they are needed. The current set includes Alert, Badge, B
 
 ### Validation and continuous integration
 
-Use Zod 4 for runtime validation of provider responses. Use Prettier for formatting and ESLint for static linting. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
+Use Zod 4 for runtime validation of provider responses. File feeds are split by a small dependency-free byte scanner (`src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Prettier for formatting and ESLint for static linting. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
 `pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded runs, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. It installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
 
@@ -67,8 +71,6 @@ Use Zod 4 for runtime validation of provider responses. Use Prettier for formatt
 The following choices require more information and are intentionally unresolved:
 
 - The exact supported method for deploying this Next.js application to Cloudflare.
-- Whether auction ingestion needs a separately deployed Worker.
 - Whether ingestion volume or provider behavior requires Cloudflare Queues.
-- Whether object storage such as R2 is needed.
 
 Resolve these decisions through the smallest working proof that exercises the relevant constraint. Once accepted, update this document with the decision and its rationale.

@@ -1,15 +1,10 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { rmSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  downloadFeed,
-  serveFeedPages,
-  stageZippedFeed,
-} from '../src/server/ingestion/file-feed';
 import {
   createChildEnvironment,
   fetchWithTimeout,
@@ -19,22 +14,29 @@ import {
 import {
   implementedProvider,
   PROVIDER_REGISTRY,
-  type FileFeed,
 } from '../src/server/providers/registry';
 
+// Runs one provider's sync through the same Cloudflare Workflow the Cron
+// Trigger starts, inside a temporary local `wrangler dev` of the ingestion
+// Worker (local D1, R2, and Workflows only). The instance is created and
+// polled through Wrangler's local-only explorer API.
+//
 // Usage: node --env-file-if-exists=.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
 const PROVIDER = implementedProvider(process.argv[2] ?? '');
 
 const HOST = '127.0.0.1';
 const PORT = 8790;
-const SYNC_URL = `http://${HOST}:${PORT}/sync/${PROVIDER}`;
+const INSPECTOR_PORT = 9330;
+const WORKFLOW = 'provider-sync';
+const INSTANCES_URL = `http://${HOST}:${PORT}/cdn-cgi/explorer/api/workflows/${WORKFLOW}/instances`;
 const READY_TIMEOUT_MS = 30_000;
-const SEGMENT_TIMEOUT_MS = 120_000;
-// Bounds for file feeds. GoDaddy's biddable inventory is about 37 MB zipped
-// and 450 MB unzipped.
-const FEED_DOWNLOAD_TIMEOUT_MS = 10 * 60_000;
-const FEED_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
-const FEED_JSON_MAX_BYTES = 4 * 1024 * 1024 * 1024;
+const READY_REQUEST_TIMEOUT_MS = 2_000;
+// Local explorer calls can wait while a long step (the feed stage) runs.
+const REQUEST_TIMEOUT_MS = 60_000;
+const CREATE_TIMEOUT_MS = 15 * 60_000;
+const POLL_INTERVAL_MS = 2_000;
+// GoDaddy takes a few minutes end to end; Dynadot about as long.
+const RUN_TIMEOUT_MS = 30 * 60_000;
 
 type SafeSummary = {
   provider: string;
@@ -43,7 +45,12 @@ type SafeSummary = {
   recordsFetched: number;
   recordsUpserted: number;
   recordsInactivated: number;
+  recordsRejected: number;
 };
+
+// Fixed `<prefix>_<code>` identifiers such as `sync_reconciliation_guard`,
+// `feed_download_failed`, or `dynadot_http_error`; anything else is replaced.
+const ERROR_CODE = /^[a-z]+_[a-z_]+$/;
 
 function fixedError(message: string): Error {
   const error = new Error(message);
@@ -51,11 +58,11 @@ function fixedError(message: string): Error {
   return error;
 }
 
-async function ensurePortAvailable() {
+async function ensurePortAvailable(port: number) {
   await new Promise<void>((resolve, reject) => {
     const server = createServer();
     server.once('error', () => reject(fixedError('sync_port_unavailable')));
-    server.listen(PORT, HOST, () => {
+    server.listen(port, HOST, () => {
       server.close((error) =>
         error ? reject(fixedError('sync_port_unavailable')) : resolve(),
       );
@@ -67,23 +74,52 @@ function pause(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
+// Wrangler's local explorer API wraps results as `{ success, result }`.
+async function explorer(
+  path: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+) {
+  const response = await fetchWithTimeout(
+    fetch,
+    `${INSTANCES_URL}${path}`,
+    init,
+    timeoutMs,
+    'sync_runner_timeout',
+  );
+  const body = (await response.json().catch(() => null)) as {
+    success?: boolean;
+    result?: unknown;
+  } | null;
+  if (!response.ok || !body?.success) throw fixedError('sync_runner_failed');
+  return body.result;
+}
+
+// Locally (Wrangler 4.110), reading one instance waits until that instance
+// finishes, and even the instance list can wait while a long step runs. So
+// progress is polled through the list (newest first), a slow answer is
+// retried, and the instance is read only once it has finished.
+async function instanceStatus(id: string) {
+  const instances = await explorer('', { method: 'GET' });
+  const listed = Array.isArray(instances)
+    ? (instances as { id?: unknown; status?: unknown }[]).find(
+        (instance) => instance.id === id,
+      )
+    : undefined;
+  return typeof listed?.status === 'string' ? listed.status : 'unknown';
+}
+
 async function waitUntilReady(child: ChildProcess) {
   const deadline = Date.now() + READY_TIMEOUT_MS;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw fixedError('sync_runner_failed');
     try {
-      const response = await fetchWithTimeout(
-        fetch,
-        SYNC_URL,
-        { method: 'GET' },
-        1_000,
-        'sync_runner_timeout',
-      );
-      if (response.status === 405) return;
+      await explorer('', { method: 'GET' }, READY_REQUEST_TIMEOUT_MS);
+      return;
     } catch {
       // The bounded readiness poll retries while workerd starts.
     }
-    await pause(100);
+    await pause(200);
   }
   throw fixedError('sync_runner_timeout');
 }
@@ -114,6 +150,7 @@ function parseSummary(value: unknown): SafeSummary {
     summary.recordsFetched,
     summary.recordsUpserted,
     summary.recordsInactivated,
+    summary.recordsRejected,
   ];
   if (
     summary.provider !== PROVIDER ||
@@ -124,46 +161,21 @@ function parseSummary(value: unknown): SafeSummary {
   ) {
     throw fixedError('sync_failed');
   }
-  return summary as SafeSummary;
+  return {
+    provider: String(summary.provider),
+    status: 'succeeded',
+    pagesFetched: Number(summary.pagesFetched),
+    recordsFetched: Number(summary.recordsFetched),
+    recordsUpserted: Number(summary.recordsUpserted),
+    recordsInactivated: Number(summary.recordsInactivated),
+    recordsRejected: Number(summary.recordsRejected),
+  };
 }
 
-function parseContinuation(value: unknown): number | null {
-  if (typeof value !== 'object' || value === null) return null;
-  const response = value as Record<string, unknown>;
-  if (response.status !== 'continue') return null;
-  const state = response;
-  const values = [
-    state.runId,
-    state.nextPage,
-    state.pagesFetched,
-    state.recordsFetched,
-    state.recordsUpserted,
-    state.recordsInactivated,
-  ];
-  if (
-    values.some(
-      (item, index) =>
-        !Number.isSafeInteger(item) ||
-        (index < 2 ? Number(item) <= 0 : Number(item) < 0),
-    )
-  ) {
-    return null;
-  }
-  return Number(state.runId);
-}
-
-// The worker reports only fixed `<prefix>_<code>` identifiers, such as
-// `sync_reconciliation_guard` or `dynadot_http_error`; anything else is
-// replaced.
-const ERROR_CODE = /^[a-z]+_[a-z_]+$/;
-
-function reportedErrorCode(body: unknown) {
-  const code =
-    typeof body === 'object' && body !== null && 'errorCode' in body
-      ? body.errorCode
-      : undefined;
-  return typeof code === 'string' && ERROR_CODE.test(code)
-    ? code
+function reportedErrorCode(instance: Record<string, unknown>) {
+  const error = instance.error as { message?: unknown } | null | undefined;
+  return typeof error?.message === 'string' && ERROR_CODE.test(error.message)
+    ? error.message
     : 'sync_failed';
 }
 
@@ -174,28 +186,20 @@ async function main() {
     throw fixedError(`${PROVIDER}_missing_credentials`);
   }
 
-  await ensurePortAvailable();
+  await ensurePortAvailable(PORT);
+  await ensurePortAvailable(INSPECTOR_PORT);
   const temporaryDirectory = await mkdtemp(join(tmpdir(), 'provider-sync-'));
   const environmentFile = join(temporaryDirectory, 'worker.env');
   let child: ChildProcess | undefined;
-  let closeFeedServer: (() => Promise<void>) | undefined;
-  // Installed before any download so an interruption also removes staged
-  // feed files; the worker process is attached once it starts.
   const signalCleanup = installSignalCleanup({ temporaryDirectory });
 
   try {
-    // Only this provider's secrets reach the worker.
-    const workerValues = secretNames.map((name) => [name, process.env[name]!]);
-    const { fileFeed } = PROVIDER_REGISTRY[PROVIDER]!;
-    if (fileFeed) {
-      const feedServer = await stageFileFeed(fileFeed, temporaryDirectory);
-      closeFeedServer = feedServer.close;
-      workerValues.push([fileFeed.pagesUrlName, feedServer.url]);
-    }
+    // Only this provider's secrets reach the worker, through a mode-0600
+    // file outside the repository.
     await writeFile(
       environmentFile,
-      workerValues
-        .map(([name, value]) => `${name}=${JSON.stringify(value)}\n`)
+      secretNames
+        .map((name) => `${name}=${JSON.stringify(process.env[name])}\n`)
         .join(''),
       { mode: 0o600 },
     );
@@ -213,6 +217,8 @@ async function main() {
         HOST,
         '--port',
         String(PORT),
+        '--inspector-port',
+        String(INSPECTOR_PORT),
         '--env-file',
         environmentFile,
       ],
@@ -228,58 +234,49 @@ async function main() {
     spawnedChild.stderr?.resume();
 
     await waitUntilReady(spawnedChild);
-    let runId: number | undefined;
-    while (true) {
-      const response = await fetchWithTimeout(
-        fetch,
-        SYNC_URL,
-        {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify(runId ? { runId } : {}),
-        },
-        SEGMENT_TIMEOUT_MS,
-        'sync_segment_timeout',
-      );
-      const body: unknown = await response.json().catch(() => null);
-      if (!response.ok) throw fixedError(reportedErrorCode(body));
-      const next = parseContinuation(body);
-      if (next) {
-        runId = next;
+    const id = `${PROVIDER}-manual-${Date.now()}`;
+    // Creating an instance is not retried (the ID would already exist), so
+    // it may wait as long as the stage step's own timeout.
+    await explorer(
+      '',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, params: { provider: PROVIDER } }),
+      },
+      CREATE_TIMEOUT_MS,
+    );
+
+    const deadline = Date.now() + RUN_TIMEOUT_MS;
+    while (Date.now() < deadline) {
+      await pause(POLL_INTERVAL_MS);
+      if (spawnedChild.exitCode !== null) {
+        throw fixedError('sync_runner_failed');
+      }
+      let status: string;
+      try {
+        status = await instanceStatus(id);
+      } catch {
+        // A slow local explorer answer is retried until the run deadline.
         continue;
       }
-      const summary = parseSummary(body);
-      process.stdout.write(`${JSON.stringify(summary)}\n`);
-      break;
+      if (!['complete', 'errored', 'terminated'].includes(status)) continue;
+      const instance = (await explorer(`/${encodeURIComponent(id)}`, {
+        method: 'GET',
+      })) as Record<string, unknown>;
+      if (status === 'complete') {
+        const summary = parseSummary(instance.output);
+        process.stdout.write(`${JSON.stringify(summary)}\n`);
+        return;
+      }
+      throw fixedError(reportedErrorCode(instance));
     }
+    throw fixedError('sync_runner_timeout');
   } finally {
     signalCleanup.unregister();
     if (child) await stopChild(child);
-    await closeFeedServer?.();
     rmSync(temporaryDirectory, { recursive: true, force: true });
   }
-}
-
-// Downloads a provider's zipped feed, splits it into page files, and serves
-// them on loopback for the worker's adapter. Only the pages stay on disk.
-async function stageFileFeed(fileFeed: FileFeed, temporaryDirectory: string) {
-  const archive = join(temporaryDirectory, 'feed.zip');
-  const pages = join(temporaryDirectory, 'pages');
-  await downloadFeed({
-    url: fileFeed.url,
-    destination: archive,
-    maxBytes: FEED_ARCHIVE_MAX_BYTES,
-    timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
-  });
-  await stageZippedFeed({
-    archive,
-    entry: fileFeed.entry,
-    directory: pages,
-    pageSize: fileFeed.pageSize,
-    maxBytes: FEED_JSON_MAX_BYTES,
-  });
-  await rm(archive, { force: true });
-  return serveFeedPages(pages);
 }
 
 main().catch((error: unknown) => {

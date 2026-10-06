@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, like } from 'drizzle-orm';
+import { and, asc, count, desc, eq, inArray, like } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/d1';
 
 import {
@@ -22,8 +22,11 @@ import { queryDomainListingsWithDatabase } from '../queries/domain-listings-quer
 import { SyncError } from './sync';
 import { enrichDomainRatings } from '../enrichment/domain-rating';
 import { createD1IngestionStorage } from './d1-storage';
+import { runProviderSync } from './provider-sync-workflow';
+import { buildZipFixture } from './zip-fixture';
+import { GODADDY_FEED_ENTRY } from '../providers/godaddy';
 
-type IntegrationEnv = { DB: D1Database };
+type IntegrationEnv = { DB: D1Database; FEED_PAGES: R2Bucket };
 
 const PATH = '/run';
 const STARTED_AT = new Date('2026-07-13T00:00:00.000Z');
@@ -545,6 +548,138 @@ async function proveGodaddyFeedStorage(
   await database
     .delete(auctionListings)
     .where(eq(auctionListings.provider, 'godaddy'));
+}
+
+function inventedFeedRecord(index: number, price = '$15') {
+  return {
+    domainName: `cloud-feed-${index}.integration.test`,
+    link: `https://www.godaddy.com/domain-auctions/cloud-feed-${index}-${800_000 + index}`,
+    auctionType: 'Bid',
+    auctionEndTime: '2030-01-01T00:00:00Z',
+    price,
+    numberOfBids: 2,
+    majesticTf: 5,
+    semrushAs: 9,
+  };
+}
+
+async function cloudFeedObjects(bucket: R2Bucket) {
+  const listing = await bucket.list({ prefix: 'feed-pages/' });
+  return listing.objects.length;
+}
+
+// Runs the provider-sync Workflow orchestration for GoDaddy against real
+// local D1 and R2: an invented zipped feed (with a data descriptor, the
+// harder zip layout) is staged into R2 pages, synced through the adapter,
+// and the pages are deleted. A second run whose pages fail validation must
+// record a failed run, reconcile nothing, and still delete its pages.
+async function proveCloudFeedSync(
+  env: IntegrationEnv,
+  database: ReturnType<typeof drizzle<typeof schema>>,
+) {
+  const sync = async (runKey: string, records: unknown[]) => {
+    const zip = await buildZipFixture(
+      JSON.stringify({ meta: { generated: 'invented' }, data: records }),
+      { entry: GODADDY_FEED_ENTRY, dataDescriptor: true },
+    );
+    const steps: string[] = [];
+    let stagedObjects = 0;
+    const outcome = await runProviderSync({
+      provider: 'godaddy',
+      runKey,
+      env: { DB: env.DB, FEED_PAGES: env.FEED_PAGES },
+      step: {
+        async do(name, _config, callback) {
+          steps.push(name);
+          const result = await callback();
+          if (name === 'stage feed') {
+            stagedObjects = await cloudFeedObjects(env.FEED_PAGES);
+          }
+          return result;
+        },
+      },
+      nonRetryable: (code) => new Error(code),
+      dependencies: {
+        fetchImpl: (async () => new Response(zip)) as typeof fetch,
+      },
+    }).then(
+      (summary) => ({ summary, error: null }),
+      (error: unknown) => ({
+        summary: null,
+        error: error instanceof Error ? error.message : 'unknown',
+      }),
+    );
+    return { ...outcome, steps, stagedObjects };
+  };
+
+  const records = Array.from({ length: 2_500 }, (_, index) =>
+    inventedFeedRecord(index),
+  );
+  const succeeded = await sync('godaddy-integration-ok', records);
+  assertIntegration(
+    succeeded.summary?.pagesFetched === 3 &&
+      succeeded.summary.recordsFetched === 2_500 &&
+      succeeded.summary.recordsUpserted === 2_500 &&
+      succeeded.summary.recordsRejected === 0 &&
+      succeeded.stagedObjects === 3 &&
+      succeeded.steps.join('|') ===
+        'stage feed|sync pages, segment 1|delete staged pages' &&
+      (await cloudFeedObjects(env.FEED_PAGES)) === 0,
+    'cloud_feed_synced',
+  );
+  const [stored] = await database
+    .select({ value: count() })
+    .from(auctionListings)
+    .where(
+      and(
+        eq(auctionListings.provider, 'godaddy'),
+        eq(auctionListings.status, 'active'),
+        like(auctionListings.domainName, 'cloud-feed-%'),
+      ),
+    );
+  const metrics = await seoMetricsFor(
+    database,
+    'cloud-feed-2499.integration.test',
+  );
+  assertIntegration(
+    stored?.value === 2_500 && metrics?.semrushAs === 9,
+    'cloud_feed_stored',
+  );
+
+  // More than a tenth of the first page is invalid: the run fails on page 1.
+  const invalid = records.map((record, index) =>
+    index < 200 ? inventedFeedRecord(index, 'not money') : record,
+  );
+  const failed = await sync(
+    'godaddy-integration-failed',
+    invalid.slice(0, 1_500),
+  );
+  const [failedRun] = await database
+    .select()
+    .from(ingestionRuns)
+    .where(eq(ingestionRuns.provider, 'godaddy'))
+    .orderBy(desc(ingestionRuns.id))
+    .limit(1);
+  const [stillActive] = await database
+    .select({ value: count() })
+    .from(auctionListings)
+    .where(
+      and(
+        eq(auctionListings.status, 'active'),
+        like(auctionListings.domainName, 'cloud-feed-%'),
+      ),
+    );
+  assertIntegration(
+    failed.error === 'godaddy_response_error' &&
+      failed.stagedObjects === 2 &&
+      failed.steps.at(-1) === 'delete staged pages' &&
+      (await cloudFeedObjects(env.FEED_PAGES)) === 0 &&
+      failedRun?.status === 'failed' &&
+      failedRun.errorCode === 'godaddy_response_error' &&
+      failedRun.failedPage === 1 &&
+      stillActive?.value === 2_500,
+    'cloud_feed_failure_contained',
+  );
 }
 
 async function runProof(env: IntegrationEnv) {
@@ -1242,6 +1377,7 @@ async function runProof(env: IntegrationEnv) {
   await proveProviderIsolation(database);
   await proveDomainRatingEnrichment(database);
   await proveReconciliationSafety(database, storage);
+  await proveCloudFeedSync(env, database);
 
   return {
     status: 'succeeded' as const,
@@ -1269,6 +1405,7 @@ async function runProof(env: IntegrationEnv) {
     independentFilterProof: true as const,
     wildcardEscapeProof: true as const,
     godaddyFeedProof: true as const,
+    cloudFeedProof: true as const,
   };
 }
 

@@ -44,6 +44,7 @@ type ProofSummary = {
   independentFilterProof: true;
   wildcardEscapeProof: true;
   godaddyFeedProof: true;
+  cloudFeedProof: true;
 };
 
 function fixedError(code: string) {
@@ -157,6 +158,7 @@ function parseSummary(value: unknown): ProofSummary {
     independentFilterProof: true,
     wildcardEscapeProof: true,
     godaddyFeedProof: true,
+    cloudFeedProof: true,
   } as const;
   const mismatched = Object.entries(expected)
     .filter(([key, expectedValue]) => summary[key] !== expectedValue)

@@ -3,11 +3,11 @@ import { z } from 'zod';
 import {
   parseDomain,
   parseMoneyCents,
-  readBoundedBody,
   ResponseTooLargeError,
 } from '../normalize';
 import {
   ProviderError,
+  type FeedPageSource,
   type NormalizedListing,
   type NormalizedSeoMetrics,
   type ProviderAdapter,
@@ -15,19 +15,18 @@ import {
 } from '../types';
 
 // GoDaddy publishes its auction inventory as one large zipped JSON file
-// (`all_biddable_auctions.json.zip`, about 450 MB unzipped), which is too big
-// for a Worker request. The local runner downloads and splits it into numbered
-// page files of at most GODADDY_PAGE_SIZE raw records, served on a
-// loopback-only HTTP server (`src/server/ingestion/file-feed.ts`). This
-// adapter reads those pages, so validation, normalization, storage, and
-// reconciliation follow the same path as API providers.
+// (`all_biddable_auctions.json.zip`, about 450 MB unzipped) instead of a paged
+// API. The ingestion Workflow's stage step streams it into numbered page files
+// of at most GODADDY_PAGE_SIZE raw records in R2
+// (`src/server/ingestion/feed-stage.ts`). This adapter reads those pages, so
+// validation, normalization, storage, and reconciliation follow the same path
+// as API providers.
 export const GODADDY_FEED_URL =
   'https://inventory.auctions.godaddy.com/all_biddable_auctions.json.zip';
 export const GODADDY_FEED_ENTRY = 'all_biddable_auctions.json';
 export const GODADDY_PAGE_SIZE = 1000;
 
-const RESPONSE_BYTE_LIMIT = 10 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 30_000;
+const PAGE_BYTE_LIMIT = 10 * 1024 * 1024;
 const MAX_PAGE_INDEX = 1000;
 // A page where more than this share of records is invalid indicates a format
 // change rather than a few bad records.
@@ -60,7 +59,7 @@ const godaddyRecordSchema = z
 
 type GodaddyRecord = z.infer<typeof godaddyRecordSchema>;
 
-// The page envelope written by the local runner. Records are validated one at
+// The page envelope written by the stage step. Records are validated one at
 // a time so a single malformed listing is skipped, not the whole page.
 const pageSchema = z
   .object({
@@ -72,8 +71,8 @@ const pageSchema = z
 
 export type GodaddyProviderErrorCode =
   | 'godaddy_invalid_request'
-  | 'godaddy_network_error'
-  | 'godaddy_http_error'
+  | 'godaddy_page_read_error'
+  | 'godaddy_missing_page'
   | 'godaddy_parse_error'
   | 'godaddy_response_too_large'
   | 'godaddy_response_error';
@@ -190,73 +189,35 @@ export function normalizeGodaddyRecords(
   return { listings, received: records.length, rejected };
 }
 
-// Only the runner's loopback page server is an acceptable page source.
-export function parsePagesUrl(value: string | undefined) {
-  let url: URL;
-  try {
-    url = new URL(value ?? '');
-  } catch {
-    return null;
-  }
-  return url.protocol === 'http:' &&
-    url.hostname === '127.0.0.1' &&
-    url.username === '' &&
-    url.password === '' &&
-    url.pathname.endsWith('/') &&
-    url.search === '' &&
-    url.hash === ''
-    ? url
-    : null;
-}
-
-async function fetchPageBody(url: URL, fetchImpl: typeof fetch) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-  try {
-    let response: Response;
-    try {
-      response = await fetchImpl(url, { signal: controller.signal });
-    } catch {
-      throw new GodaddyProviderError('godaddy_network_error');
-    }
-    if (!response.ok) throw new GodaddyProviderError('godaddy_http_error');
-    try {
-      return await readBoundedBody(response, RESPONSE_BYTE_LIMIT);
-    } catch (error) {
-      throw new GodaddyProviderError(
-        error instanceof ResponseTooLargeError
-          ? 'godaddy_response_too_large'
-          : 'godaddy_network_error',
-      );
-    }
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
 export function createGodaddyAdapter({
-  pagesUrl,
-  fetchImpl = fetch,
+  pages,
 }: {
-  pagesUrl: string | undefined;
-  fetchImpl?: typeof fetch;
+  pages: FeedPageSource | undefined;
 }): ProviderAdapter {
-  const baseUrl = parsePagesUrl(pagesUrl);
   return {
     provider: 'godaddy',
     async fetchPage({ pageIndex }) {
       if (
-        !baseUrl ||
+        !pages ||
         !Number.isSafeInteger(pageIndex) ||
         pageIndex < 1 ||
         pageIndex > MAX_PAGE_INDEX
       ) {
         throw new GodaddyProviderError('godaddy_invalid_request');
       }
-      const text = await fetchPageBody(
-        new URL(`page-${pageIndex}.json`, baseUrl),
-        fetchImpl,
-      );
+      let text: string | null;
+      try {
+        text = await pages.readPage(pageIndex, PAGE_BYTE_LIMIT);
+      } catch (error) {
+        throw new GodaddyProviderError(
+          error instanceof ResponseTooLargeError
+            ? 'godaddy_response_too_large'
+            : 'godaddy_page_read_error',
+        );
+      }
+      // The stage marks the final page explicitly, so a page that does not
+      // exist is an error rather than the end of the feed.
+      if (text === null) throw new GodaddyProviderError('godaddy_missing_page');
       let body: unknown;
       try {
         body = JSON.parse(text);
@@ -267,8 +228,6 @@ export function createGodaddyAdapter({
       if (!parsed.success || parsed.data.page !== pageIndex) {
         throw new GodaddyProviderError('godaddy_response_error');
       }
-      // The runner marks the final page explicitly, so a full last page and
-      // a skipped record cannot be confused with the end of the feed.
       return {
         ...normalizeGodaddyRecords(parsed.data.records),
         isLastPage: parsed.data.isLastPage,

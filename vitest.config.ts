@@ -17,8 +17,9 @@ export default defineConfig({
         'src/server/ingestion/sync.ts',
         'src/server/enrichment/ahrefs.ts',
         'src/server/enrichment/domain-rating-request.ts',
-        'src/server/ingestion/local-worker.ts',
-        'src/server/ingestion/file-feed.ts',
+        'src/server/ingestion/feed-stage.ts',
+        'src/server/ingestion/feed-pages.ts',
+        'src/server/ingestion/provider-sync-workflow.ts',
         'src/server/ingestion/local-runner.ts',
       ],
       exclude: [
