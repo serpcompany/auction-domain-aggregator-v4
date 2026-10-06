@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { PROVIDER_REGISTRY } from '../registry';
 import { DynadotProviderError, fetchDynadotPage } from './index';
 
 const validItem = {
@@ -545,5 +546,28 @@ describe('fetchDynadotPage', () => {
     expect(String(caught)).not.toContain('invented-key');
     expect(String(caught)).not.toContain('secret.invalid');
     expect(String(caught)).not.toContain('raw body');
+  });
+});
+
+describe('Dynadot adapter', () => {
+  it('is built by the registry and ends on the first short page', async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async () =>
+      jsonResponse({ status: 'success', auction_list: [validItem] }),
+    );
+    vi.stubGlobal('fetch', fetchImpl);
+    try {
+      const adapter = PROVIDER_REGISTRY.dynadot!.createAdapter({
+        secrets: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' },
+      });
+      expect(adapter.provider).toBe('dynadot');
+      await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
+        received: 1,
+        rejected: 0,
+        isLastPage: true,
+      });
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 });

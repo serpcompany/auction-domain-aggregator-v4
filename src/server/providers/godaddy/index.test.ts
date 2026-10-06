@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import { ResponseTooLargeError } from '../normalize';
 import { PROVIDER_REGISTRY } from '../registry';
 import {
   createGodaddyAdapter,
   GodaddyProviderError,
   normalizeGodaddyRecords,
-  parsePagesUrl,
 } from './index';
 
 // Invented record in the shape of GoDaddy's public inventory feed.
@@ -33,25 +33,20 @@ const record = {
   semrushCpc: 0.1,
 };
 
-const PAGES_URL = 'http://127.0.0.1:41234/';
+type PageOutcome = string | null | Error;
 
-function pageResponse(body: unknown, init?: ResponseInit) {
-  return new Response(JSON.stringify(body), init);
+// A page source that answers each page number from `pages`.
+function adapterFor(pages: Record<number, PageOutcome>) {
+  const readPage = vi.fn(async (page: number) => {
+    const outcome = pages[page];
+    if (outcome instanceof Error) throw outcome;
+    return outcome ?? null;
+  });
+  return { readPage, adapter: createGodaddyAdapter({ pages: { readPage } }) };
 }
 
-function adapterFor(responses: Response[] | ((url: URL) => Response)) {
-  const fetchImpl = vi.fn(async (input: RequestInfo | URL) =>
-    typeof responses === 'function'
-      ? responses(new URL(String(input)))
-      : responses.shift()!,
-  );
-  return {
-    fetchImpl,
-    adapter: createGodaddyAdapter({
-      pagesUrl: PAGES_URL,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-    }),
-  };
+function pageText(body: unknown) {
+  return JSON.stringify(body);
 }
 
 describe('GoDaddy record normalization', () => {
@@ -168,34 +163,12 @@ describe('GoDaddy record normalization', () => {
   });
 });
 
-describe('GoDaddy pages URL', () => {
-  it('accepts only the runner loopback page server', () => {
-    expect(parsePagesUrl(PAGES_URL)?.href).toBe(PAGES_URL);
-    for (const value of [
-      undefined,
-      'not a url',
-      'https://127.0.0.1:1/',
-      'http://localhost:1/',
-      'http://10.0.0.1:1/',
-      'http://u:p@127.0.0.1:1/',
-      'http://127.0.0.1:1/pages',
-      'http://127.0.0.1:1/?x=1',
-      'http://127.0.0.1:1/#x',
-    ]) {
-      expect(parsePagesUrl(value)).toBeNull();
-    }
-  });
-});
-
 describe('GoDaddy adapter', () => {
-  it('reads numbered loopback pages and reports the marked last page', async () => {
-    const { adapter, fetchImpl } = adapterFor((url) =>
-      pageResponse({
-        page: Number(/page-(\d+)/.exec(url.pathname)![1]),
-        isLastPage: url.pathname === '/page-2.json',
-        records: [record],
-      }),
-    );
+  it('reads numbered staged pages and reports the marked last page', async () => {
+    const { adapter, readPage } = adapterFor({
+      1: pageText({ page: 1, isLastPage: false, records: [record] }),
+      2: pageText({ page: 2, isLastPage: true, records: [record] }),
+    });
     expect(adapter.provider).toBe('godaddy');
     await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
       received: 1,
@@ -205,50 +178,59 @@ describe('GoDaddy adapter', () => {
     await expect(adapter.fetchPage({ pageIndex: 2 })).resolves.toMatchObject({
       isLastPage: true,
     });
-    expect(String(fetchImpl.mock.calls[1]![0])).toBe(
-      'http://127.0.0.1:41234/page-2.json',
-    );
+    expect(readPage).toHaveBeenLastCalledWith(2, 10 * 1024 * 1024);
   });
 
-  it('is built by the registry from the runner-supplied page URL', async () => {
-    const adapter = PROVIDER_REGISTRY.godaddy!.createAdapter({
-      GODADDY_FEED_PAGES_URL: 'http://example.invalid/',
+  it('is built by the registry from the staged page source', async () => {
+    const registration = PROVIDER_REGISTRY.godaddy!;
+    expect(registration.fileFeed).toMatchObject({
+      field: 'data',
+      pageSize: 1000,
     });
-    await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
+    const withoutPages = registration.createAdapter({ secrets: {} });
+    await expect(withoutPages.fetchPage({ pageIndex: 1 })).rejects.toThrow(
       new GodaddyProviderError('godaddy_invalid_request'),
     );
+    const readPage = vi.fn(async () =>
+      pageText({ page: 1, isLastPage: true, records: [] }),
+    );
+    const adapter = registration.createAdapter({
+      secrets: {},
+      feedPages: { readPage },
+    });
+    await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
+      received: 0,
+      isLastPage: true,
+    });
   });
 
-  it('rejects invalid requests without fetching', async () => {
-    const { adapter, fetchImpl } = adapterFor([]);
+  it('rejects invalid requests without reading', async () => {
+    const { adapter, readPage } = adapterFor({});
     for (const pageIndex of [0, 1001, 1.5]) {
       await expect(adapter.fetchPage({ pageIndex })).rejects.toThrow(
         new GodaddyProviderError('godaddy_invalid_request'),
       );
     }
-    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(readPage).not.toHaveBeenCalled();
   });
 
-  it('maps transport and envelope failures to fixed codes', async () => {
-    const cases: [Response | Error, string][] = [
-      [new Error('connection refused'), 'godaddy_network_error'],
-      [new Response(null, { status: 404 }), 'godaddy_http_error'],
+  it('maps read and envelope failures to fixed codes', async () => {
+    const cases: [PageOutcome, string][] = [
+      [new Error('R2 unavailable'), 'godaddy_page_read_error'],
+      [new ResponseTooLargeError(), 'godaddy_response_too_large'],
+      [null, 'godaddy_missing_page'],
+      ['{', 'godaddy_parse_error'],
+      ['', 'godaddy_parse_error'],
       [
-        new Response('x', { headers: { 'content-length': '99999999' } }),
-        'godaddy_response_too_large',
-      ],
-      [new Response('{'), 'godaddy_parse_error'],
-      [new Response(null), 'godaddy_parse_error'],
-      [
-        pageResponse({ page: 2, isLastPage: true, records: [] }),
+        pageText({ page: 2, isLastPage: true, records: [] }),
         'godaddy_response_error',
       ],
       [
-        pageResponse({ page: 1, isLastPage: true, records: [], extra: 1 }),
+        pageText({ page: 1, isLastPage: true, records: [], extra: 1 }),
         'godaddy_response_error',
       ],
       [
-        pageResponse({
+        pageText({
           page: 1,
           isLastPage: true,
           records: Array.from({ length: 1001 }, () => record),
@@ -257,54 +239,10 @@ describe('GoDaddy adapter', () => {
       ],
     ];
     for (const [outcome, code] of cases) {
-      const adapter = createGodaddyAdapter({
-        pagesUrl: PAGES_URL,
-        fetchImpl: (async () => {
-          if (outcome instanceof Error) throw outcome;
-          return outcome;
-        }) as unknown as typeof fetch,
-      });
+      const { adapter } = adapterFor({ 1: outcome });
       await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
         new GodaddyProviderError(code as never),
       );
     }
-  });
-
-  it('times out a page request that never answers', async () => {
-    vi.useFakeTimers();
-    try {
-      const adapter = createGodaddyAdapter({
-        pagesUrl: PAGES_URL,
-        fetchImpl: ((_input: URL, init?: RequestInit) =>
-          new Promise((_resolve, reject) =>
-            init?.signal?.addEventListener('abort', () =>
-              reject(new Error('aborted')),
-            ),
-          )) as unknown as typeof fetch,
-      });
-      const pending = adapter.fetchPage({ pageIndex: 1 });
-      const assertion = expect(pending).rejects.toThrow(
-        new GodaddyProviderError('godaddy_network_error'),
-      );
-      await vi.advanceTimersByTimeAsync(30_000);
-      await assertion;
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('maps an interrupted body read to a network error', async () => {
-    const body = new ReadableStream({
-      pull(controller) {
-        controller.error(new Error('reset'));
-      },
-    });
-    const adapter = createGodaddyAdapter({
-      pagesUrl: PAGES_URL,
-      fetchImpl: (async () => new Response(body)) as unknown as typeof fetch,
-    });
-    await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
-      new GodaddyProviderError('godaddy_network_error'),
-    );
   });
 });

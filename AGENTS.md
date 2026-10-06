@@ -37,7 +37,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `.node-version` pins the
 - `corepack pnpm db:generate`: generate a migration after an intentional Drizzle schema change.
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
-- `corepack pnpm sync <provider>`: migrate and manually synchronize one implemented provider into local D1. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` needs no credentials: it downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped, about 4 minutes end to end) and needs the system `unzip`. GoDaddy content is licensed for the owner's internal use only.
+- `corepack pnpm sync <provider>`: migrate local D1, then run that provider's `provider-sync` Workflow (the same code the daily Cron Trigger starts) in a temporary local `wrangler dev` of the ingestion Worker on ports 8790 and 9330, with local D1, R2, and Workflows. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` needs no credentials: the Workflow downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped) and stages it in local R2, about 2 to 3 minutes end to end. Do not edit `src/` while it runs: Wrangler's reload orphans the running instance. GoDaddy content is licensed for the owner's internal use only.
 - `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
@@ -47,7 +47,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `.node-version` pins the
 - `corepack pnpm build`: verify the standard Next.js production build.
 - `corepack pnpm cf-typegen`: regenerate Cloudflare binding types from `wrangler.jsonc`.
 
-`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Integration and browser tests use temporary persistence and never mutate the owner's `.wrangler` inventory. Both `pnpm upload` and `pnpm deploy` mutate external Cloudflare state, require explicit authorization, and are not routine verification steps. Creating remote Cloudflare resources also requires explicit authorization.
+`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Integration and browser tests use temporary persistence and never mutate the owner's `.wrangler` inventory. Both `pnpm upload` and `pnpm deploy` mutate external Cloudflare state, require explicit authorization, and are not routine verification steps. Creating remote Cloudflare resources also requires explicit authorization. The ingestion Worker (`wrangler.ingestion.jsonc`) is not deployed; `docs/technical-design/data-ingestion.md` lists the D1, R2, Workflow, cron, and secret settings a deploy needs.
 
 ## ExecPlans
 

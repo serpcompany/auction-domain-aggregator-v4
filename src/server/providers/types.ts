@@ -56,6 +56,14 @@ export type ProviderAdapter = {
   fetchPage(input: { pageIndex: number }): Promise<ProviderPage>;
 };
 
+// Raw page files staged from a provider's file feed (R2 in the ingestion
+// Worker). Each page is JSON: `{ page, isLastPage, records: [...] }`.
+export type FeedPageSource = {
+  // Resolves with the page body, or null when the page does not exist.
+  // Rejects with `ResponseTooLargeError` above `maxBytes`.
+  readPage(page: number, maxBytes: number): Promise<string | null>;
+};
+
 // Errors thrown by adapters carry a fixed, non-secret code prefixed with the
 // provider name, e.g. `dynadot_http_error`. It is persisted on failed runs.
 export class ProviderError extends Error {

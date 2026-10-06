@@ -2,7 +2,7 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot and GoDaddy auction ingestion, GoDaddy's per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented locally. Scheduling, remote Cloudflare resources, and other auction providers are not implemented.
+This document maps the current application and its stable boundaries. Dynadot and GoDaddy auction ingestion (a cron-started Cloudflare Workflow per provider), GoDaddy's per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Nothing is deployed and no remote Cloudflare resources exist; other auction providers are not implemented.
 
 ## System purpose
 
@@ -11,14 +11,17 @@ The system collects auction and expired-domain listings, stores normalized data 
 ## Current system flow
 
 ```text
-manual `pnpm sync <provider>`
-        |   (file-feed providers: download zip -> stream-split into page files
-        |    -> loopback-only page server)
+daily Cron Trigger (or local `pnpm sync <provider>`)
+        |
         v
-loopback-only Wrangler worker -> provider adapter -> bounded D1 upserts
-                                                   |
-                                                   v
-                                            local Cloudflare D1
+ingestion Worker -> one `provider-sync` Workflow instance per provider
+        |   [stage feed]       file feeds: fetch zip -> inflate -> split `data`
+        |                      array -> 1,000-record page files in R2
+        |   sync segments      provider adapter (API, or R2 pages) -> bounded,
+        |                      guarded D1 upserts; reconciliation on success
+        |   [delete pages]     file feeds: remove the instance's R2 prefix
+        v
+                                            Cloudflare D1
                                                    |
                                                    | server-side queries only
                                                    v
@@ -40,13 +43,11 @@ The request boundary is D1-only: normal page and health requests may construct t
 
 ### Auction ingestion
 
-`pnpm sync <provider>` (`pnpm sync:dynadot` is an alias) is the only implemented ingestion trigger; Dynadot and GoDaddy are the implemented providers. `scripts/sync-provider.ts` starts a temporary, loopback-only Wrangler worker from `src/server/ingestion/local-worker.ts`, which serves `POST /sync/<provider>`. The runner sends bounded continuation requests; the worker owns continuation state in D1 and builds the provider's adapter from `src/server/providers/registry.ts`.
+Ingestion is a separate Worker (`wrangler.ingestion.jsonc`, entry `src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one instance of the `provider-sync` Workflow for each provider in `src/server/providers/registry.ts`; Dynadot and GoDaddy are implemented. `sync-worker.ts` is a thin runtime adapter; the steps live in `src/server/ingestion/provider-sync-workflow.ts`. Workflow steps replace the earlier loopback HTTP continuation loop: each step gets its own CPU budget, its result is persisted, and the platform retries an interrupted step. `corepack pnpm sync <provider>` runs the same Workflow inside a temporary local `wrangler dev` (`scripts/sync-provider.ts`).
 
-Adapters implement `ProviderAdapter` from `src/server/providers/types.ts`: they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `src/server/ingestion/sync.ts` defines provider-neutral synchronization behavior. `src/server/ingestion/d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so a provider's run never reads, reconciles, or interrupts another provider's listings or runs. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
+Adapters implement `ProviderAdapter` from `src/server/providers/types.ts`: they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `src/server/ingestion/sync.ts` defines provider-neutral synchronization behavior, run by the Workflow in segments of 20 pages per step. Continuation state is server-owned in D1, so a retried step resumes from the last committed page. `src/server/ingestion/d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so a provider's run never reads, reconciles, or interrupts another provider's listings or runs. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
-GoDaddy publishes no paged API for its inventory, only a daily zipped JSON file of about 600,000 listings that is too large for a Worker request. Its registry entry declares a file feed: before starting the worker, the Node runner downloads the archive, streams the file's `data` array through the system `unzip` and `stream-json` into numbered page files of 1,000 records (`src/server/ingestion/file-feed.ts`), and serves them read-only on an ephemeral `127.0.0.1` port. The worker's GoDaddy adapter fetches `page-N.json` from that URL, which it accepts only for `http://127.0.0.1`, and the run then follows the same sync, storage, and reconciliation path as Dynadot. The runner marks the final page explicitly, so a full last page cannot be mistaken for more data.
-
-The local runner gives the worker only an allowlisted process environment and a mode-0600 temporary file containing only that provider's registered secrets (and, for a file feed, the page URL). It removes that directory, including staged feed pages, and terminates the child process on normal exit and handled interruption. This local mechanism is not a deployed API or a scheduling design.
+GoDaddy publishes no paged API for its inventory, only a daily zipped JSON file of about 600,000 listings (37 MB zipped, 450 MB unzipped). Its registry entry declares a file feed. The Workflow's first step streams the archive with `fetch`, reads the zip entry from its local header, inflates it with `DecompressionStream('deflate-raw')`, splits the `data` array with a byte-level scanner, and writes 1,000-record page files marked with `isLastPage` to the `FEED_PAGES` R2 bucket under the instance's own prefix (`src/server/ingestion/feed-stage.ts`, `feed-pages.ts`). The GoDaddy adapter reads those pages through a `FeedPageSource`, and the run follows the same sync, storage, and reconciliation path as Dynadot. A final step deletes the prefix after success or failure. The whole stage measured about 3 to 8 seconds of Worker CPU and 10 MiB of heap, inside the configured 60-second step limit.
 
 ### Domain enrichment
 
@@ -71,6 +72,10 @@ D1 is the current source of truth. `src/server/db/schema.ts` defines:
 
 Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
 
+### Cloudflare R2 and Workflows
+
+The ingestion Worker binds `FEED_PAGES` (R2) for transient file-feed pages and `PROVIDER_SYNC` (the `provider-sync` Workflow). Both are local-only; R2 holds no durable data, and nothing user-facing reads it.
+
 ## Architectural invariants
 
 - User-facing reads come from D1, never directly from an external provider.
@@ -82,12 +87,14 @@ Generated migrations are in `drizzle/`; `0001_smooth_alex_wilder.sql` adds persi
 - Unknown provider values are stored as null, never as an invented zero.
 - Provider credentials remain outside the repository and must not appear in logs, fixtures, errors, or documentation.
 - Remote D1, deployment, and provider calls are not part of routine checks.
+- Ingestion does not depend on the owner's machine: the Cron Trigger, Workflow, R2, and D1 hold every step and its state.
+- Staged feed pages are transient and scoped to one Workflow instance; they are deleted when the instance ends.
 
 ## Cross-cutting concerns
 
 Every ingestion run records provider, start and completion times, outcome, page position, counts, and a non-secret error code. The D1 adapter predicates progress and finalization on the matching running run so stale continuations cannot mutate it.
 
-D1 statements stay below its 100-bound-parameter limit, and a local sync is segmented to fit the workerd request-duration boundary. Network calls and response bodies have explicit time and size bounds. Indexes follow the implemented table filters and sorts.
+D1 statements stay below its 100-bound-parameter limit, and a sync is segmented into Workflow steps so each fits a Worker invocation's CPU limit. Network calls, archive and document sizes, and page bodies have explicit time and size bounds. Indexes follow the implemented table filters and sorts.
 
 Detailed behavior and verified ingestion evidence are in `docs/technical-design/data-ingestion.md`.
 
@@ -99,9 +106,9 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 - `src/server/db/` owns the server-only Drizzle schema, client, and database types.
 - `src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
 - `src/server/providers/types.ts` defines the normalized listing and adapter contract; `src/server/providers/registry.ts` maps implemented providers to their secret names, optional file feed, and adapters; `src/server/providers/normalize.ts` holds shared domain, money, and bounded-body parsing; `src/server/providers/dynadot/` and `src/server/providers/godaddy/` terminate each provider's shapes.
-- `src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the protected local worker, local-runner utilities, and Node-only file-feed staging.
-- `scripts/sync-provider.ts` orchestrates the manual loopback sync for one provider.
+- `src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the ingestion Worker and Workflow (`sync-worker.ts`, `provider-sync-workflow.ts`), web-stream file-feed staging (`feed-stage.ts`) and its R2 pages (`feed-pages.ts`), and local-runner utilities. `zip-fixture.ts` builds invented archives for tests only.
+- `scripts/sync-provider.ts` runs one provider's Workflow in a temporary local `wrangler dev`.
 - `e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures.
-- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define application and ingestion workers sharing local D1 only. `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.
+- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define the application and ingestion Workers sharing local D1 only; the ingestion configuration adds the local R2 bucket, the Workflow, the Cron Trigger, and its CPU limit. `wrangler.integration.jsonc` (D1 and R2) and `wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.
 
-Browser components must not import `src/server/`. Provider-specific shapes must not escape their adapter. Only ingestion code may cross both the provider-network and database boundaries.
+Browser components must not import `src/server/`. Provider-specific shapes must not escape their adapter. Only ingestion code may cross both the provider-network and database boundaries; it runs only in the ingestion Worker, never in the web application's request path.

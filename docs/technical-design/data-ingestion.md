@@ -1,6 +1,6 @@
 # Data ingestion and persistence
 
-Status: Implemented locally for Dynadot and GoDaddy; future-provider sections are design constraints
+Status: Implemented and verified locally (Wrangler) for Dynadot and GoDaddy; not deployed. Future-provider sections are design constraints
 
 Last updated: 2026-10-06
 
@@ -10,43 +10,57 @@ This document defines the current external-data write path and its persistence r
 
 ## Read path
 
-The Next.js application queries local D1 for table contents, filtering, sorting, pagination, source options, and latest successful sync time. A normal page or health request does not call Dynadot, Ahrefs, Majestic, or another external provider.
+The Next.js application queries D1 for table contents, filtering, sorting, pagination, source options, and latest successful sync time. A normal page or health request does not call Dynadot, Ahrefs, Majestic, or another external provider.
 
 `src/server/queries/domain-listings.ts` is the implemented table read model. User input is normalized or selected from allowlists before Drizzle constructs parameterized queries. Only active listings and the fields needed by the table are selected.
 
-## Implemented Dynadot synchronization
+## Ingestion Worker and Workflow
 
-Dynadot is synchronized manually with `pnpm sync dynadot` (alias `pnpm sync:dynadot`). There is no Cloudflare Cron Trigger, public ingestion route, remote D1 database, or deployed worker in the current repository state.
+Ingestion runs in its own Worker, configured by `wrangler.ingestion.jsonc` with entry `src/server/ingestion/sync-worker.ts`. It has no `fetch` handler, so it serves no HTTP routes. Its bindings are `DB` (D1), `FEED_PAGES` (R2), and `PROVIDER_SYNC` (the `provider-sync` Workflow, class `ProviderSyncWorkflow`); the Dynadot key is a Worker secret.
 
-The command first applies local migrations with remote bindings disabled. `scripts/sync-provider.ts dynadot` then starts a short-lived Wrangler worker bound to `127.0.0.1` and calls `POST /sync/dynadot`. That worker builds the Dynadot adapter from `src/server/providers/registry.ts`, which uses `src/server/providers/dynadot/index.ts` to request `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the ingestion service.
+A daily Cron Trigger (`30 15 * * *`, after GoDaddy publishes its file around 14:30 UTC) calls `scheduled()`, which creates one `provider-sync` instance per implemented provider with ID `<provider>-<yyyymmdd>T<hhmm>` from the scheduled time, so a repeated delivery of the same firing cannot start a second instance. Instances run independently; one provider's failure does not affect another's.
 
-The provider adapter requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
+`sync-worker.ts` only adapts the runtime: `ProviderSyncWorkflow.run` passes its step object, bindings, and `NonRetryableError` to `runProviderSync` in `src/server/ingestion/provider-sync-workflow.ts`, which holds the steps and is unit-tested directly:
 
-One workerd request could not reliably contain the observed complete inventory. The runner therefore processes at most 20 provider pages per loopback request. It has a 30-second worker-readiness timeout and a 120-second segment timeout. The HTTP client sends only an optional run ID; `next_page`, the run start timestamp, and all counters are reloaded from D1 and remain server-owned.
+1. Before any step, an unknown provider or missing credentials ends the instance with `sync_unknown_provider` or `<provider>_missing_credentials`.
+2. `stage feed` (file feeds only, described below): download and split the feed into R2 pages. Retried twice for `feed_download_failed` and `feed_extract_failed`; other feed errors are not retried.
+3. `sync pages, segment N`: one `runSyncSegment` call of up to 20 provider pages, returning only `{ done, runId }` or the final summary. Continuation state (`next_page`, counters, run start) stays server-owned in D1, so a step that the platform interrupts and retries resumes from the last committed page. A sync error has already marked the run failed with its code, so it is thrown as non-retryable.
+4. `delete staged pages` (file feeds only): runs after success and after failure. A cleanup failure fails an otherwise successful instance with its code; after a sync failure the sync's code is kept.
+
+The instance output is the sync summary. A failed instance's error message is a fixed code (for example `sync_reconciliation_guard`, `feed_download_failed`, `godaddy_response_error`); anything else is reported as `sync_failed`. Workflows retains instance state and step history (30 days on Workers Paid).
+
+The ingestion Worker's per-invocation CPU limit applies to each step separately; `limits.cpu_ms` is 60,000. Local workerd does not enforce it.
+
+## Dynadot synchronization
+
+The Dynadot adapter (`src/server/providers/dynadot/index.ts`) requests `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the sync service. It requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
 
 For a synchronization:
 
-1. Atomically mark any abandoned Dynadot run interrupted and create a new running row.
+1. Atomically mark any abandoned run of the same provider interrupted and create a new running row.
 2. Fetch and validate pages sequentially.
 3. Upsert normalized domains and provider listings in bounded D1 batches.
 4. Persist page position and counts after every completed segment.
-5. Continue until the provider returns fewer than 1,000 rows.
-6. Apply the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, record the inactivation count, mark older unseen Dynadot listings inactive, and mark the run successful.
+5. Continue until the adapter reports the last page (for Dynadot, the first page with fewer than 1,000 rows).
+6. Apply the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, record the inactivation count, mark older unseen listings of that provider inactive, and mark the run successful.
 
-A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions.
+A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions. Because a new run interrupts an older running one, two overlapping instances of the same provider leave only the newer run able to finish; the older one fails with `sync_stale_continuation`.
 
-## Implemented GoDaddy synchronization
+## GoDaddy synchronization
 
-GoDaddy is synchronized manually with `pnpm sync godaddy`. It needs no credentials: the source is the public, daily `all_biddable_auctions.json.zip` from `https://inventory.auctions.godaddy.com/` (index at `/metadata.json`), about 37 MB zipped and 450 MB unzipped, shaped as `{ "meta": {...}, "data": [ ...listings ] }`. GoDaddy licenses this content for internal use only (`docs/references/data-licensing.md`), so it is for the owner's own use.
+GoDaddy needs no credentials: the source is the public, daily `all_biddable_auctions.json.zip` from `https://inventory.auctions.godaddy.com/` (index at `/metadata.json`), about 37 MB zipped and 450 MB unzipped, shaped as `{ "meta": {...}, "data": [ ...listings ] }`. GoDaddy licenses this content for internal use only (`docs/references/data-licensing.md`), so it is for the owner's own use.
 
-The file is too large for one workerd request and has no paging, so the registry declares it as a file feed and the Node runner stages it before starting the worker (`src/server/ingestion/file-feed.ts`):
+The registry declares it as a file feed (`url`, archive `entry`, `field: "data"`, `pageSize: 1000`). The `stage feed` step streams it into R2 with only web-platform APIs (`src/server/ingestion/feed-stage.ts`), never holding the document in memory:
 
-1. Download the archive into the run's mode-0700 temporary directory, failing above 512 MiB or after 10 minutes.
-2. Stream the archive entry through the system `unzip -p` into `stream-json`, which emits one element of the top-level `data` array at a time; the document is never held in memory. Unzipped output above 4 GiB fails the run.
-3. Write elements into `page-N.json` files of 1,000 raw records as `{ page, isLastPage, records }`. A full page is held back until the next record arrives, so the last page is always marked even when the record count is a multiple of 1,000. An empty feed fails with `feed_empty`.
-4. Delete the archive, serve the pages read-only (`GET /page-N.json`) on an ephemeral `127.0.0.1` port, and pass that base URL to the worker as `GODADDY_FEED_PAGES_URL` in the mode-0600 env file.
+1. `fetch` the archive with a fixed `User-Agent` (GoDaddy's CDN answers 403 without one) and a 10-minute timeout. A declared or local-header compressed size above 512 MiB fails with `feed_too_large`.
+2. Parse the zip local file header of the first entry, which must be named `all_biddable_auctions.json`; accept deflate or stored, and zip64 sizes. When a data descriptor hides the compressed size, hold back the archive's last 256 KiB and read the size from the central directory when the download ends, because workerd's `DecompressionStream` rejects any bytes after the deflate data.
+3. Decompress with `DecompressionStream('deflate-raw')`, failing above 4 GiB.
+4. Scan the bytes for the elements of the top-level `data` array. The scanner tracks strings, escapes, and bracket depth only and copies each record's raw bytes; it never decodes or parses records.
+5. Write `page-N.json` objects of 1,000 raw records as `{ page, isLastPage, records }` under `feed-pages/godaddy/<instance id>/` in `FEED_PAGES`. A full page is held back until the next record arrives, so the last page is always marked even when the record count is a multiple of 1,000. An empty feed fails with `feed_empty`.
 
-The worker's GoDaddy adapter (`src/server/providers/godaddy/index.ts`) accepts the page URL only when it is `http://127.0.0.1:<port>/`. It fetches each page with a 30-second timeout and 10 MiB limit, requires the envelope's page number to match, and validates each record separately with the same 10% page rejection threshold as Dynadot. The run then uses the unchanged sync service, storage, segmenting, and reconciliation guard. Staging failures print fixed codes (`feed_download_failed`, `feed_too_large`, `feed_extract_failed`, `feed_parse_error`, `feed_empty`); adapter failures use `godaddy_*` codes, and a worker without the page URL answers `godaddy_missing_feed`.
+Staging failures use fixed codes: `feed_download_failed`, `feed_too_large`, `feed_extract_failed`, `feed_parse_error`, `feed_empty`, and `feed_stage_failed` (an R2 write failure).
+
+The GoDaddy adapter (`src/server/providers/godaddy/index.ts`) reads pages through a `FeedPageSource` (`src/server/ingestion/feed-pages.ts` implements it on R2 for the instance's prefix). It refuses pages above 10 MiB, requires the envelope's page number to match, parses the page with `JSON.parse` (so a record the scanner copied but that is not valid JSON fails the page with `godaddy_parse_error`), and validates each record separately with the same 10% page rejection threshold as Dynadot. Read failures are `godaddy_page_read_error`, a missing page `godaddy_missing_page`. The run then uses the unchanged sync service, storage, segmenting, and reconciliation guard.
 
 Record mapping:
 
@@ -67,25 +81,27 @@ Record mapping:
 
 `domain_seo_metrics` has one row per domain with typed integer columns (`majestic_tf`, `majestic_cf`, `majestic_backlinks`, `majestic_ref_domains`, `semrush_as`, `semrush_ref_domains`, `semrush_backlinks`), the publishing `source`, and `updated_at` (the run start). TF, CF, and AS are checked to 0 to 100, counts to be nonnegative, and the four filtered columns are indexed. Each page's metrics are upserted in the same guarded D1 batch as its listings, in JSON batches of 100, so a stale run cannot write them. Unlike write-once Ahrefs DR in `domain_metrics`, every sync that carries metrics replaces them (latest wins). A listing without metrics, such as any Dynadot listing, leaves the stored row alone. Rows are not deleted when a domain leaves the feed; they keep their last values and `updated_at`.
 
+## Local runs
+
+`corepack pnpm sync <provider>` (alias `pnpm sync:dynadot`) applies local migrations, then `scripts/sync-provider.ts` starts a temporary `wrangler dev` of the ingestion Worker on `127.0.0.1:8790` (inspector `9330`) with local D1, R2, and Workflows, creates a `provider-sync` instance named `<provider>-manual-<ms>` through Wrangler's local-only explorer API (`/cdn-cgi/explorer/api/workflows/...`), polls it every 2 seconds for up to 30 minutes, and prints the summary or the instance's fixed error code. It drives the same Workflow code as the Cron Trigger. `curl "http://127.0.0.1:8790/cdn-cgi/handler/scheduled"` against a running local session fires the Cron Trigger path.
+
+The runner loads `.secrets/providers.env`, when it exists, only into the Node process; GoDaddy needs no secrets, and Dynadot fails with `dynadot_missing_credentials` without it. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment, and only that provider's registered secrets through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
+
+`wrangler dev` reloads the Worker when an imported source file changes. A reload while an instance is running orphans it locally (it stays `running` and is not resumed), so do not edit `src/` during a local sync; the runner then times out with `sync_runner_timeout`, and the next run interrupts the orphaned run. Staged pages of an orphaned instance stay in the local bucket under its prefix.
+
 ## Verified local evidence
 
-GoDaddy evidence (2026-10-06, the 2026-10-05 feed build, fresh local D1 in a worktree, owner's Mac): `corepack pnpm sync godaddy` succeeded in 233 seconds wall time, including migrations, download, about 2 minutes of staging, and 587 worker pages. It fetched and upserted 586,958 records with 0 rejected and 0 inactivated. Local D1 then held 586,958 active GoDaddy listings, all with null bidder counts and type `AUCTION`, and 586,958 `domain_seo_metrics` rows. Peak resident memory was about 294 MiB for the Node runner and about 376 MiB for the worker's workerd processes; the temporary directory was removed. A selective metric filter (`semrush_as >= 20`, 144 listings) counted in about 130 ms; a filter matching every metrics row (`majestic_cf >= 0`, 529,860 open listings) took about 2 seconds, because the subquery then returns the whole inventory.
+Cloud ingestion evidence (2026-10-06, the 2026-10-05 GoDaddy feed build, owner's Mac, Wrangler 4.110.0): see `docs/plans/completed/cloud-ingestion.md` for the staging proof of concept, the real `pnpm sync godaddy` Workflow run, and the cron-triggered run. Staging the archive into R2 took about 8.5 seconds in its own step; a full first sync of 586,958 records took about 2.5 minutes, with 0 rejected, and the cleanup step deleted all 587 pages.
 
-The initial live synchronization completed in 427 pages with 426,328 fetched/upserted records and no inactivations. A second complete pre-hardening synchronization completed in 427 pages with 426,398 fetched/upserted records and 2 inactivations. The resulting local database contained 426,400 domains and listings: 426,398 active and 2 inactive, with no duplicate domain identities, duplicate provider/external-ID identities, running ingestion rows, or foreign-key violations.
+Earlier GoDaddy evidence (2026-10-06, before the Workflow, with the Node loopback runner): `corepack pnpm sync godaddy` succeeded in 233 seconds wall time and upserted 586,958 records with 0 rejected and 0 inactivated. A selective metric filter (`semrush_as >= 20`, 144 listings) counted in about 130 ms; a filter matching every metrics row (`majestic_cf >= 0`, 529,860 open listings) took about 2 seconds, because the subquery then returns the whole inventory.
 
-No live provider resynchronization was performed after continuation, timeout, environment-isolation, and signal-cleanup hardening. Those changes are covered by invented fixtures and local, provider-free tests; the preceding counts are evidence from the last live run, not a claim that the hardened runner has called Dynadot.
+Dynadot evidence predates the Workflow. The initial live synchronization completed in 427 pages with 426,328 fetched/upserted records and no inactivations; a second complete synchronization completed in 427 pages with 426,398 records and 2 inactivations. The Dynadot path through the Workflow is covered by provider-free tests only; no live Dynadot call was made for this change.
 
-Implementation uncovered three important runtime constraints:
+Implementation uncovered these runtime constraints:
 
-- Wrangler `getPlatformProxy()` hung under the available Node 25 runtime, so the manual command uses a loopback-only local worker instead.
-- A monolithic workerd request exceeded its practical request-duration window, so ingestion is segmented and resumed from D1 state.
-- D1 rejected the initial multi-value statements above 100 bound parameters. The current guarded implementation binds each bounded batch as JSON, using batches of 100 domains and 25 listings while retaining exact running-run predicates and one atomic D1 batch per fetched page.
-
-## Credentials and local process isolation
-
-The package command loads `.secrets/providers.env`, when it exists, only into the Node orchestrator; GoDaddy needs no secrets, and Dynadot fails with `dynadot_missing_credentials` without it. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment. The Dynadot key is supplied only through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
-
-The command prints only its fixed success summary or a fixed error code. Provider response bodies, URLs containing query credentials, authorization material, and credential values must never be logged, committed, or copied into tests or documentation.
+- A monolithic workerd request exceeded its practical request-duration window, so ingestion is segmented and resumed from D1 state; Workflow steps now carry the segments.
+- D1 rejected the initial multi-value statements above 100 bound parameters. The guarded implementation binds each bounded batch as JSON, using batches of 100 domains and 25 listings while retaining exact running-run predicates and one atomic D1 batch per fetched page.
+- workerd's `fetch` sends no `User-Agent`, and its `DecompressionStream` rejects trailing bytes after deflate data (see the GoDaddy steps above).
 
 ## Listing identity and lifecycle
 
@@ -109,12 +125,22 @@ Ahrefs Domain Rating and Majestic Topic are domain-level data but are not ingest
 
 The future schema must enforce domain/metric-provider identity. A later listing for the same domain reuses successful stored enrichment. Until then, the UI shows em dashes rather than invented values.
 
-## Future providers and scheduling
+## Future providers
 
-Additional auction adapters implement `ProviderAdapter` (`src/server/providers/types.ts`) and register their secret names and factory in `src/server/providers/registry.ts`; the sync service, D1 storage, worker, and runner need no changes. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID.
+Additional auction adapters implement `ProviderAdapter` (`src/server/providers/types.ts`) and register their secret names, optional file feed, and factory in `src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
 
-Scheduling, Queues, and remote execution require separate implementation and verification. They must not change the D1-only user request path. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
+## Deploying (not done; needs owner authorization)
+
+Nothing remote exists. Per `serp` environment configuration, the top level of `wrangler.ingestion.jsonc` stays local-only; a deploy adds a named environment (for example `env.production`) and always passes `--env`. It needs:
+
+- D1: the production database's real `database_name` and `database_id` for binding `DB` (shared with the web application's environment), with migrations applied by `wrangler d1 migrations apply DB --remote --env <env>` before the Worker deploys.
+- R2: a bucket for binding `FEED_PAGES` (for example `auction-domain-aggregator-feed-pages-<env>`), ideally with a lifecycle rule expiring objects under `feed-pages/` after a day or two, so pages left by a failed cleanup step cannot accumulate.
+- Workflow: binding `PROVIDER_SYNC`, `name` `provider-sync`, `class_name` `ProviderSyncWorkflow` (created on deploy, not a separate resource).
+- Cron Trigger: `triggers.crons` (`30 15 * * *`) in that environment.
+- Secret: `DYNADOT_API_PRODUCTION_KEY` via `wrangler secret put --env <env>`.
+- Workers Paid, for `limits.cpu_ms` above 30,000 and the Workflow step limits used here.
+- A Worker `name` per environment.
 
 ## Recovery and routine verification
 
-The sync is restartable. A later complete run repairs mutable fields and performs reconciliation, so a provider or parser failure does not require clearing local D1. An already-applied migration is a no-op. Routine checks and browser tests apply migrations to local D1 but never load provider secrets or call Dynadot.
+The sync is restartable. A later complete run repairs mutable fields and performs reconciliation, so a provider or parser failure does not require clearing D1. Every instance stages under its own R2 prefix, so retries and overlapping instances never read each other's pages. An already-applied migration is a no-op. Routine checks and browser tests apply migrations to isolated local D1 and R2 but never load provider secrets or call Dynadot. `corepack pnpm test:integration` runs the Workflow orchestration against real local D1 and R2 with an invented zipped feed.
