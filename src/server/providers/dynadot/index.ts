@@ -1,6 +1,13 @@
 import { z } from 'zod';
 
 import {
+  parseDomain,
+  parseMoneyCents,
+  parseNonnegativeInteger,
+  readBoundedBody,
+  ResponseTooLargeError,
+} from '../normalize';
+import {
   ProviderError,
   type NormalizedListing,
   type ProviderAdapter,
@@ -74,82 +81,10 @@ type FetchDynadotPageInput = {
 const RESPONSE_BYTE_LIMIT = 10 * 1024 * 1024;
 const REQUEST_TIMEOUT_MS = 30_000;
 
-async function readBoundedBody(response: Response) {
-  const contentLength = response.headers.get('content-length');
-  if (
-    contentLength !== null &&
-    Number.isSafeInteger(Number(contentLength)) &&
-    Number(contentLength) > RESPONSE_BYTE_LIMIT
-  ) {
-    throw new DynadotProviderError('dynadot_response_too_large');
-  }
-  if (!response.body) return '';
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let bytesRead = 0;
-  let body = '';
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) return body + decoder.decode();
-    bytesRead += value.byteLength;
-    if (bytesRead > RESPONSE_BYTE_LIMIT) {
-      await reader.cancel();
-      throw new DynadotProviderError('dynadot_response_too_large');
-    }
-    body += decoder.decode(value, { stream: true });
-  }
-}
-
-const DOMAIN_LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-
-function toAsciiDomain(value: string) {
-  const domain = value.trim().toLowerCase();
-  // Store internationalized names in their punycode (xn--) form.
-  if (/^[\x00-\x7f]*$/.test(domain)) return domain;
-  try {
-    return new URL(`http://${domain}`).hostname;
-  } catch {
-    throw new Error('invalid_domain');
-  }
-}
-
-function parseDomain(value: string) {
-  const domain = toAsciiDomain(value);
-  const labels = domain.split('.');
-
-  if (
-    domain.length === 0 ||
-    domain.length > 253 ||
-    !domain.includes('.') ||
-    domain.endsWith('.') ||
-    labels.some((label) => !DOMAIN_LABEL.test(label))
-  ) {
-    throw new Error('invalid_domain');
-  }
-
-  return domain;
-}
-
 function parseRequiredString(value: string | number) {
   const parsed = String(value).trim();
   if (parsed.length === 0) throw new Error('invalid_string');
   return parsed;
-}
-
-function decimalParts(value: string | number) {
-  const text = String(value).trim().replaceAll(',', '').replace(/^\$/, '');
-  const match = /^(\d+)(?:\.(\d{1,2}))?$/.exec(text);
-  if (!match) throw new Error('invalid_decimal');
-
-  return { whole: match[1], fraction: (match[2] ?? '').padEnd(2, '0') };
-}
-
-function parseMoneyCents(value: string | number) {
-  const { whole, fraction } = decimalParts(value);
-  const cents = Number(BigInt(whole) * 100n + BigInt(fraction));
-  if (!Number.isSafeInteger(cents)) throw new Error('invalid_money');
-  return cents;
 }
 
 function isNullableSentinel(value: string | number | undefined) {
@@ -162,17 +97,6 @@ function isNullableSentinel(value: string | number | undefined) {
 
 function parseNullableMoney(value: string | number | undefined) {
   return isNullableSentinel(value) ? null : parseMoneyCents(value!);
-}
-
-function parseNonnegativeInteger(value: string | number) {
-  const parsed =
-    typeof value === 'number' && Number.isSafeInteger(value)
-      ? value
-      : Number(String(value).trim());
-  if (!Number.isSafeInteger(parsed) || parsed < 0) {
-    throw new Error('invalid_integer');
-  }
-  return parsed;
 }
 
 function parseNullableInteger(value: string | number | undefined) {
@@ -285,9 +209,11 @@ export async function fetchDynadotPage({
 
     let text: string;
     try {
-      text = await readBoundedBody(response);
+      text = await readBoundedBody(response, RESPONSE_BYTE_LIMIT);
     } catch (error) {
-      if (error instanceof DynadotProviderError) throw error;
+      if (error instanceof ResponseTooLargeError) {
+        throw new DynadotProviderError('dynadot_response_too_large');
+      }
       if (signal.aborted) {
         throw new DynadotProviderError('dynadot_network_error');
       }

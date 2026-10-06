@@ -230,8 +230,13 @@ function InterestCell({ row }: { row: DomainListingRow }) {
     <TableCell className="h-16 text-right tabular-nums">
       <div className="font-medium">
         <span>{countLabel(row.bidCount, 'bid')}</span>
-        <span aria-hidden="true"> · </span>
-        <span>{countLabel(row.bidderCount, 'bidder')}</span>
+        {/* GoDaddy publishes no bidder count. */}
+        {row.bidderCount === null ? null : (
+          <>
+            <span aria-hidden="true"> · </span>
+            <span>{countLabel(row.bidderCount, 'bidder')}</span>
+          </>
+        )}
       </div>
       {row.visitors === null
         ? null

@@ -43,6 +43,7 @@ type ProofSummary = {
   pageClampProof: true;
   independentFilterProof: true;
   wildcardEscapeProof: true;
+  godaddyFeedProof: true;
 };
 
 function fixedError(code: string) {
@@ -155,6 +156,7 @@ function parseSummary(value: unknown): ProofSummary {
     pageClampProof: true,
     independentFilterProof: true,
     wildcardEscapeProof: true,
+    godaddyFeedProof: true,
   } as const;
   const mismatched = Object.entries(expected)
     .filter(([key, expectedValue]) => summary[key] !== expectedValue)

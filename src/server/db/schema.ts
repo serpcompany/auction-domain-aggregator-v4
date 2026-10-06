@@ -27,7 +27,8 @@ export const auctionListings = sqliteTable(
     currency: text('currency').notNull(),
     currentBidCents: integer('current_bid_cents').notNull(),
     bidCount: integer('bid_count').notNull().default(0),
-    bidderCount: integer('bidder_count').notNull().default(0),
+    // Null when the provider does not publish a bidder count (GoDaddy).
+    bidderCount: integer('bidder_count'),
     startsAt: integer('starts_at', { mode: 'timestamp_ms' }),
     endsAt: integer('ends_at', { mode: 'timestamp_ms' }).notNull(),
     ageYears: integer('age_years'),
@@ -55,7 +56,7 @@ export const auctionListings = sqliteTable(
     ),
     check(
       'auction_listings_bidder_count_nonnegative',
-      sql`${table.bidderCount} >= 0`,
+      sql`${table.bidderCount} is null or ${table.bidderCount} >= 0`,
     ),
     check(
       'auction_listings_age_years_nonnegative',
@@ -165,5 +166,63 @@ export const domainMetrics = sqliteTable(
       'domain_metrics_value_check',
       sql`(${table.status} = 'ok' and ${table.value} between 0 and 100) or (${table.status} = 'not_found' and ${table.value} is null)`,
     ),
+  ],
+);
+
+// Third-party SEO metrics published per domain in an auction provider's feed
+// (GoDaddy today). Unlike `domain_metrics`, every sync that carries them
+// overwrites the row, so the latest values win. Typed columns keep the table
+// filters index-friendly.
+export const domainSeoMetrics = sqliteTable(
+  'domain_seo_metrics',
+  {
+    domainName: text('domain_name')
+      .primaryKey()
+      .references(() => domains.name),
+    source: text('source').notNull(),
+    majesticTf: integer('majestic_tf'),
+    majesticCf: integer('majestic_cf'),
+    majesticBacklinks: integer('majestic_backlinks'),
+    majesticRefDomains: integer('majestic_ref_domains'),
+    semrushAs: integer('semrush_as'),
+    semrushRefDomains: integer('semrush_ref_domains'),
+    semrushBacklinks: integer('semrush_backlinks'),
+    updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    check(
+      'domain_seo_metrics_majestic_tf_range',
+      sql`${table.majesticTf} is null or ${table.majesticTf} between 0 and 100`,
+    ),
+    check(
+      'domain_seo_metrics_majestic_cf_range',
+      sql`${table.majesticCf} is null or ${table.majesticCf} between 0 and 100`,
+    ),
+    check(
+      'domain_seo_metrics_majestic_backlinks_nonnegative',
+      sql`${table.majesticBacklinks} is null or ${table.majesticBacklinks} >= 0`,
+    ),
+    check(
+      'domain_seo_metrics_majestic_ref_domains_nonnegative',
+      sql`${table.majesticRefDomains} is null or ${table.majesticRefDomains} >= 0`,
+    ),
+    check(
+      'domain_seo_metrics_semrush_as_range',
+      sql`${table.semrushAs} is null or ${table.semrushAs} between 0 and 100`,
+    ),
+    check(
+      'domain_seo_metrics_semrush_ref_domains_nonnegative',
+      sql`${table.semrushRefDomains} is null or ${table.semrushRefDomains} >= 0`,
+    ),
+    check(
+      'domain_seo_metrics_semrush_backlinks_nonnegative',
+      sql`${table.semrushBacklinks} is null or ${table.semrushBacklinks} >= 0`,
+    ),
+    index('domain_seo_metrics_majestic_tf_idx').on(table.majesticTf),
+    index('domain_seo_metrics_majestic_cf_idx').on(table.majesticCf),
+    index('domain_seo_metrics_majestic_ref_domains_idx').on(
+      table.majesticRefDomains,
+    ),
+    index('domain_seo_metrics_semrush_as_idx').on(table.semrushAs),
   ],
 );

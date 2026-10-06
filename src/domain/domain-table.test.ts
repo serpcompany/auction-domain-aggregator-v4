@@ -44,6 +44,10 @@ describe('domain table filters', () => {
       visitorsMin: undefined,
       appraisalMinCents: undefined,
       renewalMaxCents: undefined,
+      majesticTfMin: undefined,
+      majesticCfMin: undefined,
+      majesticRefDomainsMin: undefined,
+      semrushAsMin: undefined,
       endingWithin: undefined,
       sort: 'endsAt',
       direction: 'asc',
@@ -73,6 +77,10 @@ describe('domain table filters', () => {
         visitorsMin: '11',
         appraisalMin: '99.09',
         renewalMax: '15',
+        majesticTfMin: '100',
+        majesticCfMin: '0',
+        majesticRefDomainsMin: '250',
+        semrushAsMin: '12',
         endingWithin: '24H',
         sort: 'appraisal',
         direction: 'desc',
@@ -97,6 +105,10 @@ describe('domain table filters', () => {
       visitorsMin: 11,
       appraisalMinCents: 9909,
       renewalMaxCents: 1500,
+      majesticTfMin: 100,
+      majesticCfMin: 0,
+      majesticRefDomainsMin: 250,
+      semrushAsMin: 12,
       endingWithin: '24h',
       sort: 'appraisal',
       direction: 'desc',
@@ -138,6 +150,10 @@ describe('domain table filters', () => {
       visitorsMin: '1.5',
       appraisalMin: '99999999999999',
       renewalMax: 'Infinity',
+      majesticTfMin: '101',
+      majesticCfMin: '-1',
+      majesticRefDomainsMin: 'many',
+      semrushAsMin: '1.5',
       endingWithin: '2d',
       sort: 'drop table',
       direction: 'sideways',
@@ -195,6 +211,10 @@ describe('domain table links and sort direction', () => {
     visitorsMin: '11',
     appraisalMin: '99.09',
     renewalMax: '15',
+    majesticTfMin: '10',
+    majesticCfMin: '15',
+    majesticRefDomainsMin: '20',
+    semrushAsMin: '5',
     endingWithin: '24h',
     sort: 'domain',
     direction: 'asc',
@@ -224,6 +244,10 @@ describe('domain table links and sort direction', () => {
       visitorsMin: '11',
       appraisalMin: '99.09',
       renewalMax: '15',
+      majesticTfMin: '10',
+      majesticCfMin: '15',
+      majesticRefDomainsMin: '20',
+      semrushAsMin: '5',
       endingWithin: '24h',
       sort: 'domain',
       direction: 'asc',
@@ -254,6 +278,10 @@ describe('domain table links and sort direction', () => {
       visitorsMin: undefined,
       appraisalMinCents: undefined,
       renewalMaxCents: undefined,
+      majesticTfMin: undefined,
+      majesticCfMin: undefined,
+      majesticRefDomainsMin: undefined,
+      semrushAsMin: undefined,
       endingWithin: undefined,
       sort: 'bids',
       direction: 'desc',
@@ -407,6 +435,10 @@ describe('domain table filter summaries', () => {
     visitorsMin: '10',
     linksMin: '20',
     appraisalMin: '1000',
+    majesticTfMin: '10',
+    majesticCfMin: '15',
+    majesticRefDomainsMin: '20',
+    semrushAsMin: '5',
     sort: 'price',
     direction: 'desc',
     page: '4',
@@ -426,10 +458,20 @@ describe('domain table filter summaries', () => {
       ),
     ).toBe(false);
     expect(hasActiveDomainTableFilters(active)).toBe(true);
+    for (const metric of [
+      'majesticTfMin',
+      'majesticCfMin',
+      'majesticRefDomainsMin',
+      'semrushAsMin',
+    ]) {
+      expect(
+        hasActiveDomainTableFilters(parseDomainTableFilters({ [metric]: '1' })),
+      ).toBe(true);
+    }
   });
 
   it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(12);
+    expect(countAdvancedDomainTableFilters(active)).toBe(16);
     expect(
       countAdvancedDomainTableFilters(
         parseDomainTableFilters({
@@ -463,6 +505,10 @@ describe('domain table filter summaries', () => {
       'Visitors: 10+',
       'Links: 20+',
       'Appraisal: $1,000+',
+      'Majestic TF: 10+',
+      'Majestic CF: 15+',
+      'Referring domains: 20+',
+      'SEMrush AS: 5+',
     ]);
 
     const priceRemoval = new URL(

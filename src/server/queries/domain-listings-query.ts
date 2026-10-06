@@ -29,9 +29,25 @@ import {
 import {
   auctionListings,
   domainMetrics,
+  domainSeoMetrics,
   ingestionRuns,
 } from '@/server/db/schema';
 import type { AppDatabase } from '@/server/db/types';
+
+// Third-party SEO metrics for a domain, as last published by an auction
+// provider's feed (`source`, currently only `godaddy`). Each value is null
+// when the feed omitted it.
+export interface DomainSeoMetrics {
+  source: string;
+  majesticTf: number | null;
+  majesticCf: number | null;
+  majesticBacklinks: number | null;
+  majesticRefDomains: number | null;
+  semrushAs: number | null;
+  semrushRefDomains: number | null;
+  semrushBacklinks: number | null;
+  updatedAt: Date;
+}
 
 export interface DomainListingRow {
   provider: string;
@@ -42,7 +58,8 @@ export interface DomainListingRow {
   currency: string;
   currentBidCents: number;
   bidCount: number;
-  bidderCount: number;
+  // Null when the provider publishes no bidder count (GoDaddy).
+  bidderCount: number | null;
   startsAt: Date | null;
   endsAt: Date;
   ageYears: number | null;
@@ -58,6 +75,8 @@ export interface DomainListingRow {
   // (fetched, null) from "not requested yet" (not fetched, null).
   domainRating: number | null;
   domainRatingFetched: boolean;
+  // Null when no feed has published metrics for this domain.
+  seoMetrics: DomainSeoMetrics | null;
 }
 
 export interface DomainListingsResult {
@@ -177,6 +196,30 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
       lte(auctionListings.renewalPriceCents, filters.renewalMaxCents),
     );
   }
+  const seoConditions = [
+    filters.majesticTfMin === undefined
+      ? undefined
+      : gte(domainSeoMetrics.majesticTf, filters.majesticTfMin),
+    filters.majesticCfMin === undefined
+      ? undefined
+      : gte(domainSeoMetrics.majesticCf, filters.majesticCfMin),
+    filters.majesticRefDomainsMin === undefined
+      ? undefined
+      : gte(domainSeoMetrics.majesticRefDomains, filters.majesticRefDomainsMin),
+    filters.semrushAsMin === undefined
+      ? undefined
+      : gte(domainSeoMetrics.semrushAs, filters.semrushAsMin),
+  ].filter((condition) => condition !== undefined);
+  if (seoConditions.length > 0) {
+    // A subquery rather than a join: the metric indexes find the matching
+    // domains, and listings are reached through their domain-name index.
+    conditions.push(
+      inArray(
+        auctionListings.domainName,
+        sql`(select ${domainSeoMetrics.domainName} from ${domainSeoMetrics} where ${and(...seoConditions)})`,
+      ),
+    );
+  }
   if (filters.endingWithin) {
     conditions.push(
       lte(
@@ -211,6 +254,7 @@ function listingOrder(filters: DomainTableFilters) {
   const column = columns[filters.sort];
   const order = filters.direction === 'desc' ? desc : asc;
   const nullBearing = [
+    'bidders',
     'age',
     'links',
     'visitors',
@@ -293,6 +337,16 @@ export async function queryDomainListingsWithDatabase(
   const ratings = new Map(
     ratingRows.map(({ domainName, value }) => [domainName, { value }]),
   );
+  const seoRows =
+    pageDomains.length === 0
+      ? []
+      : await database
+          .select()
+          .from(domainSeoMetrics)
+          .where(inArray(domainSeoMetrics.domainName, pageDomains));
+  const seoMetrics = new Map(
+    seoRows.map(({ domainName, ...metrics }) => [domainName, metrics]),
+  );
 
   const sourceRows = await database
     .select({ source: auctionListings.provider })
@@ -342,6 +396,7 @@ export async function queryDomainListingsWithDatabase(
         hasDigit: row.hasDigit === 1,
         domainRating: rating?.value ?? null,
         domainRatingFetched: rating !== undefined,
+        seoMetrics: seoMetrics.get(row.domainName) ?? null,
       };
     }),
     total,

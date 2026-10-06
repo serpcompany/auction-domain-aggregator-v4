@@ -18,6 +18,7 @@ export default defineConfig({
         'src/server/enrichment/ahrefs.ts',
         'src/server/enrichment/domain-rating-request.ts',
         'src/server/ingestion/local-worker.ts',
+        'src/server/ingestion/file-feed.ts',
         'src/server/ingestion/local-runner.ts',
       ],
       exclude: [
