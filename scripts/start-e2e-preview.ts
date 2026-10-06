@@ -3,6 +3,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { REFRESH_LISTING_FACETS_SQL } from '../src/server/db/listing-facets';
 import { createChildEnvironment } from '../src/server/ingestion/local-runner';
 import { createE2eCleanup, E2E_HOST, E2E_PORT } from './e2e-preview-lifecycle';
 
@@ -74,6 +75,8 @@ function fixtureSql(runId: string, now = Date.now()) {
     `INSERT INTO auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years, inbound_links, visitors, appraisal_cents, renewal_price_cents, status, first_seen_at, last_seen_at) VALUES ${listingValues}`,
     `INSERT INTO domain_metrics (domain_name, metric, status, value, fetched_at) VALUES ('garden.com','ahrefs_dr','ok',37.2,${now})`,
     `INSERT INTO ingestion_runs (provider, status, started_at, completed_at, pages_fetched, next_page, records_fetched, records_upserted, records_inactivated) VALUES ('dynadot','succeeded',${firstSeenAt},${now},1,1,60,60,0)`,
+    // A successful sync rebuilds the facet values; the seed does the same.
+    ...REFRESH_LISTING_FACETS_SQL,
   ].join(';');
 }
 

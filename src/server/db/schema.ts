@@ -14,6 +14,13 @@ export const domains = sqliteTable('domains', {
   firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
+// The TLD is the final dot-separated label of the normalized name, lowercased;
+// multi-label suffixes are not special (`example.co.uk` is `uk`). `rtrim`
+// strips the last label, so its length is where the TLD starts. Plain string
+// functions keep the expression deterministic for a generated column and safe
+// for any character in the name.
+const TLD_SQL = sql`lower(substr("domain_name", length(rtrim("domain_name", replace("domain_name", '.', ''))) + 1))`;
+
 export const auctionListings = sqliteTable(
   'auction_listings',
   {
@@ -39,6 +46,12 @@ export const auctionListings = sqliteTable(
     status: text('status', { enum: ['active', 'inactive'] }).notNull(),
     firstSeenAt: integer('first_seen_at', { mode: 'timestamp_ms' }).notNull(),
     lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
+    // Derived from `domain_name` by SQLite. Virtual generated columns need no
+    // ingestion writes or backfill; their indexes store the computed values.
+    tld: text('tld').generatedAlwaysAs(TLD_SQL, { mode: 'virtual' }).notNull(),
+    domainLength: integer('domain_length')
+      .generatedAlwaysAs(sql`length("domain_name")`, { mode: 'virtual' })
+      .notNull(),
   },
   (table) => [
     primaryKey({ columns: [table.provider, table.externalId] }),
@@ -87,6 +100,42 @@ export const auctionListings = sqliteTable(
     index('auction_listings_current_bid_cents_idx').on(table.currentBidCents),
     index('auction_listings_bid_count_idx').on(table.bidCount),
     index('auction_listings_age_years_idx').on(table.ageYears),
+    // Column-first, so the planner never prefers them over the status index
+    // for unfiltered pages. `ends_at` makes them covering for counts, and a
+    // TLD equality returns rows already ordered by the default end-time sort.
+    // Without `sqlite_stat1` SQLite still picks the status index over a length
+    // range; see docs/technical-design/domain-discovery.md.
+    index('auction_listings_tld_status_ends_at_idx').on(
+      table.tld,
+      table.status,
+      table.endsAt,
+    ),
+    index('auction_listings_domain_length_status_ends_at_idx').on(
+      table.domainLength,
+      table.status,
+      table.endsAt,
+    ),
+  ],
+);
+
+// Filter-independent facet values (sources, auction types, TLDs) of the active
+// inventory, rebuilt in the same D1 batch that finalizes a successful sync, so
+// page requests read a few hundred rows instead of grouping every listing.
+// `latest_ends_at` is the latest end time among active listings with that
+// value: a value is offered only while one of its auctions can still be open.
+export const listingFacets = sqliteTable(
+  'listing_facets',
+  {
+    facet: text('facet', { enum: ['source', 'auction_type', 'tld'] }).notNull(),
+    value: text('value').notNull(),
+    latestEndsAt: integer('latest_ends_at', { mode: 'timestamp_ms' }).notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.facet, table.value] }),
+    check(
+      'listing_facets_facet_check',
+      sql`${table.facet} in ('source', 'auction_type', 'tld')`,
+    ),
   ],
 );
 

@@ -29,7 +29,9 @@ Dynadot and GoDaddy are the implemented auction sources.
 
 GoDaddy's file also carries per-domain Majestic Trust Flow, Citation Flow, backlinks, and referring domains, and SEMrush Authority Score, referring domains, and backlinks. These are stored per domain, replaced by each GoDaddy sync, and apply to every listing of that domain, whatever its source.
 
-TLD, domain length, hyphen presence, and digit presence are deterministic domain-name properties and are derived at query time. They are not separately stored.
+TLD, domain length, hyphen presence, and digit presence are deterministic properties of the normalized domain name; no provider supplies them. The TLD is the final label, so `example.co.uk` is listed under `.uk`.
+
+The Source, Auction type, and TLD filters offer every value that an open listing had at the last successful sync, with no cap on the number of TLDs. A value seen only by a sync that has not yet succeeded can still be filtered through the URL and is offered after the next successful sync.
 
 Ahrefs Domain Rating is fetched on demand and stored once per domain. A domain not yet fetched shows a truthful em dash with "not collected" context, and one Ahrefs has no rating for says so. Majestic Topic is not planned. No fabricated metric value is acceptable.
 

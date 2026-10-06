@@ -7,12 +7,10 @@ import {
   gt,
   gte,
   inArray,
-  isNull,
   like,
   lte,
   max,
   not,
-  or,
   type AnyColumn,
   sql,
   type SQL,
@@ -25,12 +23,15 @@ import type {
 import {
   DOMAIN_TABLE_AUCTION_SOURCES,
   DOMAIN_TABLE_AUCTION_TYPES,
+  type AuctionSource,
+  type AuctionType,
 } from '@/domain/domain-table';
 import {
   auctionListings,
   domainMetrics,
   domainSeoMetrics,
   ingestionRuns,
+  listingFacets,
 } from '@/server/db/schema';
 import type { AppDatabase } from '@/server/db/types';
 
@@ -89,7 +90,6 @@ export interface DomainListingsResult {
   latestSuccessfulSync: Date | null;
 }
 
-const TLD_FACET_LIMIT = 250;
 const ENDING_WINDOW_MILLISECONDS: Record<DomainTableEndingWindow, number> = {
   '1h': 60 * 60 * 1_000,
   '6h': 6 * 60 * 60 * 1_000,
@@ -105,22 +105,13 @@ function escapeLike(value: string) {
     .replaceAll('_', '\\_');
 }
 
-function domainLengthExpression() {
-  return sql<number>`length(${auctionListings.domainName})`;
-}
-
-function tldExpression() {
-  // Domain names are normalized before storage. JSON extraction provides the
-  // final label correctly even for the small number of multi-dot names.
-  return sql<string>`lower(json_extract('["' || replace(${auctionListings.domainName}, '.', '","') || '"]', '$[#-1]'))`;
-}
-
 // Status changes only when a sync reconciles, so an auction whose end time has
-// passed is hidden at read time even if the inventory is stale.
+// passed is hidden at read time even if the inventory is stale. `ends_at` is
+// never null; a plain range lets SQLite use it in the TLD index.
 function openListingWhere(now: Date) {
   return and(
     eq(auctionListings.status, 'active'),
-    or(isNull(auctionListings.endsAt), gt(auctionListings.endsAt, now)),
+    gt(auctionListings.endsAt, now),
   )!;
 }
 
@@ -144,13 +135,13 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
     );
   }
   if (filters.tlds.length > 0) {
-    conditions.push(inArray(tldExpression(), filters.tlds));
+    conditions.push(inArray(auctionListings.tld, filters.tlds));
   }
   if (filters.domainLengthMin !== undefined) {
-    conditions.push(gte(domainLengthExpression(), filters.domainLengthMin));
+    conditions.push(gte(auctionListings.domainLength, filters.domainLengthMin));
   }
   if (filters.domainLengthMax !== undefined) {
-    conditions.push(lte(domainLengthExpression(), filters.domainLengthMax));
+    conditions.push(lte(auctionListings.domainLength, filters.domainLengthMax));
   }
   if (filters.noHyphens) {
     conditions.push(not(like(auctionListings.domainName, '%-%')));
@@ -245,7 +236,7 @@ function listingOrder(filters: DomainTableFilters) {
     visitors: auctionListings.visitors,
     appraisal: auctionListings.appraisalCents,
     renewal: auctionListings.renewalPriceCents,
-    domainLength: domainLengthExpression(),
+    domainLength: auctionListings.domainLength,
   };
   const column = columns[filters.sort];
   const order = filters.direction === 'desc' ? desc : asc;
@@ -301,8 +292,8 @@ export async function queryDomainListingsWithDatabase(
       visitors: auctionListings.visitors,
       appraisalCents: auctionListings.appraisalCents,
       renewalPriceCents: auctionListings.renewalPriceCents,
-      domainLength: domainLengthExpression(),
-      tld: tldExpression(),
+      domainLength: auctionListings.domainLength,
+      tld: auctionListings.tld,
       hasHyphen: sql<number>`instr(${auctionListings.domainName}, '-') > 0`,
       hasDigit: sql<number>`${auctionListings.domainName} glob '*[0-9]*'`,
     })
@@ -343,39 +334,15 @@ export async function queryDomainListingsWithDatabase(
     seoRows.map(({ domainName, ...metrics }) => [domainName, metrics]),
   );
 
-  const sourceRows = await database
-    .select({ source: auctionListings.provider })
-    .from(auctionListings)
-    .where(
-      and(
-        openListingWhere(now),
-        inArray(auctionListings.provider, DOMAIN_TABLE_AUCTION_SOURCES),
-      ),
-    )
-    .groupBy(auctionListings.provider)
-    .orderBy(asc(auctionListings.provider));
-
-  const auctionType = sql<string>`lower(${auctionListings.auctionType})`;
-  const auctionTypeRows = await database
-    .select({ auctionType })
-    .from(auctionListings)
-    .where(
-      and(
-        openListingWhere(now),
-        inArray(auctionType, DOMAIN_TABLE_AUCTION_TYPES),
-      ),
-    )
-    .groupBy(auctionType)
-    .orderBy(asc(auctionType));
-
-  const tld = tldExpression();
-  const tldRows = await database
-    .select({ tld, listings: count() })
-    .from(auctionListings)
-    .where(openListingWhere(now))
-    .groupBy(tld)
-    .orderBy(desc(count()), asc(tld))
-    .limit(TLD_FACET_LIMIT);
+  // Facets do not depend on the filters. They are rebuilt when a sync
+  // succeeds; a value stays offered while one of its auctions can be open.
+  const facetRows = await database
+    .select({ facet: listingFacets.facet, value: listingFacets.value })
+    .from(listingFacets)
+    .where(gt(listingFacets.latestEndsAt, now))
+    .orderBy(asc(listingFacets.facet), asc(listingFacets.value));
+  const facetValues = (facet: (typeof facetRows)[number]['facet']) =>
+    facetRows.filter((row) => row.facet === facet).map(({ value }) => value);
 
   const latestSyncRows = await database
     .select({ value: max(ingestionRuns.completedAt) })
@@ -396,9 +363,14 @@ export async function queryDomainListingsWithDatabase(
     }),
     total,
     page,
-    sources: sourceRows.map(({ source }) => source),
-    auctionTypes: auctionTypeRows.map(({ auctionType: value }) => value),
-    tlds: tldRows.map(({ tld: value }) => value).sort(),
+    sources: facetValues('source').filter((value): value is AuctionSource =>
+      DOMAIN_TABLE_AUCTION_SOURCES.includes(value as AuctionSource),
+    ),
+    auctionTypes: facetValues('auction_type').filter(
+      (value): value is AuctionType =>
+        DOMAIN_TABLE_AUCTION_TYPES.includes(value as AuctionType),
+    ),
+    tlds: facetValues('tld'),
     latestSuccessfulSync: latestSyncRows[0]?.value ?? null,
   };
 }
