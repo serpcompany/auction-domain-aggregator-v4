@@ -457,7 +457,7 @@ async function proveGodaddyFeedStorage(
       database,
       QUERY_NOW,
     );
-  const feedRows = await query({ source: 'godaddy', sort: 'bidders' });
+  const feedRows = await query({ source: 'godaddy' });
   const feedRow = feedRows.rows.find(
     (row) => row.domainName === 'seo-feed.integration.test',
   );
@@ -507,7 +507,6 @@ async function proveGodaddyFeedStorage(
     priceMin: '0',
     priceMax: '999999',
     bidsMin: '0',
-    biddersMin: '0',
     ageMin: '0',
     ageMax: '999',
     linksMin: '0',
@@ -784,7 +783,6 @@ async function runProof(env: IntegrationEnv) {
     priceMin: '20',
     priceMax: '30',
     bidsMin: '10',
-    biddersMin: '5',
     ageMin: '10',
     ageMax: '15',
     linksMin: '100',
@@ -872,7 +870,6 @@ async function runProof(env: IntegrationEnv) {
     priceMin: '0',
     priceMax: '999999',
     bidsMin: '0',
-    biddersMin: '0',
     ageMin: '0',
     ageMax: '999',
     linksMin: '0',
@@ -1032,12 +1029,6 @@ async function runProof(env: IntegrationEnv) {
       excludes: ['rank-2'],
     },
     {
-      code: 'bidders_min',
-      searchParams: { q: 'rank-', biddersMin: '2' },
-      includes: ['rank-0'],
-      excludes: ['rank-3'],
-    },
-    {
       code: 'links_min',
       searchParams: { q: 'rank-', linksMin: '20' },
       includes: ['rank-3'],
@@ -1144,7 +1135,6 @@ async function runProof(env: IntegrationEnv) {
     source: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
     price: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
     bids: ['rank-2', 'rank-1', 'rank-3', 'rank-0'],
-    bidders: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
     endsAt: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
     age: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
     links: ['rank-2', 'rank-3', 'rank-1', 'rank-0'],

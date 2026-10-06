@@ -10,7 +10,6 @@ export const DOMAIN_TABLE_SORTS = [
   'source',
   'price',
   'bids',
-  'bidders',
   'endsAt',
   'age',
   'links',
@@ -62,7 +61,6 @@ export interface DomainTableFilters {
   priceMinCents?: number;
   priceMaxCents?: number;
   bidsMin?: number;
-  biddersMin?: number;
   ageMin?: number;
   ageMax?: number;
   linksMin?: number;
@@ -227,7 +225,6 @@ export function parseDomainTableFilters(
     priceMinCents,
     priceMaxCents,
     bidsMin: normalizeInteger(firstValue(searchParams.bidsMin)),
-    biddersMin: normalizeInteger(firstValue(searchParams.biddersMin)),
     ageMin,
     ageMax,
     linksMin: normalizeInteger(firstValue(searchParams.linksMin)),
@@ -289,8 +286,6 @@ export function buildDomainTableHref(
   appendMoney(params, 'priceMin', next.priceMinCents);
   appendMoney(params, 'priceMax', next.priceMaxCents);
   if (next.bidsMin !== undefined) params.set('bidsMin', String(next.bidsMin));
-  if (next.biddersMin !== undefined)
-    params.set('biddersMin', String(next.biddersMin));
   if (next.ageMin !== undefined) params.set('ageMin', String(next.ageMin));
   if (next.ageMax !== undefined) params.set('ageMax', String(next.ageMax));
   if (next.linksMin !== undefined)
@@ -328,7 +323,6 @@ export function hasActiveDomainTableFilters(filters: DomainTableFilters) {
     filters.priceMinCents !== undefined ||
     filters.priceMaxCents !== undefined ||
     filters.bidsMin !== undefined ||
-    filters.biddersMin !== undefined ||
     filters.ageMin !== undefined ||
     filters.ageMax !== undefined ||
     filters.linksMin !== undefined ||
@@ -354,7 +348,6 @@ export function countAdvancedDomainTableFilters(filters: DomainTableFilters) {
     filters.priceMinCents !== undefined,
     filters.renewalMaxCents !== undefined,
     filters.bidsMin !== undefined,
-    filters.biddersMin !== undefined,
     filters.visitorsMin !== undefined,
     filters.linksMin !== undefined,
     filters.appraisalMinCents !== undefined,
@@ -485,10 +478,6 @@ export function getDomainTableFilterChips(
     });
   if (filters.bidsMin !== undefined)
     add('bids', `Bids: ${filters.bidsMin}+`, { bidsMin: undefined });
-  if (filters.biddersMin !== undefined)
-    add('bidders', `Bidders: ${filters.biddersMin}+`, {
-      biddersMin: undefined,
-    });
   if (filters.visitorsMin !== undefined)
     add('visitors', `Visitors: ${filters.visitorsMin}+`, {
       visitorsMin: undefined,
