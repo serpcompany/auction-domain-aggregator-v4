@@ -90,7 +90,17 @@ const rows: DomainListingsResult['rows'] = [
     hasDigit: false,
     domainRating: 42.4,
     domainRatingFetched: true,
-    seoMetrics: null,
+    seoMetrics: {
+      source: 'godaddy',
+      majesticTf: 12,
+      majesticCf: null,
+      majesticBacklinks: 40,
+      majesticRefDomains: 1,
+      semrushAs: 33,
+      semrushRefDomains: 9,
+      semrushBacklinks: 50,
+      updatedAt: new Date('2026-10-05T00:00:00.000Z'),
+    },
   },
   {
     provider: 'other-provider',
@@ -176,7 +186,7 @@ describe('DomainDiscovery', () => {
 
     const table = screen.getByRole('table');
     expect(within(table).getAllByRole('row')).toHaveLength(3);
-    expect(within(table).getAllByRole('columnheader')).toHaveLength(9);
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(11);
     for (const heading of [
       'Domain',
       'Auction',
@@ -405,10 +415,76 @@ describe('DomainDiscovery', () => {
     expect(new FormData(form).getAll('endingWithin')).toEqual([]);
   });
 
+  it('shows feed metrics truthfully and keeps metric filters on submit', async () => {
+    render(
+      <DomainDiscovery
+        filters={parseDomainTableFilters({
+          majesticTfMin: '10',
+          semrushAsMin: '20',
+        })}
+        result={{
+          rows,
+          total: rows.length,
+          page: 1,
+          sources: ['dynadot'],
+          auctionTypes: ['expired'],
+          tlds: ['com'],
+          latestSuccessfulSync: now,
+        }}
+        now={now}
+      />,
+    );
+
+    const table = screen.getByRole('table');
+    expect(within(table).getByTitle('Majestic Trust Flow')).toHaveTextContent(
+      'TF 12',
+    );
+    expect(
+      within(table).getByTitle('Majestic Citation Flow'),
+    ).toHaveTextContent('CF —');
+    expect(within(table).getByText('1 ref. domain')).toBeInTheDocument();
+    expect(
+      within(table).getByTitle('Semrush Authority Score'),
+    ).toHaveTextContent('33');
+    expect(
+      within(table).getByLabelText(
+        'Majestic Trust and Citation Flow not collected',
+      ),
+    ).toBeInTheDocument();
+    expect(
+      within(table).getByLabelText('Semrush Authority Score not collected'),
+    ).toBeInTheDocument();
+
+    const form = screen.getByRole('form', {
+      name: 'Domain filters',
+    }) as HTMLFormElement;
+    // Closed sheet: the active metric filters still submit.
+    expect(new FormData(form).get('majesticTfMin')).toBe('10');
+    expect(new FormData(form).get('semrushAsMin')).toBe('20');
+
+    fireEvent.click(screen.getByRole('button', { name: /More filters/ }));
+    const dialog = await screen.findByRole('dialog', { name: 'More filters' });
+    const metrics = within(dialog).getByRole('group', { name: 'Metrics' });
+    expect(within(metrics).getByLabelText('Minimum Trust Flow')).toHaveValue(
+      10,
+    );
+    fireEvent.change(within(metrics).getByLabelText('Minimum Citation Flow'), {
+      target: { value: '15' },
+    });
+    expect(new FormData(form).get('majesticCfMin')).toBe('15');
+  });
+
   it('distinguishes a domain Ahrefs has no rating for from one not fetched yet', () => {
     render(
       <DomainResultsTable
-        rows={[{ ...rows[1]!, domainRating: null, domainRatingFetched: true }]}
+        rows={[
+          {
+            ...rows[1]!,
+            domainRating: null,
+            domainRatingFetched: true,
+            seoMetrics: { ...rows[0]!.seoMetrics!, majesticRefDomains: null },
+          },
+        ]}
         filters={parseDomainTableFilters({})}
         now={now}
       />,
@@ -418,6 +494,8 @@ describe('DomainDiscovery', () => {
     expect(
       within(table).getByText('No Ahrefs Domain Rating'),
     ).toBeInTheDocument();
+    // Flow is shown without a referring-domain line when the feed omits it.
+    expect(within(table).queryByText(/ref\. domain/)).not.toBeInTheDocument();
     expect(
       within(table).queryByLabelText('Ahrefs Domain Rating not collected'),
     ).not.toBeInTheDocument();

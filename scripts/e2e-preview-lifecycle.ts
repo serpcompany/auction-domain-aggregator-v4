@@ -5,7 +5,8 @@ import { createServer } from 'node:net';
 import { killChildProcessGroup } from '../src/server/ingestion/local-runner';
 
 export const E2E_HOST = '127.0.0.1';
-export const E2E_PORT = 8787;
+// Not Wrangler's default 8787, which other local projects commonly occupy.
+export const E2E_PORT = 8797;
 export const E2E_BASE_URL = `http://${E2E_HOST}:${E2E_PORT}`;
 
 export async function ensureE2ePortAvailable(host = E2E_HOST, port = E2E_PORT) {
