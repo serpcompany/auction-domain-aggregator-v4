@@ -553,9 +553,10 @@ describe('feed pages', () => {
       100, 1,
     ]);
 
-    // `writeFeedPages` passes the page limit to the scanner, so the record
-    // fails while it is still arriving, before the download's own failure.
-    const truncated = encoder.encode(`{"data":[1,${record}`);
+    // `writeFeedPages` passes the page limit to the scanner, so a record
+    // fails while it is still arriving: this one never closes, and the
+    // download fails only after its bytes pass the cap.
+    const truncated = encoder.encode(`{"data":[1,${record.slice(0, -2)}`);
     let offset = 0;
     const arriving = new ReadableStream<Uint8Array>({
       pull(controller) {
