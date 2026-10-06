@@ -26,8 +26,10 @@ export const GODADDY_FEED_URL =
 export const GODADDY_FEED_ENTRY = 'all_biddable_auctions.json';
 export const GODADDY_PAGE_SIZE = 1000;
 
-const PAGE_BYTE_LIMIT = 10 * 1024 * 1024;
-const MAX_PAGE_INDEX = 1000;
+// The stage step enforces these too, so a feed beyond them fails once while
+// staging rather than in every sync.
+export const GODADDY_PAGE_BYTE_LIMIT = 10 * 1024 * 1024;
+export const GODADDY_MAX_PAGES = 1000;
 // A page where more than this share of records is invalid indicates a format
 // change rather than a few bad records.
 const MAX_REJECTED_RATIO = 0.1;
@@ -201,13 +203,13 @@ export function createGodaddyAdapter({
         !pages ||
         !Number.isSafeInteger(pageIndex) ||
         pageIndex < 1 ||
-        pageIndex > MAX_PAGE_INDEX
+        pageIndex > GODADDY_MAX_PAGES
       ) {
         throw new GodaddyProviderError('godaddy_invalid_request');
       }
       let text: string | null;
       try {
-        text = await pages.readPage(pageIndex, PAGE_BYTE_LIMIT);
+        text = await pages.readPage(pageIndex, GODADDY_PAGE_BYTE_LIMIT);
       } catch (error) {
         throw new GodaddyProviderError(
           error instanceof ResponseTooLargeError

@@ -14,7 +14,7 @@ import {
   type StepConfig,
   type SyncWorkerEnv,
 } from './provider-sync-workflow';
-import type { IngestionStorage, RunState } from './sync';
+import { SyncError, type IngestionStorage, type RunState } from './sync';
 import { buildZipFixture } from './zip-fixture';
 
 afterEach(() => {
@@ -25,11 +25,15 @@ function nonRetryableError(code: string) {
   return Object.assign(new Error(code), { name: 'NonRetryableError' });
 }
 
-// Runs each step once, recording its name and configuration. Like local
-// Workflows (observed with Wrangler 4.110), a step that throws a
-// NonRetryableError rejects with `NonRetryableError: <message>`.
-function stepRunner() {
+// Records each step attempt's name and configuration, and retries a step
+// that throws up to its retry limit without waiting. Like local Workflows
+// (observed with Wrangler 4.110), a step that throws a NonRetryableError
+// rejects with `NonRetryableError: <message>`. A step named in `rerun` runs
+// once more after it first succeeds, as when the platform interrupts it
+// before its result is persisted.
+function stepRunner({ rerun = [] }: { rerun?: string[] } = {}) {
   const steps: { name: string; config: StepConfig }[] = [];
+  const pending = new Set(rerun);
   return {
     steps,
     names: () => steps.map((step) => step.name),
@@ -39,14 +43,18 @@ function stepRunner() {
         config: StepConfig,
         callback: () => Promise<T>,
       ) {
-        steps.push({ name, config });
-        try {
-          return await callback();
-        } catch (error) {
-          if (error instanceof Error && error.name === 'NonRetryableError') {
-            throw new Error(`NonRetryableError: ${error.message}`);
+        for (let attempt = 0; ; attempt += 1) {
+          steps.push({ name, config });
+          try {
+            const result = await callback();
+            if (pending.delete(name)) continue;
+            return result;
+          } catch (error) {
+            if (error instanceof Error && error.name === 'NonRetryableError') {
+              throw new Error(`NonRetryableError: ${error.message}`);
+            }
+            if (attempt >= config.retries.limit) throw error;
           }
-          throw error;
         }
       },
     },
@@ -105,7 +113,9 @@ function memoryStorage(provider: AuctionProvider) {
       return { ...run };
     },
     async loadRunningRun(runId) {
-      if (!run || run.runId !== runId) throw new Error('no run');
+      if (!run || run.runId !== runId) {
+        throw new SyncError('sync_stale_continuation');
+      }
       return { ...run };
     },
     async upsertListings(_run, page) {
@@ -145,12 +155,16 @@ function setup({
   zip,
   env = {},
   bucket = memoryBucket(),
+  rerun,
+  wrapStorage = (storage) => storage,
 }: {
   zip?: Uint8Array;
   env?: Partial<SyncWorkerEnv>;
   bucket?: ReturnType<typeof memoryBucket>;
+  rerun?: string[];
+  wrapStorage?: (storage: IngestionStorage) => IngestionStorage;
 }) {
-  const steps = stepRunner();
+  const steps = stepRunner({ rerun });
   const stores = new Map<AuctionProvider, ReturnType<typeof memoryStorage>>();
   const fetchImpl = vi.fn<typeof fetch>(async () =>
     zip ? new Response(zip as BodyInit) : new Response(null, { status: 403 }),
@@ -172,12 +186,22 @@ function setup({
         createStorage: (_database, provider) => {
           const store = memoryStorage(provider);
           stores.set(provider, store);
-          return store.storage;
+          return wrapStorage(store.storage);
         },
       },
     });
   return { run, steps, stores, fetchImpl, nonRetryable, bucket };
 }
+
+const TWENTY_ONE_PAGES = {
+  provider: 'godaddy',
+  status: 'succeeded',
+  pagesFetched: 21,
+  recordsFetched: 20_500,
+  recordsUpserted: 20_500,
+  recordsInactivated: 0,
+  recordsRejected: 0,
+};
 
 describe('provider sync workflow', () => {
   it('stages a file feed, syncs it in segments, and deletes the pages', async () => {
@@ -188,23 +212,17 @@ describe('provider sync workflow', () => {
       zip: await feedZip(records),
     });
 
-    await expect(run('godaddy')).resolves.toEqual({
-      provider: 'godaddy',
-      status: 'succeeded',
-      pagesFetched: 21,
-      recordsFetched: 20_500,
-      recordsUpserted: 20_500,
-      recordsInactivated: 0,
-      recordsRejected: 0,
-    });
+    await expect(run('godaddy')).resolves.toEqual(TWENTY_ONE_PAGES);
     expect(steps.names()).toEqual([
       'stage feed',
+      'start run',
       'sync pages, segment 1',
       'sync pages, segment 2',
       'delete staged pages',
     ]);
     expect(steps.steps.map((step) => step.config)).toEqual([
       STAGE_STEP,
+      SYNC_STEP,
       SYNC_STEP,
       SYNC_STEP,
       CLEANUP_STEP,
@@ -232,32 +250,176 @@ describe('provider sync workflow', () => {
       env: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' },
     });
     await expect(run('dynadot')).rejects.toThrow('dynadot_network_error');
-    expect(steps.names()).toEqual(['sync pages, segment 1']);
+    expect(steps.names()).toEqual(['start run', 'sync pages, segment 1']);
     expect(nonRetryable).toHaveBeenCalledWith('dynadot_network_error');
     expect(stores.get('dynadot')!.failures).toEqual(['dynadot_network_error']);
   });
 
-  it('retries download failures but not malformed feeds, and still cleans up', async () => {
+  it('retries download and page-write failures but not malformed feeds, and still cleans up', async () => {
     const failed = setup({});
     await expect(failed.run('godaddy')).rejects.toThrow('feed_download_failed');
     expect(failed.nonRetryable).not.toHaveBeenCalled();
-    expect(failed.steps.names()).toEqual(['stage feed', 'delete staged pages']);
+    expect(failed.fetchImpl).toHaveBeenCalledTimes(3);
+    expect(failed.steps.names()).toEqual([
+      'stage feed',
+      'stage feed',
+      'stage feed',
+      'delete staged pages',
+    ]);
 
     const empty = setup({ zip: await feedZip([]) });
     await expect(empty.run('godaddy')).rejects.toThrow('feed_empty');
     expect(empty.nonRetryable).toHaveBeenCalledWith('feed_empty');
+    expect(empty.fetchImpl).toHaveBeenCalledTimes(1);
 
     const bucket = memoryBucket();
-    bucket.bucket.put = async () => {
-      throw new Error('R2 unavailable');
+    let failPuts = 1;
+    const put = bucket.bucket.put;
+    bucket.bucket.put = async (key, value) => {
+      if (failPuts > 0) {
+        failPuts -= 1;
+        throw new Error('R2 unavailable');
+      }
+      return put(key, value);
     };
-    const unwritable = setup({
-      zip: await feedZip([godaddyRecord(1)]),
-      bucket,
+    const flaky = setup({ zip: await feedZip([godaddyRecord(1)]), bucket });
+    await expect(flaky.run('godaddy')).resolves.toMatchObject({
+      recordsUpserted: 1,
     });
-    await expect(unwritable.run('godaddy')).rejects.toThrow(
-      'feed_stage_failed',
+    expect(flaky.steps.names().slice(0, 2)).toEqual([
+      'stage feed',
+      'stage feed',
+    ]);
+    expect(flaky.nonRetryable).not.toHaveBeenCalled();
+  });
+
+  it('retries a download that drops while the zip header is read', async () => {
+    const { run, fetchImpl, nonRetryable } = setup({
+      zip: await feedZip([godaddyRecord(1)]),
+    });
+    fetchImpl.mockImplementationOnce(
+      async () =>
+        new Response(
+          new ReadableStream({
+            pull(controller) {
+              controller.error(new TypeError('connection reset'));
+            },
+          }),
+        ),
     );
+    await expect(run('godaddy')).resolves.toMatchObject({
+      recordsUpserted: 1,
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(nonRetryable).not.toHaveBeenCalled();
+  });
+
+  it('fails an archive it cannot use, or a record beyond the page limit, without retrying', async () => {
+    const renamed = setup({
+      zip: await buildZipFixture(JSON.stringify({ data: [godaddyRecord(1)] }), {
+        entry: 'renamed.json',
+      }),
+    });
+    await expect(renamed.run('godaddy')).rejects.toThrow(
+      'feed_unsupported_archive',
+    );
+    expect(renamed.fetchImpl).toHaveBeenCalledTimes(1);
+    expect(renamed.steps.names()).toEqual([
+      'stage feed',
+      'delete staged pages',
+    ]);
+
+    // One record larger than the adapter's 10 MiB page limit.
+    const huge = setup({
+      zip: await feedZip([
+        { ...godaddyRecord(1), padding: 'x'.repeat(10 * 1024 * 1024) },
+      ]),
+    });
+    await expect(huge.run('godaddy')).rejects.toThrow('feed_too_large');
+    expect(huge.nonRetryable).toHaveBeenCalledWith('feed_too_large');
+    expect(huge.bucket.objects.size).toBe(0);
+  });
+
+  it('does not retry an unexpected staging error', async () => {
+    const { run, fetchImpl, nonRetryable } = setup({});
+    fetchImpl.mockImplementation(
+      async () =>
+        ({
+          ok: true,
+          get body(): never {
+            throw new Error('unexpected');
+          },
+        }) as unknown as Response,
+    );
+    await expect(run('godaddy')).rejects.toThrow('feed_stage_failed');
+    expect(nonRetryable).toHaveBeenCalledWith('feed_stage_failed');
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('resumes the same run when the platform runs a step again', async () => {
+    const records = Array.from({ length: 20_500 }, (_, index) =>
+      godaddyRecord(index),
+    );
+    const { run, steps, stores, bucket } = setup({
+      zip: await feedZip(records),
+      rerun: ['stage feed', 'start run', 'sync pages, segment 1'],
+    });
+
+    // The second segment-1 run resumes at page 21, where the first left the
+    // run, so the result matches an uninterrupted sync.
+    await expect(run('godaddy')).resolves.toEqual(TWENTY_ONE_PAGES);
+    expect(steps.names()).toEqual([
+      'stage feed',
+      'stage feed',
+      'start run',
+      'start run',
+      'sync pages, segment 1',
+      'sync pages, segment 1',
+      'delete staged pages',
+    ]);
+    expect(stores.get('godaddy')!.listings.size).toBe(20_500);
+    expect(bucket.objects.size).toBe(0);
+  });
+
+  it('retries a segment whose run could not be loaded, but not a stale run', async () => {
+    let loadFailures = 1;
+    const transient = setup({
+      zip: await feedZip([godaddyRecord(1)]),
+      wrapStorage: (storage) => ({
+        ...storage,
+        loadRunningRun: async (runId) => {
+          if (loadFailures > 0) {
+            loadFailures -= 1;
+            throw new Error('D1 unavailable');
+          }
+          return storage.loadRunningRun(runId);
+        },
+      }),
+    });
+    await expect(transient.run('godaddy')).resolves.toMatchObject({
+      recordsUpserted: 1,
+    });
+    expect(transient.steps.names()).toEqual([
+      'stage feed',
+      'start run',
+      'sync pages, segment 1',
+      'sync pages, segment 1',
+      'delete staged pages',
+    ]);
+
+    const stale = setup({
+      zip: await feedZip([godaddyRecord(1)]),
+      wrapStorage: (storage) => ({
+        ...storage,
+        loadRunningRun: async () => {
+          throw new SyncError('sync_stale_continuation');
+        },
+      }),
+    });
+    await expect(stale.run('godaddy')).rejects.toThrow(
+      'sync_stale_continuation',
+    );
+    expect(stale.nonRetryable).toHaveBeenCalledWith('sync_stale_continuation');
   });
 
   it('records a sync failure on the run and deletes the staged pages', async () => {
@@ -310,7 +472,7 @@ describe('provider sync workflow', () => {
     );
   });
 
-  it('maps an unexpected storage failure to sync_failed', async () => {
+  it('retries a run that could not be started, then reports sync_failed', async () => {
     const steps = stepRunner();
     const nonRetryable = vi.fn(nonRetryableError);
     const result = runProviderSync({
@@ -336,7 +498,10 @@ describe('provider sync workflow', () => {
       },
     });
     await expect(result).rejects.toThrow('sync_failed');
-    expect(nonRetryable).toHaveBeenCalledWith('sync_failed');
+    expect(nonRetryable).not.toHaveBeenCalled();
+    expect(steps.names().filter((name) => name === 'start run')).toHaveLength(
+      SYNC_STEP.retries.limit + 1,
+    );
   });
 
   it('accepts only fixed codes as instance errors', () => {

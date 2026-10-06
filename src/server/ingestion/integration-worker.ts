@@ -623,7 +623,7 @@ async function proveCloudFeedSync(
       succeeded.summary.recordsRejected === 0 &&
       succeeded.stagedObjects === 3 &&
       succeeded.steps.join('|') ===
-        'stage feed|sync pages, segment 1|delete staged pages' &&
+        'stage feed|start run|sync pages, segment 1|delete staged pages' &&
       (await cloudFeedObjects(env.FEED_PAGES)) === 0,
     'cloud_feed_synced',
   );
