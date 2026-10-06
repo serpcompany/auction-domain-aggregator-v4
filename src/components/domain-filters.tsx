@@ -274,6 +274,10 @@ function PreservedAdvancedFilters({
     ['biddersMin', filters.biddersMin],
     ['visitorsMin', filters.visitorsMin],
     ['linksMin', filters.linksMin],
+    ['majesticTfMin', filters.majesticTfMin],
+    ['majesticCfMin', filters.majesticCfMin],
+    ['majesticRefDomainsMin', filters.majesticRefDomainsMin],
+    ['semrushAsMin', filters.semrushAsMin],
     [
       'appraisalMin',
       filters.appraisalMinCents === undefined
@@ -532,6 +536,46 @@ function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
   );
 }
 
+function MetricsFilterGroup({ filters }: { filters: DomainTableFilters }) {
+  return (
+    <FilterGroup title="Metrics">
+      <div className="grid grid-cols-2 gap-3">
+        <NumberField
+          id="majestic-tf-min"
+          label="Minimum Trust Flow"
+          name="majesticTfMin"
+          defaultValue={filters.majesticTfMin}
+          max={100}
+        />
+        <NumberField
+          id="majestic-cf-min"
+          label="Minimum Citation Flow"
+          name="majesticCfMin"
+          defaultValue={filters.majesticCfMin}
+          max={100}
+        />
+        <NumberField
+          id="majestic-ref-domains-min"
+          label="Minimum referring domains"
+          name="majesticRefDomainsMin"
+          defaultValue={filters.majesticRefDomainsMin}
+        />
+        <NumberField
+          id="semrush-as-min"
+          label="Minimum Semrush Authority"
+          name="semrushAsMin"
+          defaultValue={filters.semrushAsMin}
+          max={100}
+        />
+      </div>
+      <FieldDescription>
+        Majestic and Semrush values come from the GoDaddy auction feed. Domains
+        without them are excluded once a minimum is set.
+      </FieldDescription>
+    </FilterGroup>
+  );
+}
+
 function formNumber(data: FormData, name: string) {
   const value = data.get(name);
   if (!value) return undefined;
@@ -736,7 +780,7 @@ export function DomainFilters({
                   <RangeErrorMessage message={rangeError} />
                 </div>
               ) : null}
-              <div className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-6 pb-6 md:grid-cols-2 xl:grid-cols-4">
+              <div className="grid flex-1 content-start gap-4 overflow-y-auto overscroll-contain px-6 pb-6 md:grid-cols-2 xl:grid-cols-5">
                 <DomainFilterGroup filters={filters} />
                 <AuctionFilterGroup
                   filters={filters}
@@ -748,6 +792,7 @@ export function DomainFilters({
                 />
                 <ActivityFilterGroup filters={filters} />
                 <ValueFilterGroup filters={filters} />
+                <MetricsFilterGroup filters={filters} />
               </div>
               <SheetFooter className="flex-row justify-end border-t px-6 sm:[&>*]:max-w-48">
                 <SheetClose

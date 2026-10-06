@@ -109,7 +109,7 @@ function SortableHead({
   );
 }
 
-// Right-aligned, unsortable header; only the DR column uses it today.
+// Right-aligned, unsortable header for metric columns.
 function StaticHead({ children }: { children: React.ReactNode }) {
   return (
     <TableHead
@@ -294,6 +294,47 @@ function LinksCell({ row }: { row: DomainListingRow }) {
   );
 }
 
+function MajesticCell({ row }: { row: DomainListingRow }) {
+  const metrics = row.seoMetrics;
+  if (metrics?.majesticTf == null && metrics?.majesticCf == null) {
+    return (
+      <TableCell className="h-16 text-right">
+        <UnknownValue label="Majestic Trust and Citation Flow" />
+      </TableCell>
+    );
+  }
+  const flow = (value: number | null) => (value === null ? '—' : value);
+  return (
+    <TableCell className="h-16 text-right tabular-nums">
+      <div className="font-medium">
+        <span title="Majestic Trust Flow">TF {flow(metrics.majesticTf)}</span>
+        <span aria-hidden="true"> · </span>
+        <span title="Majestic Citation Flow">
+          CF {flow(metrics.majesticCf)}
+        </span>
+      </div>
+      {metrics.majesticRefDomains === null ? null : (
+        <Secondary>
+          {countLabel(metrics.majesticRefDomains, 'ref. domain')}
+        </Secondary>
+      )}
+    </TableCell>
+  );
+}
+
+function SemrushCell({ row }: { row: DomainListingRow }) {
+  const authority = row.seoMetrics?.semrushAs ?? null;
+  return (
+    <TableCell className="h-16 text-right tabular-nums">
+      {authority === null ? (
+        <UnknownValue label="Semrush Authority Score" />
+      ) : (
+        <span title="Semrush Authority Score">{authority}</span>
+      )}
+    </TableCell>
+  );
+}
+
 function AppraisalCell({ row }: { row: DomainListingRow }) {
   return (
     <TableCell className="h-16 text-right tabular-nums">
@@ -330,7 +371,7 @@ export function DomainResultsTable({
       // sticky; the stock Table's own scroll wrapper is made a pass-through.
       className="relative max-h-[70dvh] max-w-full overflow-auto overscroll-contain rounded-sm focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:outline-none [&_[data-slot=table-container]]:overflow-visible"
     >
-      <Table className="min-w-[1240px]">
+      <Table className="min-w-[1440px]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <SortableHead
@@ -382,6 +423,14 @@ export function DomainResultsTable({
               Appraisal
             </SortableHead>
             <StaticHead>
+              Majestic
+              <Secondary>TF · CF</Secondary>
+            </StaticHead>
+            <StaticHead>
+              Semrush
+              <Secondary>Authority</Secondary>
+            </StaticHead>
+            <StaticHead>
               DR
               <Secondary>
                 {/* Required by the Ahrefs Domain Rating licence. */}
@@ -413,6 +462,8 @@ export function DomainResultsTable({
               </TableCell>
               <LinksCell row={row} />
               <AppraisalCell row={row} />
+              <MajesticCell row={row} />
+              <SemrushCell row={row} />
               <DomainRatingCell row={row} />
             </TableRow>
           ))}
