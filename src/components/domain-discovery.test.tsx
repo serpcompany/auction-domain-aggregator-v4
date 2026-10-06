@@ -1104,7 +1104,7 @@ describe('DomainDiscovery', () => {
     ).not.toBeChecked();
   });
 
-  it('offers and submits every TLD facet value, past the former 250 cap', async () => {
+  it('offers and submits every TLD option it is given, even hundreds', async () => {
     // The local inventory has 479 active TLDs; the facet once returned 250.
     const tlds = Array.from(
       { length: 479 },

@@ -737,6 +737,11 @@ async function proveCloudFeedSync(
       QUERY_NOW,
     );
   const beforeSync = await facetsAt();
+  // One active listing of another provider, which GoDaddy's rebuild must keep.
+  const dynadot = createD1IngestionStorage(database, 'dynadot');
+  await dynadot.upsertListings(await dynadot.startRun(STARTED_AT), [
+    listing('cloud-other', 'cloud-other.integration.test', 100),
+  ]);
   const records = Array.from({ length: 2_500 }, (_, index) =>
     inventedFeedRecord(index),
   );
@@ -770,13 +775,15 @@ async function proveCloudFeedSync(
     stored?.value === 2_500 && metrics?.semrushAs === 9,
     'cloud_feed_stored',
   );
-  // The Workflow's successful finalization rebuilt the facet values.
+  // The Workflow's successful finalization rebuilt the facet values for
+  // every provider, not only the one that finished.
   const afterSync = await facetsAt();
   assertIntegration(
     !beforeSync.sources.includes('godaddy') &&
       afterSync.sources.includes('godaddy') &&
+      afterSync.sources.includes('dynadot') &&
       afterSync.auctionTypes.includes('auction'),
-    'cloud_feed_facets_rebuilt',
+    `cloud_feed_facets_rebuilt: ${beforeSync.sources.join('+')} -> ${afterSync.sources.join('+')}`,
   );
 
   // More than a tenth of the first page is invalid: the run fails on page 1.

@@ -42,7 +42,7 @@ These values come from `auction_listings.domain_name`:
 - Domain length: `length(domain_name)`, the virtual generated column `domain_length`.
 - Shape: whether the normalized name contains a hyphen or an ASCII digit. These remain query expressions.
 
-`ALTER TABLE ... ADD COLUMN` can add virtual generated columns but not stored ones, and virtual columns can be indexed: the index stores the computed value, so filters and counts read it without recomputing. SQLite computes the columns itself, so ingestion has no write, dual-write, or backfill responsibility for them. Applying the migration to the 1.45-million-row local table, including the index builds and the facet backfill, took about 11 seconds.
+`ALTER TABLE ... ADD COLUMN` can add virtual generated columns but not stored ones, and virtual columns can be indexed: the index stores the computed value, so filters and counts read it without recomputing. SQLite computes the columns itself, so ingestion has no write, dual-write, or backfill responsibility for them. Applying the migration to the 1.45-million-row local table, including the index builds and the facet backfill, took about 11 seconds. drizzle-kit 0.31 copies generated columns when it rebuilds a table, which SQLite rejects, so a future migration that rebuilds `auction_listings` (a nullability or CHECK change, or a new TLD expression) must be hand-edited to leave `tld` and `domain_length` out of its `INSERT ... SELECT`.
 
 ## Indexes and measured request time
 

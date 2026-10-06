@@ -48,6 +48,9 @@ export const auctionListings = sqliteTable(
     lastSeenAt: integer('last_seen_at', { mode: 'timestamp_ms' }).notNull(),
     // Derived from `domain_name` by SQLite. Virtual generated columns need no
     // ingestion writes or backfill; their indexes store the computed values.
+    // drizzle-kit 0.31 copies them in a table rebuild, which SQLite rejects,
+    // so a migration that rebuilds this table must be edited to leave them
+    // out of the INSERT ... SELECT.
     tld: text('tld').generatedAlwaysAs(TLD_SQL, { mode: 'virtual' }).notNull(),
     domainLength: integer('domain_length')
       .generatedAlwaysAs(sql`length("domain_name")`, { mode: 'virtual' })
