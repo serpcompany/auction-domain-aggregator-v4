@@ -30,7 +30,10 @@ const INSPECTOR_PORT = 9330;
 const WORKFLOW = 'provider-sync';
 const INSTANCES_URL = `http://${HOST}:${PORT}/cdn-cgi/explorer/api/workflows/${WORKFLOW}/instances`;
 const READY_TIMEOUT_MS = 30_000;
-const REQUEST_TIMEOUT_MS = 10_000;
+const READY_REQUEST_TIMEOUT_MS = 2_000;
+// Local explorer calls can wait while a long step (the feed stage) runs.
+const REQUEST_TIMEOUT_MS = 60_000;
+const CREATE_TIMEOUT_MS = 15 * 60_000;
 const POLL_INTERVAL_MS = 2_000;
 // GoDaddy takes a few minutes end to end; Dynadot about as long.
 const RUN_TIMEOUT_MS = 30 * 60_000;
@@ -72,12 +75,16 @@ function pause(milliseconds: number) {
 }
 
 // Wrangler's local explorer API wraps results as `{ success, result }`.
-async function explorer(path: string, init: RequestInit = {}) {
+async function explorer(
+  path: string,
+  init: RequestInit,
+  timeoutMs = REQUEST_TIMEOUT_MS,
+) {
   const response = await fetchWithTimeout(
     fetch,
     `${INSTANCES_URL}${path}`,
     init,
-    REQUEST_TIMEOUT_MS,
+    timeoutMs,
     'sync_runner_timeout',
   );
   const body = (await response.json().catch(() => null)) as {
@@ -88,9 +95,10 @@ async function explorer(path: string, init: RequestInit = {}) {
   return body.result;
 }
 
-// Locally, reading one instance waits until that instance finishes, but the
-// instance list answers at once, so progress is polled through the list
-// (newest first).
+// Locally (Wrangler 4.110), reading one instance waits until that instance
+// finishes, and even the instance list can wait while a long step runs. So
+// progress is polled through the list (newest first), a slow answer is
+// retried, and the instance is read only once it has finished.
 async function instanceStatus(id: string) {
   const instances = await explorer('', { method: 'GET' });
   const listed = Array.isArray(instances)
@@ -106,7 +114,7 @@ async function waitUntilReady(child: ChildProcess) {
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw fixedError('sync_runner_failed');
     try {
-      await explorer('', { method: 'GET' });
+      await explorer('', { method: 'GET' }, READY_REQUEST_TIMEOUT_MS);
       return;
     } catch {
       // The bounded readiness poll retries while workerd starts.
@@ -227,16 +235,31 @@ async function main() {
 
     await waitUntilReady(spawnedChild);
     const id = `${PROVIDER}-manual-${Date.now()}`;
-    await explorer('', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ id, params: { provider: PROVIDER } }),
-    });
+    // Creating an instance is not retried (the ID would already exist), so
+    // it may wait as long as the stage step's own timeout.
+    await explorer(
+      '',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ id, params: { provider: PROVIDER } }),
+      },
+      CREATE_TIMEOUT_MS,
+    );
 
     const deadline = Date.now() + RUN_TIMEOUT_MS;
     while (Date.now() < deadline) {
       await pause(POLL_INTERVAL_MS);
-      const status = await instanceStatus(id);
+      if (spawnedChild.exitCode !== null) {
+        throw fixedError('sync_runner_failed');
+      }
+      let status: string;
+      try {
+        status = await instanceStatus(id);
+      } catch {
+        // A slow local explorer answer is retried until the run deadline.
+        continue;
+      }
       if (!['complete', 'errored', 'terminated'].includes(status)) continue;
       const instance = (await explorer(`/${encodeURIComponent(id)}`, {
         method: 'GET',
