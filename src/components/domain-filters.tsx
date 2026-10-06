@@ -695,7 +695,7 @@ export function DomainFilters({
         <RangeErrorMessage message={rangeError} />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(15rem,1.5fr)_14rem_14rem_9rem_10rem_auto] xl:items-end">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(14rem,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_10rem_11rem] xl:items-end">
         <Field className="md:col-span-2 xl:col-span-1">
           <FieldLabel htmlFor="domain-query">Domain contains</FieldLabel>
           <Input
@@ -750,7 +750,7 @@ export function DomainFilters({
             submit
           />
         </Field>
-        <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-1 xl:flex-nowrap">
+        <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-full xl:justify-end">
           <Sheet open={advancedOpen} onOpenChange={setAdvancedSheetOpen}>
             <SheetTrigger
               render={
