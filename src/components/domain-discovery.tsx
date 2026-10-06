@@ -1,5 +1,11 @@
 import Link from 'next/link';
-import { X } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Globe,
+  TriangleAlert,
+  X,
+} from 'lucide-react';
 
 import {
   buildDomainTableHref,
@@ -12,8 +18,64 @@ import {
 import { DomainFilters } from '@/components/domain-filters';
 import { DomainResultsTable } from '@/components/domain-results-table';
 import type { DomainListingsResult } from '@/server/queries/domain-listings';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { buttonVariants } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import {
+  Empty,
+  EmptyContent,
+  EmptyDescription,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+} from '@/components/ui/empty';
+import {
+  Pagination,
+  PaginationContent,
+  PaginationItem,
+} from '@/components/ui/pagination';
 import { cn } from '@/lib/utils';
+
+// Page links are Next links styled as shadcn buttons. The stock
+// PaginationLink renders through a client Button whose attributes differ
+// between server and client output (a hydration mismatch) and announces
+// page links as buttons.
+function PageLink({
+  href,
+  label,
+  direction,
+}: {
+  href?: string;
+  label: string;
+  direction: 'previous' | 'next';
+}) {
+  const content =
+    direction === 'previous' ? (
+      <>
+        <ChevronLeft aria-hidden="true" />
+        Previous
+      </>
+    ) : (
+      <>
+        Next
+        <ChevronRight aria-hidden="true" />
+      </>
+    );
+  const className = buttonVariants({ variant: 'ghost', size: 'sm' });
+  return href ? (
+    <Link prefetch={false} href={href} aria-label={label} className={className}>
+      {content}
+    </Link>
+  ) : (
+    <span
+      aria-label={label}
+      aria-disabled="true"
+      className={cn(className, 'pointer-events-none opacity-50')}
+    >
+      {content}
+    </span>
+  );
+}
 
 export function DomainDiscovery({
   filters,
@@ -37,17 +99,14 @@ export function DomainDiscovery({
     <main
       id="main-content"
       tabIndex={-1}
-      className="min-h-screen bg-[radial-gradient(circle_at_top_left,oklch(0.97_0.02_155),transparent_32rem)] px-4 py-8 sm:px-6 lg:px-8"
+      className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8"
     >
       <div className="mx-auto max-w-[1600px] space-y-6">
         <header className="flex flex-col gap-3 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <div className="mb-2 flex items-center gap-2">
-              <span className="size-2 rounded-full bg-emerald-500 shadow-[0_0_0_4px_oklch(0.9_0.06_155)]" />
-              <span className="text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
-                Auction inventory
-              </span>
-            </div>
+            <p className="mb-2 text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
+              Auction inventory
+            </p>
             <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
               Domain discovery
             </h1>
@@ -65,19 +124,23 @@ export function DomainDiscovery({
         </header>
 
         {isInventoryStale(result.latestSuccessfulSync, now) ? (
-          <p
+          <Alert
             role="status"
-            className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+            className="border-warning-foreground/30 bg-warning text-warning-foreground"
           >
-            The inventory is out of date. Auctions that have ended since the
-            last sync are hidden, but prices, bids, and new listings may be
-            stale until the next sync.
-          </p>
+            <TriangleAlert aria-hidden="true" />
+            <AlertTitle>The inventory is out of date</AlertTitle>
+            <AlertDescription className="text-warning-foreground/90">
+              Auctions that have ended since the last sync are hidden, but
+              prices, bids, and new listings may be stale until the next sync.
+            </AlertDescription>
+          </Alert>
         ) : null}
 
-        <section
-          className="min-w-0 overflow-hidden rounded-xl border bg-card/95 shadow-sm"
+        <Card
+          className="min-w-0 gap-0 overflow-hidden py-0"
           aria-labelledby="inventory-heading"
+          role="region"
         >
           <div className="border-b p-4 sm:p-5">
             <DomainFilters
@@ -97,10 +160,13 @@ export function DomainDiscovery({
                     href={chip.href}
                     aria-label={`Remove ${chip.label} filter`}
                     title={chip.label}
-                    className="inline-flex min-h-11 max-w-full min-w-0 items-center gap-1.5 rounded-full border bg-background px-3 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:min-h-8"
+                    className={cn(
+                      buttonVariants({ variant: 'outline', size: 'sm' }),
+                      'min-h-11 max-w-full min-w-0 rounded-full sm:min-h-8',
+                    )}
                   >
                     <span className="min-w-0 truncate">{chip.label}</span>
-                    <X className="size-3.5 shrink-0" aria-hidden="true" />
+                    <X aria-hidden="true" />
                   </Link>
                 ))}
                 {filterChips.length === 0 ? (
@@ -122,28 +188,34 @@ export function DomainDiscovery({
           </div>
 
           {result.rows.length === 0 ? (
-            <div className="flex min-h-72 flex-col items-center justify-center p-8 text-center">
-              <div className="mb-3 rounded-full bg-muted px-4 py-2 font-mono text-lg">
-                .com
-              </div>
-              <h2 className="text-lg font-semibold">No domains found</h2>
-              <p className="mt-1 max-w-md text-sm text-muted-foreground">
-                {hasActiveFilters
-                  ? 'No listings match all applied filters. Clear all filters to return to the full active inventory.'
-                  : 'No active listings have been collected. If this is a new database, run the local Dynadot sync first.'}
-              </p>
+            <Empty className="min-h-72">
+              <EmptyHeader>
+                <EmptyMedia variant="icon">
+                  <Globe aria-hidden="true" />
+                </EmptyMedia>
+                <EmptyTitle>
+                  <h2>No domains found</h2>
+                </EmptyTitle>
+                <EmptyDescription>
+                  {hasActiveFilters
+                    ? 'No listings match all applied filters. Clear all filters to return to the full active inventory.'
+                    : 'No active listings have been collected. If this is a new database, run a local sync first.'}
+                </EmptyDescription>
+              </EmptyHeader>
               {hasActiveFilters ? (
-                <Link
-                  href="/"
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' }),
-                    'mt-4',
-                  )}
-                >
-                  Clear all filters
-                </Link>
+                <EmptyContent>
+                  <Link
+                    href="/"
+                    className={buttonVariants({
+                      variant: 'outline',
+                      size: 'sm',
+                    })}
+                  >
+                    Clear all filters
+                  </Link>
+                </EmptyContent>
               ) : null}
-            </div>
+            </Empty>
           ) : (
             <DomainResultsTable
               rows={result.rows}
@@ -158,58 +230,46 @@ export function DomainDiscovery({
               {lastResult.toLocaleString('en-US')} of{' '}
               {result.total.toLocaleString('en-US')}
             </p>
-            <nav
-              className="flex items-center gap-2"
+            <Pagination
               aria-label="Domain results pages"
+              className="mx-0 w-auto justify-end"
             >
-              {hasPrevious ? (
-                <Link
-                  prefetch={false}
-                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                  href={buildDomainTableHref(filters, {
-                    page: result.page - 1,
-                  })}
-                >
-                  Previous
-                </Link>
-              ) : (
-                <span
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' }),
-                    'pointer-events-none opacity-50',
-                  )}
-                  aria-disabled="true"
-                >
-                  Previous
-                </span>
-              )}
-              <span className="px-2 font-medium tabular-nums">
-                Page {result.page.toLocaleString('en-US')}
-              </span>
-              {hasNext ? (
-                <Link
-                  prefetch={false}
-                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
-                  href={buildDomainTableHref(filters, {
-                    page: result.page + 1,
-                  })}
-                >
-                  Next
-                </Link>
-              ) : (
-                <span
-                  className={cn(
-                    buttonVariants({ variant: 'outline', size: 'sm' }),
-                    'pointer-events-none opacity-50',
-                  )}
-                  aria-disabled="true"
-                >
-                  Next
-                </span>
-              )}
-            </nav>
+              <PaginationContent>
+                <PaginationItem>
+                  <PageLink
+                    direction="previous"
+                    label="Go to previous page"
+                    href={
+                      hasPrevious
+                        ? buildDomainTableHref(filters, {
+                            page: result.page - 1,
+                          })
+                        : undefined
+                    }
+                  />
+                </PaginationItem>
+                <PaginationItem>
+                  <span className="px-2 font-medium tabular-nums">
+                    Page {result.page.toLocaleString('en-US')}
+                  </span>
+                </PaginationItem>
+                <PaginationItem>
+                  <PageLink
+                    direction="next"
+                    label="Go to next page"
+                    href={
+                      hasNext
+                        ? buildDomainTableHref(filters, {
+                            page: result.page + 1,
+                          })
+                        : undefined
+                    }
+                  />
+                </PaginationItem>
+              </PaginationContent>
+            </Pagination>
           </footer>
-        </section>
+        </Card>
       </div>
     </main>
   );

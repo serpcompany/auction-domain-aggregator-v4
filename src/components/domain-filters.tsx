@@ -6,16 +6,48 @@ import { useRef, useState, type FormEvent } from 'react';
 
 import {
   countAdvancedDomainTableFilters,
+  formatProvider,
   hasActiveDomainTableFilters,
   type DomainTableFilters,
 } from '@/domain/domain-table';
-import {
-  SearchableMultiSelect,
-  type MultiSelectOption,
-} from '@/components/searchable-multi-select';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
 import { Button, buttonVariants } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import {
+  Combobox,
+  ComboboxChip,
+  ComboboxChips,
+  ComboboxChipsInput,
+  ComboboxContent,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxValue,
+  useComboboxAnchor,
+} from '@/components/ui/combobox';
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from '@/components/ui/field';
 import { Input } from '@/components/ui/input';
+import {
+  InputGroup,
+  InputGroupAddon,
+  InputGroupInput,
+  InputGroupText,
+} from '@/components/ui/input-group';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   Sheet,
   SheetClose,
@@ -31,18 +63,7 @@ import { cn } from '@/lib/utils';
 const FORM_ID = 'domain-filters';
 const MAX_INTEGER = String(Number.MAX_SAFE_INTEGER);
 const MAX_MONEY = '9999999999999.99';
-
-function providerLabel(provider: string) {
-  const labels: Record<string, string> = {
-    dynadot: 'Dynadot',
-    dropcatch: 'DropCatch',
-    godaddy: 'GoDaddy',
-    namecheap: 'Namecheap',
-    namejet: 'NameJet',
-    namesilo: 'NameSilo',
-  };
-  return labels[provider] ?? titleCase(provider);
-}
+const ANY_TIME = 'any';
 
 function titleCase(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
@@ -54,133 +75,222 @@ function majorMoney(cents?: number) {
 }
 
 const endingOptions = [
-  ['', 'Any time'],
+  [ANY_TIME, 'Any time'],
   ['1h', 'Next 1 hour'],
   ['6h', 'Next 6 hours'],
   ['24h', 'Next 24 hours'],
   ['3d', 'Next 3 days'],
   ['7d', 'Next 7 days'],
 ] as const;
+const endingLabels: Record<string, string> = Object.fromEntries(endingOptions);
 
-function Field({
+type Option = { value: string; label: string };
+
+// A multi-value filter built from the stock combobox. Base UI submits one
+// hidden input per selected value, so the GET form receives repeated params.
+function MultiSelectField({
+  id,
+  label,
+  name,
+  options,
+  defaultValues,
+  placeholder,
+  form,
+}: {
+  id: string;
+  label: string;
+  name: string;
+  options: Option[];
+  defaultValues: string[];
+  placeholder: string;
+  form?: string;
+}) {
+  const anchor = useComboboxAnchor();
+  // Keep selected values visible even when the facet no longer lists them.
+  const labels = new Map(options.map((option) => [option.value, option.label]));
+  const items = [
+    ...options.map((option) => option.value),
+    ...defaultValues.filter((value) => !labels.has(value)),
+  ];
+  const labelFor = (value: string) => labels.get(value) ?? value;
+
+  return (
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      <Combobox
+        multiple
+        items={items}
+        defaultValue={defaultValues}
+        itemToStringLabel={labelFor}
+        name={name}
+        form={form}
+      >
+        <ComboboxChips ref={anchor} className="min-h-11 sm:min-h-8">
+          <ComboboxValue>
+            {(values: string[]) => (
+              <>
+                {values.map((value) => (
+                  <ComboboxChip key={value}>{labelFor(value)}</ComboboxChip>
+                ))}
+                <ComboboxChipsInput
+                  id={id}
+                  aria-label={label}
+                  placeholder={values.length === 0 ? placeholder : ''}
+                />
+              </>
+            )}
+          </ComboboxValue>
+        </ComboboxChips>
+        <ComboboxContent anchor={anchor}>
+          <ComboboxEmpty>No options found</ComboboxEmpty>
+          <ComboboxList>
+            {(value: string) => (
+              <ComboboxItem key={value} value={value}>
+                {labelFor(value)}
+              </ComboboxItem>
+            )}
+          </ComboboxList>
+        </ComboboxContent>
+      </Combobox>
+    </Field>
+  );
+}
+
+function NumberField({
   id,
   label,
   name,
   defaultValue,
-  prefix,
+  money = false,
   max,
 }: {
   id: string;
   label: string;
   name: string;
   defaultValue?: number;
-  prefix?: string;
+  money?: boolean;
   max?: string | number;
 }) {
+  const inputProps = {
+    id,
+    form: FORM_ID,
+    name,
+    type: 'number',
+    min: '0',
+    max: max ?? (money ? MAX_MONEY : MAX_INTEGER),
+    step: money ? '0.01' : '1',
+    inputMode: money ? ('decimal' as const) : ('numeric' as const),
+    autoComplete: 'off',
+    defaultValue:
+      defaultValue === undefined
+        ? undefined
+        : money
+          ? majorMoney(defaultValue)
+          : defaultValue,
+  };
   return (
-    <div className="space-y-1.5">
-      <label htmlFor={id} className="text-sm font-medium">
-        {label}
-      </label>
-      <div className="relative">
-        {prefix ? (
-          <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">
-            {prefix}
-          </span>
-        ) : null}
-        <Input
-          id={id}
-          form={FORM_ID}
-          name={name}
-          type="number"
-          min="0"
-          max={max ?? (prefix ? MAX_MONEY : MAX_INTEGER)}
-          step={prefix ? '0.01' : '1'}
-          inputMode={prefix ? 'decimal' : 'numeric'}
-          autoComplete="off"
-          defaultValue={
-            defaultValue === undefined
-              ? undefined
-              : prefix
-                ? majorMoney(defaultValue)
-                : defaultValue
-          }
-          className={cn('h-11 sm:h-9', prefix && 'pl-7')}
-        />
-      </div>
-    </div>
+    <Field>
+      <FieldLabel htmlFor={id}>{label}</FieldLabel>
+      {money ? <MoneyInput {...inputProps} /> : <Input {...inputProps} />}
+    </Field>
   );
 }
 
+function MoneyInput(props: React.ComponentProps<typeof InputGroupInput>) {
+  return (
+    <InputGroup className="h-11 sm:h-9">
+      <InputGroupAddon>
+        <InputGroupText>$</InputGroupText>
+      </InputGroupAddon>
+      <InputGroupInput {...props} />
+    </InputGroup>
+  );
+}
+
+function EndingSelect({
+  id,
+  value,
+  onValueChange,
+  submit,
+}: {
+  id: string;
+  value: string;
+  onValueChange: (value: string) => void;
+  submit: boolean;
+}) {
+  return (
+    <Select
+      value={value || ANY_TIME}
+      onValueChange={(next) =>
+        onValueChange(next === ANY_TIME ? '' : String(next))
+      }
+      // "Any time" submits nothing, so the URL stays canonical.
+      name={submit && value ? 'endingWithin' : undefined}
+      items={endingLabels}
+    >
+      <SelectTrigger
+        id={id}
+        className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-8"
+      >
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        {endingOptions.map(([optionValue, label]) => (
+          <SelectItem key={optionValue} value={optionValue}>
+            {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+// Advanced values submit through hidden inputs while the sheet is closed.
 function PreservedAdvancedFilters({
   filters,
 }: {
   filters: DomainTableFilters;
 }) {
+  const scalar: Array<[string, string | number | undefined]> = [
+    ['domainLengthMin', filters.domainLengthMin],
+    ['domainLengthMax', filters.domainLengthMax],
+    ['ageMin', filters.ageMin],
+    ['ageMax', filters.ageMax],
+    ['noHyphens', filters.noHyphens ? '1' : undefined],
+    ['noDigits', filters.noDigits ? '1' : undefined],
+    [
+      'priceMin',
+      filters.priceMinCents === undefined
+        ? undefined
+        : majorMoney(filters.priceMinCents),
+    ],
+    [
+      'renewalMax',
+      filters.renewalMaxCents === undefined
+        ? undefined
+        : majorMoney(filters.renewalMaxCents),
+    ],
+    ['bidsMin', filters.bidsMin],
+    ['biddersMin', filters.biddersMin],
+    ['visitorsMin', filters.visitorsMin],
+    ['linksMin', filters.linksMin],
+    [
+      'appraisalMin',
+      filters.appraisalMinCents === undefined
+        ? undefined
+        : majorMoney(filters.appraisalMinCents),
+    ],
+  ];
   return (
     <>
       {filters.auctionTypes.map((type) => (
         <input key={type} type="hidden" name="type" value={type} />
       ))}
-      {filters.domainLengthMin !== undefined ? (
-        <input
-          type="hidden"
-          name="domainLengthMin"
-          value={filters.domainLengthMin}
-        />
-      ) : null}
-      {filters.domainLengthMax !== undefined ? (
-        <input
-          type="hidden"
-          name="domainLengthMax"
-          value={filters.domainLengthMax}
-        />
-      ) : null}
-      {filters.ageMin !== undefined ? (
-        <input type="hidden" name="ageMin" value={filters.ageMin} />
-      ) : null}
-      {filters.ageMax !== undefined ? (
-        <input type="hidden" name="ageMax" value={filters.ageMax} />
-      ) : null}
-      {filters.noHyphens ? (
-        <input type="hidden" name="noHyphens" value="1" />
-      ) : null}
-      {filters.noDigits ? (
-        <input type="hidden" name="noDigits" value="1" />
-      ) : null}
-      {filters.priceMinCents !== undefined ? (
-        <input
-          type="hidden"
-          name="priceMin"
-          value={majorMoney(filters.priceMinCents)}
-        />
-      ) : null}
-      {filters.renewalMaxCents !== undefined ? (
-        <input
-          type="hidden"
-          name="renewalMax"
-          value={majorMoney(filters.renewalMaxCents)}
-        />
-      ) : null}
-      {filters.bidsMin !== undefined ? (
-        <input type="hidden" name="bidsMin" value={filters.bidsMin} />
-      ) : null}
-      {filters.biddersMin !== undefined ? (
-        <input type="hidden" name="biddersMin" value={filters.biddersMin} />
-      ) : null}
-      {filters.visitorsMin !== undefined ? (
-        <input type="hidden" name="visitorsMin" value={filters.visitorsMin} />
-      ) : null}
-      {filters.linksMin !== undefined ? (
-        <input type="hidden" name="linksMin" value={filters.linksMin} />
-      ) : null}
-      {filters.appraisalMinCents !== undefined ? (
-        <input
-          type="hidden"
-          name="appraisalMin"
-          value={majorMoney(filters.appraisalMinCents)}
-        />
-      ) : null}
+      {scalar.map(([name, value]) =>
+        value === undefined ? null : (
+          <input key={name} type="hidden" name={name} value={value} />
+        ),
+      )}
     </>
   );
 }
@@ -191,17 +301,17 @@ function RangeFields({
   maximum,
 }: {
   legend: string;
-  minimum: React.ComponentProps<typeof Field>;
-  maximum: React.ComponentProps<typeof Field>;
+  minimum: React.ComponentProps<typeof NumberField>;
+  maximum: React.ComponentProps<typeof NumberField>;
 }) {
   return (
-    <fieldset>
-      <legend className="sr-only">{legend}</legend>
+    <FieldSet>
+      <FieldLegend className="sr-only">{legend}</FieldLegend>
       <div className="grid grid-cols-2 gap-3">
-        <Field {...minimum} />
-        <Field {...maximum} />
+        <NumberField {...minimum} />
+        <NumberField {...maximum} />
       </div>
-    </fieldset>
+    </FieldSet>
   );
 }
 
@@ -213,16 +323,32 @@ function FilterGroup({
   children: React.ReactNode;
 }) {
   return (
-    <fieldset className="min-w-0 space-y-4 rounded-xl border bg-card p-4">
-      <legend className="sr-only">{title}</legend>
-      <p
-        aria-hidden="true"
-        className="text-sm font-semibold tracking-wide text-foreground"
-      >
-        {title}
-      </p>
-      {children}
-    </fieldset>
+    <FieldSet className="min-w-0 rounded-xl border bg-card p-4">
+      <FieldLegend>{title}</FieldLegend>
+      <FieldGroup className="gap-4">{children}</FieldGroup>
+    </FieldSet>
+  );
+}
+
+function CheckboxField({
+  name,
+  label,
+  defaultChecked,
+}: {
+  name: string;
+  label: string;
+  defaultChecked: boolean;
+}) {
+  return (
+    <FieldLabel className="min-h-11 w-full rounded-lg border px-3">
+      <Checkbox
+        form={FORM_ID}
+        name={name}
+        value="1"
+        defaultChecked={defaultChecked}
+      />
+      {label}
+    </FieldLabel>
   );
 }
 
@@ -262,24 +388,16 @@ function DomainFilterGroup({ filters }: { filters: DomainTableFilters }) {
         }}
       />
       <div className="grid gap-2 sm:grid-cols-2">
-        <label className="flex min-h-11 items-center gap-3 rounded-lg border px-3">
-          <Checkbox
-            form={FORM_ID}
-            name="noHyphens"
-            value="1"
-            defaultChecked={filters.noHyphens}
-          />
-          No hyphens
-        </label>
-        <label className="flex min-h-11 items-center gap-3 rounded-lg border px-3">
-          <Checkbox
-            form={FORM_ID}
-            name="noDigits"
-            value="1"
-            defaultChecked={filters.noDigits}
-          />
-          No digits
-        </label>
+        <CheckboxField
+          name="noHyphens"
+          label="No hyphens"
+          defaultChecked={filters.noHyphens}
+        />
+        <CheckboxField
+          name="noDigits"
+          label="No digits"
+          defaultChecked={filters.noDigits}
+        />
       </div>
     </FilterGroup>
   );
@@ -294,7 +412,7 @@ function AuctionFilterGroup({
   setEndingWithin,
 }: {
   filters: DomainTableFilters;
-  auctionTypeOptions: MultiSelectOption[];
+  auctionTypeOptions: Option[];
   priceMax: string;
   setPriceMax: (value: string) => void;
   endingWithin: string;
@@ -302,82 +420,67 @@ function AuctionFilterGroup({
 }) {
   return (
     <FilterGroup title="Auction">
-      <div className="space-y-1.5">
-        <span className="block text-sm font-medium">Auction type</span>
-        <SearchableMultiSelect
-          form={FORM_ID}
-          label="Auction type"
-          name="type"
-          options={auctionTypeOptions}
-          defaultValues={filters.auctionTypes}
-        />
-      </div>
-      <fieldset>
-        <legend className="sr-only">Current bid</legend>
+      <MultiSelectField
+        id="advanced-auction-type"
+        label="Auction type"
+        name="type"
+        form={FORM_ID}
+        options={auctionTypeOptions}
+        defaultValues={filters.auctionTypes}
+        placeholder="Any auction type"
+      />
+      <FieldSet>
+        <FieldLegend className="sr-only">Current bid</FieldLegend>
         <div className="grid grid-cols-2 gap-3">
-          <Field
+          <NumberField
             id="price-min"
             label="Minimum current bid"
             name="priceMin"
             defaultValue={filters.priceMinCents}
-            prefix="$"
+            money
           />
-          <div className="space-y-1.5">
-            <label htmlFor="advanced-price-max" className="text-sm font-medium">
+          <Field>
+            <FieldLabel htmlFor="advanced-price-max">
               Maximum current bid
-            </label>
-            <div className="relative">
-              <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">
-                $
-              </span>
-              <Input
-                id="advanced-price-max"
-                form={FORM_ID}
-                name="priceMax"
-                type="number"
-                min="0"
-                max={MAX_MONEY}
-                step="0.01"
-                inputMode="decimal"
-                autoComplete="off"
-                value={priceMax}
-                onChange={(event) => setPriceMax(event.target.value)}
-                className="h-11 pl-7"
-              />
-            </div>
-          </div>
+            </FieldLabel>
+            <MoneyInput
+              id="advanced-price-max"
+              form={FORM_ID}
+              name="priceMax"
+              type="number"
+              min="0"
+              max={MAX_MONEY}
+              step="0.01"
+              inputMode="decimal"
+              autoComplete="off"
+              value={priceMax}
+              onChange={(event) => setPriceMax(event.target.value)}
+            />
+          </Field>
         </div>
-      </fieldset>
-      <p className="-mt-3 text-xs text-muted-foreground">
-        The maximum current bid is shared with the quick filter.
-      </p>
-      <Field
+        <FieldDescription>
+          The maximum current bid is shared with the quick filter.
+        </FieldDescription>
+      </FieldSet>
+      <NumberField
         id="renewal-max"
         label="Maximum renewal price"
         name="renewalMax"
         defaultValue={filters.renewalMaxCents}
-        prefix="$"
+        money
       />
-      <div className="space-y-1.5">
-        <label htmlFor="advanced-ending-within" className="text-sm font-medium">
-          Ending window
-        </label>
-        <select
+      <Field>
+        <FieldLabel htmlFor="advanced-ending-within">Ending window</FieldLabel>
+        <EndingSelect
           id="advanced-ending-within"
           value={endingWithin}
-          onChange={(event) => setEndingWithin(event.target.value)}
-          className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50"
-        >
-          {endingOptions.map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-muted-foreground">
+          onValueChange={setEndingWithin}
+          submit={false}
+        />
+        <FieldDescription>
           Shared with the quick Ending filter.
-        </p>
-      </div>
+        </FieldDescription>
+      </Field>
     </FilterGroup>
   );
 }
@@ -386,25 +489,25 @@ function ActivityFilterGroup({ filters }: { filters: DomainTableFilters }) {
   return (
     <FilterGroup title="Activity">
       <div className="grid grid-cols-2 gap-3">
-        <Field
+        <NumberField
           id="bids-min"
           label="Minimum bids"
           name="bidsMin"
           defaultValue={filters.bidsMin}
         />
-        <Field
+        <NumberField
           id="bidders-min"
           label="Minimum bidders"
           name="biddersMin"
           defaultValue={filters.biddersMin}
         />
-        <Field
+        <NumberField
           id="visitors-min"
           label="Minimum visitors"
           name="visitorsMin"
           defaultValue={filters.visitorsMin}
         />
-        <Field
+        <NumberField
           id="links-min"
           label="Minimum inbound links"
           name="linksMin"
@@ -418,12 +521,12 @@ function ActivityFilterGroup({ filters }: { filters: DomainTableFilters }) {
 function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
   return (
     <FilterGroup title="Value">
-      <Field
+      <NumberField
         id="appraisal-min"
         label="Minimum provider appraisal"
         name="appraisalMin"
         defaultValue={filters.appraisalMinCents}
-        prefix="$"
+        money
       />
     </FilterGroup>
   );
@@ -442,22 +545,14 @@ const rangeRules = [
     label: 'domain length',
   },
   { minimum: 'ageMin', maximum: 'ageMax', label: 'domain age' },
-  {
-    minimum: 'priceMin',
-    maximum: 'priceMax',
-    label: 'current bid',
-  },
+  { minimum: 'priceMin', maximum: 'priceMax', label: 'current bid' },
 ] as const;
 
 function RangeErrorMessage({ message }: { message: string }) {
   return (
-    <p
-      role="alert"
-      aria-live="assertive"
-      className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive"
-    >
-      {message}
-    </p>
+    <Alert variant="destructive" role="alert">
+      <AlertDescription>{message}</AlertDescription>
+    </Alert>
   );
 }
 
@@ -473,23 +568,22 @@ export function DomainFilters({
   tlds: string[];
 }) {
   const [priceMax, setPriceMax] = useState(majorMoney(filters.priceMaxCents));
-  const [endingWithin, setEndingWithin] = useState(filters.endingWithin ?? '');
+  const [endingWithin, setEndingWithin] = useState<string>(
+    filters.endingWithin ?? '',
+  );
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [rangeError, setRangeError] = useState<string>();
   const sharedDraftAtOpen = useRef({ priceMax, endingWithin });
   const advancedCount = countAdvancedDomainTableFilters(filters);
-  const sourceOptions: MultiSelectOption[] = sources.map((source) => ({
+  const sourceOptions = sources.map((source) => ({
     value: source,
-    label: providerLabel(source),
+    label: formatProvider(source),
   }));
-  const auctionTypeOptions: MultiSelectOption[] = auctionTypes.map((type) => ({
+  const auctionTypeOptions = auctionTypes.map((type) => ({
     value: type,
     label: titleCase(type),
   }));
-  const tldOptions: MultiSelectOption[] = tlds.map((tld) => ({
-    value: tld,
-    label: `.${tld}`,
-  }));
+  const tldOptions = tlds.map((tld) => ({ value: tld, label: `.${tld}` }));
 
   const clearRangeError = () => {
     setRangeError(undefined);
@@ -557,11 +651,9 @@ export function DomainFilters({
         <RangeErrorMessage message={rangeError} />
       ) : null}
 
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(15rem,1.5fr)_11rem_11rem_9rem_10rem_auto] xl:items-end">
-        <div className="space-y-1.5 md:col-span-2 xl:col-span-1">
-          <label htmlFor="domain-query" className="text-sm font-medium">
-            Domain contains
-          </label>
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(15rem,1.5fr)_14rem_14rem_9rem_10rem_auto] xl:items-end">
+        <Field className="md:col-span-2 xl:col-span-1">
+          <FieldLabel htmlFor="domain-query">Domain contains</FieldLabel>
           <Input
             id="domain-query"
             name="q"
@@ -572,68 +664,48 @@ export function DomainFilters({
             placeholder="e.g. garden…"
             className="h-11 sm:h-8"
           />
-        </div>
-        <div className="space-y-1.5">
-          <span className="block text-sm font-medium">Auction source</span>
-          <SearchableMultiSelect
-            label="Auction source"
-            name="source"
-            options={sourceOptions}
-            defaultValues={filters.sources}
+        </Field>
+        <MultiSelectField
+          id="auction-source"
+          label="Auction source"
+          name="source"
+          options={sourceOptions}
+          defaultValues={filters.sources}
+          placeholder="Any auction source"
+        />
+        <MultiSelectField
+          id="tld"
+          label="TLD"
+          name="tld"
+          options={tldOptions}
+          defaultValues={filters.tlds}
+          placeholder="Any TLD"
+        />
+        <Field>
+          <FieldLabel htmlFor="price-max">Max current bid</FieldLabel>
+          <MoneyInput
+            id="price-max"
+            name="priceMax"
+            type="number"
+            min="0"
+            max={MAX_MONEY}
+            step="0.01"
+            inputMode="decimal"
+            autoComplete="off"
+            value={priceMax}
+            disabled={advancedOpen}
+            onChange={(event) => setPriceMax(event.target.value)}
           />
-        </div>
-        <div className="space-y-1.5">
-          <span className="block text-sm font-medium">TLD</span>
-          <SearchableMultiSelect
-            label="TLD"
-            name="tld"
-            options={tldOptions}
-            defaultValues={filters.tlds}
-            searchable
-          />
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="price-max" className="text-sm font-medium">
-            Max current bid
-          </label>
-          <div className="relative">
-            <span className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-muted-foreground">
-              $
-            </span>
-            <Input
-              id="price-max"
-              name="priceMax"
-              type="number"
-              min="0"
-              max={MAX_MONEY}
-              step="0.01"
-              inputMode="decimal"
-              autoComplete="off"
-              value={priceMax}
-              disabled={advancedOpen}
-              onChange={(event) => setPriceMax(event.target.value)}
-              className="h-11 pl-7 sm:h-8"
-            />
-          </div>
-        </div>
-        <div className="space-y-1.5">
-          <label htmlFor="ending-within" className="text-sm font-medium">
-            Ending
-          </label>
-          <select
+        </Field>
+        <Field>
+          <FieldLabel htmlFor="ending-within">Ending</FieldLabel>
+          <EndingSelect
             id="ending-within"
-            name="endingWithin"
             value={endingWithin}
-            onChange={(event) => setEndingWithin(event.target.value)}
-            className="h-11 w-full rounded-lg border border-input bg-background px-3 text-sm outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 sm:h-8"
-          >
-            {endingOptions.map(([value, label]) => (
-              <option key={value} value={value}>
-                {label}
-              </option>
-            ))}
-          </select>
-        </div>
+            onValueChange={setEndingWithin}
+            submit
+          />
+        </Field>
         <div className="flex flex-wrap gap-2 md:col-span-2 xl:col-span-1 xl:flex-nowrap">
           <Sheet open={advancedOpen} onOpenChange={setAdvancedSheetOpen}>
             <SheetTrigger
@@ -647,12 +719,10 @@ export function DomainFilters({
             >
               <SlidersHorizontal aria-hidden="true" />
               More filters
-              {advancedCount > 0 ? (
-                <span className="rounded-full bg-primary px-1.5 py-0.5 text-xs leading-none text-primary-foreground">
-                  {advancedCount}
-                </span>
-              ) : null}
+              {advancedCount > 0 ? <Badge>{advancedCount}</Badge> : null}
             </SheetTrigger>
+            {/* The base sheet caps side panels at max-w-sm; this one holds a
+                page worth of filters. */}
             <SheetContent className="w-full data-[side=right]:w-full data-[side=right]:sm:max-w-none lg:data-[side=right]:w-[min(1280px,94vw)]">
               <SheetHeader className="border-b px-6 pr-14">
                 <SheetTitle>More filters</SheetTitle>
@@ -679,7 +749,7 @@ export function DomainFilters({
                 <ActivityFilterGroup filters={filters} />
                 <ValueFilterGroup filters={filters} />
               </div>
-              <SheetFooter className="flex-row justify-end border-t bg-background px-6 sm:[&>*]:max-w-48">
+              <SheetFooter className="flex-row justify-end border-t px-6 sm:[&>*]:max-w-48">
                 <SheetClose
                   render={
                     <Button

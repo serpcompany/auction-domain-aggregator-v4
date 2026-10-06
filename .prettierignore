@@ -22,3 +22,6 @@ docs/
 .env.*
 .dev.vars
 .dev.vars.*
+
+# Local agent worktrees and settings
+.claude/

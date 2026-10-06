@@ -42,7 +42,7 @@ Query plans use `auction_listings_status_provider_idx` for active inventory and 
 
 ## UI boundary
 
-The filter controls are one client island inside a semantic GET form. Quick controls remain on the page; `More filters` uses repository-owned shadcn sheet, checkbox, and popover primitives. Local control changes never query D1 until Apply. The server renders result counts, summaries, pagination, and the table.
+The filter controls are one client island inside a semantic GET form. Quick controls remain on the page; `More filters` is a near-full-page stock shadcn `Sheet` of `Field` groups. Source, TLD, and auction type are stock shadcn `Combobox` chips; Base UI submits one hidden input per selected value, so the GET form receives repeated parameters. The ending window is a stock `Select` that submits nothing for "Any time". Local control changes never query D1 until Apply. The server renders result counts, summaries, pagination, and the table.
 
 The table is a semantic ten-column comparison surface with eight URL-backed sortable headers. Relative end time and absolute UTC are computed on the server from one request reference time. A contained scroll region, sticky header, and sticky Domain column preserve the table at narrow widths without changing it into cards.
 
