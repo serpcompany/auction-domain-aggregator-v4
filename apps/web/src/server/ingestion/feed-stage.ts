@@ -1,3 +1,5 @@
+import { INGESTION_USER_AGENT } from '../providers/types'
+
 // Stages a provider inventory published as one large zipped JSON document
 // (GoDaddy's `all_biddable_auctions.json.zip`, about 37 MB zipped and 450 MB
 // unzipped) into numbered page files of raw records. Everything is a stream,
@@ -761,8 +763,6 @@ export async function writeFeedPages({
   return writer.finish()
 }
 
-export const FEED_USER_AGENT = 'auction-domain-aggregator-ingestion/1'
-
 // Requests a feed and returns its body, failing when the server declares a
 // size above `maxBytes`. Callers still count the bytes they read.
 export async function downloadFeed({
@@ -781,7 +781,7 @@ export async function downloadFeed({
     response = await fetchImpl(url, {
       // GoDaddy's CDN answers 403 to a request without a User-Agent, which
       // is what a Worker's fetch sends by default.
-      headers: { 'user-agent': FEED_USER_AGENT },
+      headers: { 'user-agent': INGESTION_USER_AGENT },
       signal: AbortSignal.timeout(timeoutMs)
     })
   } catch {

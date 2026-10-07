@@ -1,11 +1,10 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-
+import { INGESTION_USER_AGENT } from '../providers/types'
 import {
   createJsonArrayScanner,
   createPageWriter,
   downloadFeed,
-  FEED_USER_AGENT,
   FeedError,
   feedErrorCode,
   openZipEntry,
@@ -606,7 +605,7 @@ describe('zipped feed staging', () => {
     expect(pages.map(page => page.isLastPage)).toEqual([false, false, true])
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(options.url)
-    expect(init.headers).toEqual({ 'user-agent': FEED_USER_AGENT })
+    expect(init.headers).toEqual({ 'user-agent': INGESTION_USER_AGENT })
     expect(init.signal).toBeInstanceOf(AbortSignal)
   })
 
