@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import type { AppDatabase } from './types'
 
 // Rebuilds `listing_facets` from the whole active inventory, for every
-// provider. Ingestion runs these in the batch that finalizes a successful sync;
+// provider. Ingestion runs these right after it finalizes a successful sync;
 // migration 0006 ran the same insert once as a backfill. They are plain SQL so
 // test fixtures that insert listings directly can run them too.
 export const REFRESH_LISTING_FACETS_SQL = [

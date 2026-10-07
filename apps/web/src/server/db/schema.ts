@@ -98,7 +98,7 @@ export const auctionListings = sqliteTable(
 )
 
 // Filter-independent facet values (sources, auction types, TLDs) of the active
-// inventory, rebuilt in the same D1 batch that finalizes a successful sync, so
+// inventory, rebuilt right after a successful sync is finalized, so
 // page requests read a few hundred rows instead of grouping every listing.
 // `latest_ends_at` is the latest end time among active listings with that
 // value: a value is offered only while one of its auctions can still be open.

@@ -75,6 +75,8 @@ export type IngestionStorage = {
   provider: AuctionProvider
   startRun(startedAt: Date): Promise<RunState>
   loadRunningRun(runId: number): Promise<RunState>
+  // The counters of the provider's run with this ID if it succeeded.
+  loadSucceededRun(runId: number): Promise<RunCounters | null>
   upsertListings(run: RunState, listings: NormalizedListing[]): Promise<void>
   finalizeSuccessfulRun(run: RunState, finalization: SuccessfulRunFinalization): Promise<number>
   updateRunProgress(run: RunState): Promise<void>
@@ -140,6 +142,12 @@ function runErrorCode(error: unknown): RunErrorCode {
   return 'sync_failed'
 }
 
+// A storage error's message for Workers Logs. D1 messages carry no
+// credentials.
+export function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : String(error)
+}
+
 // An unexpected error raised by storage: a D1 batch failing, typically.
 class StorageFailure extends Error {
   constructor() {
@@ -157,10 +165,8 @@ async function stored<T>(call: () => Promise<T>) {
   } catch (error) {
     if (error instanceof SyncError) throw error
     // Workers Logs shows the cause, such as a D1 limit, while the run keeps
-    // the fixed code. D1 messages carry no credentials.
-    console.warn('sync_storage_failed', {
-      message: error instanceof Error ? error.message : String(error)
-    })
+    // the fixed code.
+    console.warn('sync_storage_failed', { message: errorMessage(error) })
     throw new StorageFailure()
   }
 }
@@ -207,7 +213,25 @@ export async function runSyncSegment(
   if (adapter.provider !== storage.provider) {
     throw new SyncError('sync_invalid_request')
   }
-  const run = runId ? await storage.loadRunningRun(runId) : await storage.startRun(clock())
+  let run: RunState
+  try {
+    run = runId ? await storage.loadRunningRun(runId) : await storage.startRun(clock())
+  } catch (error) {
+    // D1 can commit a long finalization batch and still report an error,
+    // so the final segment runs again and finds its run already succeeded.
+    // That success is the segment's result.
+    const succeeded =
+      runId && error instanceof SyncError && error.code === 'sync_stale_continuation'
+        ? await storage.loadSucceededRun(runId)
+        : null
+    if (succeeded) {
+      return {
+        done: true,
+        summary: { provider: storage.provider, status: 'succeeded', ...succeeded }
+      }
+    }
+    throw error
+  }
   validateRun(run, maxPages)
 
   const segmentStart = run.nextPage
