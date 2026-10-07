@@ -49,7 +49,7 @@ Each run, whatever the provider:
 3. Upserts normalized domains and provider listings in bounded D1 batches.
 4. Persists page position and counts after every completed segment.
 5. Continues until the adapter reports the last page.
-6. Applies the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, records the inactivation count, marks older unseen listings of that provider inactive, and marks the run successful; the same batch then rebuilds `listing_facets` ([Domain discovery](domain-discovery.md#facets)).
+6. Applies the reconciliation guard (below), then in one D1 batch guarded by the same still-running run, marks older unseen listings of that provider inactive and marks the run successful with that count (`changes()`); the same batch then rebuilds `listing_facets` ([Domain discovery](domain-discovery.md#facets)). D1 resets a request that runs too long, so the unseen-listing comparison runs once in the batch: on Staging's 1.1-million-listing Namecheap inventory each pass takes 12 to 18 seconds, and a second pass that only counted made Namecheap's finalization fail on 2026-10-07. A storage failure logs `sync_storage_failed` with D1's message to Workers Logs.
 
 A stale or completed run ID is rejected. Every listing write, progress update, failure transition, and success reconciliation is guarded by run ID, provider, running status, and start timestamp. A failed or partial synchronization leaves prior active data readable and does not reconcile omissions. Because a new run interrupts an older running one, two overlapping instances of the same provider leave only the newer run able to finish; the older one fails with `sync_stale_continuation`.
 
