@@ -16,6 +16,16 @@ test('applies the URL trailing-slash rule in the Worker entry', async ({ request
   }
 })
 
+test('marks a non-production Worker noindex and disallows crawling', async ({ request }) => {
+  const page = await request.get('/')
+  expect(page.headers()['x-robots-tag']).toBe('noindex, nofollow')
+  const redirect = await request.get('/filters', { maxRedirects: 0 })
+  expect(redirect.headers()['x-robots-tag']).toBe('noindex, nofollow')
+  const robots = await request.get('/robots.txt')
+  expect(robots.status()).toBe(200)
+  expect(await robots.text()).toBe('User-agent: *\nDisallow: /\n')
+})
+
 test('edits every filter on the Filters page and applies them to the results', async ({ page }) => {
   await page.goto('/filters/?tld=com&sort=price&direction=desc&page=3')
 

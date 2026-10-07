@@ -106,7 +106,7 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 
 ## Physical code map
 
-- `apps/web/worker.ts` is the Worker entry (Wrangler `main`): it applies the URL trailing-slash rule from `apps/web/src/lib/trailing-slash.ts`, then hands the request to the OpenNext handler.
+- `apps/web/worker.ts` is the Worker entry (Wrangler `main`): it applies the URL trailing-slash rule from `apps/web/src/lib/trailing-slash.ts`, then hands the request to the OpenNext handler. Unless `APP_ENV` is `production`, every response carries `X-Robots-Tag: noindex, nofollow` and `/robots.txt` disallows crawling (`apps/web/src/lib/indexing.ts`). Only the production environment sets `APP_ENV=production`; the local top level sets `local`.
 - `apps/web/src/app/` owns Next.js routes, the root layout (theme provider, sidebar shell, toaster), global styles, and the D1 health route.
 - `apps/web/src/app/filters/page.tsx` is the Filters page: it parses the same URL as the table, reads only the facets (`queryListingFacets`), and renders `apps/web/src/components/filters/`, a client form that applies its draft as a canonical table URL on page 1. `apps/web/src/domain/filter-form.ts` holds its pure section, count, and range-validation logic.
 - `apps/web/src/app/syncs/page.tsx` is Sync status: per-provider cards and recent runs from `ingestion_runs` and active listing counts (`apps/web/src/server/queries/sync-status-query.ts`, D1 only, never the provider registry). The root layout reads how many providers' latest run failed for the sidebar badge, and treats a read failure as zero. `apps/web/src/domain/sync-schedule.ts` mirrors the ingestion cron, and a test keeps them in step.

@@ -39,6 +39,10 @@
       "service": "auction-domain-aggregator-v4"
     }
   ],
+  // Local only. Every deployed environment sets its own; only production sets "production".
+  "vars": {
+    "APP_ENV": "local"
+  },
   "observability": {
     "enabled": true
   },

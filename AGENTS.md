@@ -1,5 +1,8 @@
 # AGENTS.md
 
+Stage: explore
+Agents may merge: yes
+
 ## Project
 
 This repository is a personal auction and expired-domain discovery tool. Read `README.md` for the overview, `docs/product-specs/initial-domain-discovery.md` for the agreed first usable version, and `ARCHITECTURE.md` before making structural or data-flow changes.
@@ -11,7 +14,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - `ARCHITECTURE.md`: stable system map, boundaries, and architectural invariants.
 - `docs/product-specs/`: agreed product behavior and scope.
 - `docs/technical-design/`: accepted technical choices, system design, and their rationale.
-- `docs/plans/PLANS.md`: when and how to maintain durable implementation plans.
+- `docs/plans/README.md`: when and how to maintain durable implementation plans.
 - `docs/references/`: external-product research used to inform decisions. Reference material is not automatically a product requirement.
 
 ## Working rules
@@ -42,13 +45,15 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
 - `corepack pnpm sync <provider>`: migrate local D1, then run that provider's `provider-sync` Workflow (the same code the daily Cron Trigger starts) in a temporary local `wrangler dev` of the ingestion Worker on ports 8790 and 9330, with local D1, R2, and Workflows. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` and `namecheap` need no credentials: the Workflow downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped, about 2 to 3 minutes end to end) or Namecheap Market's public sales CSV (about 194 MB and 1.1 million rows, about 5 minutes) and stages it in local R2. Do not edit `apps/web/src/` while it runs: Wrangler's reload orphans the running instance. GoDaddy content is licensed for the owner's internal use only.
-- `corepack pnpm check:quick`: run Biome (format and lint, read-only), type checks, the migration-history check, and unit tests.
+- Inner loop, while editing: `corepack pnpm exec vitest related --run <files>`, plus `corepack pnpm exec tsc --noEmit -p .` and `corepack pnpm exec biome check <files>`.
+- `corepack pnpm check:quick`: the push-level check. Runs Biome (format and lint, read-only), type checks, the migration-history check, and unit tests.
 - `corepack pnpm format`: format with Biome. `corepack pnpm exec biome check --write` also applies safe lint fixes and sorts imports.
 - `corepack pnpm test`: run the unit and component tests with coverage.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
 - `corepack pnpm benchmark:filters`: time whole table requests through `queryDomainListingsWithDatabase` (the page's read path) against the populated local D1 inventory, without loading credentials or printing rows.
-- `corepack pnpm check`: run the quick checks, isolated D1 integration proof, and isolated browser acceptance.
+- `corepack pnpm check`: the finish gate. Runs the quick checks, isolated D1 integration proof, and isolated browser acceptance. UI changes also need a check at 1440px and 390px; ingestion changes that touch a provider need one real `pnpm sync` of that provider.
+- `node .github/scripts/check-docs.mjs` (from the repository root): doc size budgets and kebab-case paths, also run by the Docs Checks workflow.
 - `corepack pnpm preview`: migrate local D1, build with OpenNext, and serve the Cloudflare Worker locally.
 - `corepack pnpm build`: verify the standard Next.js production build.
 - `corepack pnpm cf-typegen`: regenerate Cloudflare binding types from `apps/web/wrangler.jsonc`.
@@ -57,4 +62,4 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 
 ## ExecPlans
 
-For multi-session features, significant architectural changes, migrations, or work with important unknowns, create and maintain an ExecPlan according to `docs/plans/PLANS.md` from research through verification.
+For multi-session features, significant architectural changes, migrations, or work with important unknowns, create and maintain an ExecPlan according to `docs/plans/README.md` from research through verification.
