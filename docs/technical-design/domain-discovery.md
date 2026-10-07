@@ -2,7 +2,7 @@
 
 Status: Implemented locally
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 ## Purpose
 
@@ -18,13 +18,13 @@ Repeated Source, Auction type, and TLD values use OR within their category; all 
 
 ## D1 query behavior
 
-`queryDomainListingsWithDatabase` accepts only normalized filters and an application database. It selects active listings, applies parameterized predicates, counts the complete result, returns one stable page, reads Ahrefs DR and feed SEO metrics for that page only, and reads the source, auction-type, and TLD facets from the precomputed `listing_facets` table plus the latest successful sync time: six statements per request, of which only the count and the page scale with the filtered inventory.
+`queryDomainListingsWithDatabase` accepts only normalized filters and an application database. It selects active listings, applies parameterized predicates, counts the complete result, returns one stable page, and reads Ahrefs DR and feed SEO metrics for that page only, in one D1 batch: three round trips per request, of which only the count scales with the filtered inventory. A nullable or metric sort adds one when its page reaches the listings without a value, and one more when the page starts among them. The page reads the source, auction-type, and TLD facets from the precomputed `listing_facets` table and the latest successful sync time once, beside the listing query, in one batch (`queryInventoryStatusWithDatabase`).
 
-SEO-metric minimums (`majesticTfMin`, `majesticCfMin`, `majesticRefDomainsMin`, `semrushAsMin`) filter on `domain_seo_metrics`, the per-domain table that GoDaddy and Namecheap syncs refresh. They become one `domain_name in (select domain_name from domain_seo_metrics where ...)` predicate, so the metric indexes find the matching domains and listings are reached through `auction_listings_domain_name_idx`. A domain's metrics apply to all its listings, whatever their source. Each row carries `seoMetrics` (null when no feed published metrics for the domain), read only for the visible page like Ahrefs DR. GoDaddy bid listings are stored as auction type `AUCTION` and fixed-price listings as `BUY_NOW`, so the Auction type filter's `auction` and `buy_now` values include or exclude them.
+SEO-metric minimums (`majesticTfMin`, `majesticCfMin`, `majesticRefDomainsMin`, `semrushAsMin`) filter on `domain_seo_metrics`, the per-domain table that GoDaddy and Namecheap syncs refresh. They become one `domain_name in (select domain_name from domain_seo_metrics where ...)` predicate, so the metric indexes find the matching domains and listings are reached through `auction_listings_open_domain_name_idx`. A domain's metrics apply to all its listings, whatever their source. Each row carries `seoMetrics` (null when no feed published metrics for the domain), read only for the visible page like Ahrefs DR. GoDaddy bid listings are stored as auction type `AUCTION` and fixed-price listings as `BUY_NOW`, so the Auction type filter's `auction` and `buy_now` values include or exclude them.
 
-Nullable numeric fields remain visible when unconstrained. A constraint on that field excludes nulls because an unknown value cannot honestly satisfy a minimum or maximum. Nullable sorts place unknown values last in both directions. Domain, provider, and external ID complete deterministic tie-breaking. Every read (rows, count, and facets) excludes listings whose `ends_at` is at or before the injected reference time, because status changes only when a sync reconciles and sync is not continuous. `ends_at` is `NOT NULL`, so the open-listing predicate is a plain `status = ? and ends_at > ?`; the earlier `ends_at is null or ...` branch could never match and kept SQLite from using `ends_at` in the TLD index. Ending-window filters add an upper bound to that same reference time. When the latest successful sync is more than 24 hours old, the page shows a stale-inventory notice.
+Nullable numeric fields remain visible when unconstrained. A constraint on that field excludes nulls because an unknown value cannot honestly satisfy a minimum or maximum. Nullable and metric sorts place unknown values last in both directions. Ties, and the listings without a value, are ordered by domain name, then end time, then rowid, in the sort's own direction, so a descending page lists tied domains from Z to A (see [Indexes](#indexes-and-measured-request-time) for why). Every read (rows, count, and facets) excludes listings whose `ends_at` is at or before the injected reference time, because status changes only when a sync reconciles and sync is not continuous. `ends_at` is `NOT NULL`, so the open-listing predicate is a plain `status = 'active' and ends_at > ?`; the earlier `ends_at is null or ...` branch could never match and kept SQLite from using `ends_at` in an index. The status is a literal, not a bound value, because SQLite uses a partial index only when the query repeats its predicate. Ending-window filters add an upper bound to that same reference time. When the latest successful sync is more than 24 hours old, the page shows a stale-inventory notice.
 
-Reads remain sequential. Local D1 produced snapshot locking when the count, row, facet, and freshness reads ran concurrently, and no measured navigation need justifies reintroducing that failure mode.
+Reads remain sequential. Local D1 produced snapshot locking when the count, row, facet, and freshness reads ran concurrently, and no measured navigation need justifies reintroducing that failure mode. A D1 batch is not concurrent: it runs its statements one after another in one round trip, which is what deployed D1 charges latency for.
 
 ## Facets
 
@@ -46,34 +46,55 @@ These values come from `auction_listings.domain_name`:
 
 ## Indexes and measured request time
 
-`auction_listings_tld_status_ends_at_idx` is `(tld, status, ends_at)` and `auction_listings_domain_length_status_ends_at_idx` is `(domain_length, status, ends_at)`. Both lead with their own column. Status-first versions were tried and rejected: without statistics, SQLite treats `status = ?` as highly selective, chose the narrower status-first index for unfiltered pages, and fetched rows in that index's order, which made the default page's row query about five times slower. `ends_at` makes the indexes covering for counts, and after a TLD equality it returns rows already in the default end-time order, so a TLD page stops after 50 rows instead of sorting every match.
+Every sort except Source, Type, and Length reads its page from an index already in the page's order and stops after the page, instead of sorting every open listing. The listing indexes are partial (`WHERE status = 'active'`), so inactive listings cost them nothing:
 
-There is no `sqlite_stat1`, and without statistics SQLite still prefers `auction_listings_status_provider_idx` to a range on `domain_length`, so length filters do not use their index yet; they now cost what they did before, minus the facets. On a scratch copy after `ANALYZE`, the planner did use it (the count for lengths 8 to 15 fell from about 180 ms to 50 ms), but it also skip-scanned the TLD index for every unfiltered query, which made unfiltered row pages three to seven times slower. Statistics therefore belong with the sort indexes in #6.
+| Index | Columns | Serves |
+| --- | --- | --- |
+| `auction_listings_open_ends_at_idx` | `ends_at, domain_name, provider, auction_type, current_bid_cents` | The default sort, and a covering count for the unfiltered page and the source, type, price, ending-window, and domain-name filters |
+| `auction_listings_open_domain_name_idx` | `domain_name, ends_at` | The Domain sort, listings without a metric, the listing side of metric sorts, and SEO-metric filters |
+| `auction_listings_open_<column>_idx` | `<column>, domain_name, ends_at` | Price, bids, age, links, visitors, appraisal, and renewal: the sort, and a covering count with that column's filter |
+| `domain_seo_metrics_<metric>_domain_name_idx` | `<metric>, domain_name` | Trust Flow, Citation Flow, referring domains, and Authority Score sorts and minimums |
+| `domain_metrics_metric_value_domain_name_idx` | `metric, value, domain_name` | The Domain Rating sort |
+| `auction_listings_provider_status_idx` | `provider, status` | Reconciliation, and source filters |
+
+The TLD and length indexes, `(tld, status, ends_at)` and `(domain_length, status, ends_at)`, are unchanged.
+
+What the planner needs, and the workerd test that explains every indexed sort's statements checks:
+
+- SQLite uses an index for `ORDER BY ... LIMIT` only when the index satisfies every term. With the earlier fixed tie-break (domain, provider, external ID, always ascending), every sort fell back to sorting all open listings, so ties follow the sort's direction and end with end time and rowid, the order the indexes store.
+- Without `sqlite_stat1`, SQLite assumes an equality matches about ten rows, so the earlier `(status, provider)` index won every query on `status = ?` and its rows were sorted. It is now `(provider, status)`, which reconciliation still uses.
+- The status is a literal, so the partial indexes apply. A Domain-ordered page writes `+ends_at`, so SQLite walks the domain index rather than an end-time range and a sort.
+- Metric values live in other tables. Above 50,000 matches (`LISTING_DRIVEN_METRIC_SORT_LIMIT`), a metric sort `CROSS JOIN`s from the metric's index, which SQLite always keeps as the outer loop, to each domain's listings, and then lists the listings without the value through `NOT EXISTS` in domain order. Up to 50,000 it reads each match's metric by primary key and sorts them (about 60 ms at the limit), because a filter that few listings match would make the join scan the whole metric index (about 0.5 s for a nine-listing substring).
+- Nullable sorts read `column is not null` from the column's index, then `column is null` from the same index in domain order. Only a page that starts among the unknown values counts the known ones.
+
+`ANALYZE`, which Cloudflare suggests through `PRAGMA optimize`, is not needed: on a scratch copy it changed no plan.
 
 `corepack pnpm benchmark:filters` calls `queryDomainListingsWithDatabase`, the function the page uses, through Wrangler's local D1 binding (`getPlatformProxy` on `apps/web/wrangler.jsonc`, loading no env or `apps/web/.dev.vars` file): one warm-up and five measured runs per shape. It reports each whole request's time and each statement's time, with the query plans of the count and row statements, and uses the latest successful sync time as a reproducible reference time. It prints no domain rows.
 
-Measured 2026-10-06 on a copy of the owner's local inventory (Dynadot and GoDaddy: 1,445,804 listings, 1,019,404 active, 957,630 open at the reference time). Median of five warm requests, in ms:
+Measured 2026-10-08 on copies of the owner's local inventory (all four providers: 2,910,215 listings, 2,343,554 active, 2,279,518 open at the reference time), before and after migrations `0010` to `0013`. Median of five warm requests, in ms; before includes the facet and freshness reads (about 10 ms) that now happen once beside the listing query:
 
 | Request | Matches | Before | After |
 | --- | ---: | ---: | ---: |
-| Default page (end-time sort) | 957,630 | 1,886 | 333 |
-| TLD `com` | 459,494 | 2,498 | 81 |
-| TLD `io` | 5,028 | 2,527 | 65 |
-| Length 8 to 15 | 512,821 | 1,886 | 417 |
-| Length 6 or less | 1,116 | 1,894 | 335 |
-| No hyphens, no digits | 682,649 | 2,050 | 597 |
-| Price $1 to $500, ending within 24 hours | 100,205 | 1,714 | 336 |
-| Expired, 3 or more bids, bids sort | 344 | 1,864 | 445 |
-| 10 or more links, links sort | 333,974 | 1,783 | 320 |
-| Contains `a`, max $500, no hyphens | 518,309 | 1,882 | 565 |
-| Semrush AS 20 or more | 144 | 2,343 | 501 |
-| Links sort, page 2,000 | 957,630 | 2,622 | 1,364 |
+| Default page (end-time sort) | 2,279,518 | 792 | 78 |
+| End-time sort, page 2,000 | 2,279,518 | 1,378 | 287 |
+| Price, bids, age, renewal, or Domain sort | 2,279,518 | 636 to 700 | 72 to 75 |
+| Trust Flow or Authority Score sort | 2,279,518 | 3,090 to 3,307 | 73 |
+| Trust Flow sort, page 200 | 2,279,518 | 3,392 | 105 |
+| Trust Flow sort, Dynadot only | 454,801 | 531 | 94 |
+| Domain Rating sort | 2,279,518 | 1,079 | 74 |
+| Links sort, page 2,000 | 2,279,518 | 1,514 | 75 |
+| TLD `com` | 761,192 | 126 | 89 |
+| Price $1 to $500, ending within 24 hours | 261,892 | 749 | 146 |
+| Contains `a`, max $500, no hyphens | 1,184,834 | 1,261 | 391 |
+| No hyphens, no digits | 1,515,173 | 1,355 | 423 |
+| Expired, 3 or more bids, bids sort | 416 | 963 | 40 |
+| Semrush AS 20 or more | 149 | 1,137 | 38 |
+| Source or Type sort | 2,279,518 | 658 to 719 | 263 to 274 |
+| Length 8 to 15 | 1,340,571 | 972 | 754 |
 
-Before, every request spent about 1,450 ms in the three facet statements (about 150 ms for sources, 500 ms for auction types, and 800 ms for the TLD group). After, the facet read takes about 6 ms. The earlier "below 155 ms" figure timed individual hand-written statements on a 426,000-listing inventory and never summed a request.
+What remains is the count, which reads every match from a covering index: 40 ms for every open listing, but 360 to 390 ms when a hyphen, digit, or substring test runs on each name. Source and Type sorts still sort every open listing. A length range picks the length index and then sorts its matches, because without statistics SQLite rates a two-sided range as more selective than the end-time walk. Deep pages walk their offset.
 
-What remains is the count and the sorted page. For most shapes both still read every open listing through `auction_listings_status_provider_idx`, and the page sorts them in a temporary B-tree: about 110 to 290 ms for each statement, and 1.2 seconds for a deep links-sorted page. That is #6.
-
-Metric sorts (#65) read `domain_seo_metrics` and `domain_metrics` through a correlated scalar subquery per listing, by primary key, then sort in a temporary B-tree. The subquery is evaluated once per row: descending relies on SQLite placing nulls last, and ascending replaces a null with the largest integer. Measured with `corepack pnpm benchmark:filters` against 901,512 open listings on 2026-10-07, median whole-request times were 1.19 s for a Trust Flow sort, 1.29 s for Semrush Authority, 0.43 s for Ahrefs DR (a small table), and 0.24 s for DR within `.com`, against 0.28 s for a price sort. Evaluating the subquery twice (the `is null` pattern of the other nullable sorts) cost about 0.5 s more. If metric sorts need to be faster, copy the metrics onto `auction_listings` at sync time and index them.
+The indexes add 0.6 GB to the 1.4 GB local database, and D1 bills index writes as written rows. Each partial index adds one row written for each new listing and one for each listing a sync inactivates, about 165,000 of each per day across the four providers: net of the four dropped indexes, about 2.3 million more rows written per day per environment.
 
 ## Ahrefs DR
 

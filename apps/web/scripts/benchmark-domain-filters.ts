@@ -48,8 +48,24 @@ const shapes: Array<{ name: string; searchParams: DomainTableSearchParams }> = [
   },
   { name: 'semrush_as_min', searchParams: { semrushAsMin: '20' } },
   { name: 'deep_page_links', searchParams: { sort: 'links', page: '2000' } },
+  { name: 'deep_page_end_time', searchParams: { page: '2000' } },
   { name: 'sort_price', searchParams: { sort: 'price', direction: 'desc' } },
+  { name: 'sort_bids', searchParams: { sort: 'bids', direction: 'desc' } },
+  { name: 'sort_age', searchParams: { sort: 'age', direction: 'desc' } },
+  { name: 'sort_renewal_asc', searchParams: { sort: 'renewal', direction: 'asc' } },
+  { name: 'sort_domain', searchParams: { sort: 'domain' } },
+  { name: 'sort_source', searchParams: { sort: 'source' } },
+  { name: 'sort_type', searchParams: { sort: 'type' } },
+  { name: 'filter_type', searchParams: { type: 'expired' } },
   { name: 'sort_majestic_tf', searchParams: { sort: 'majesticTf', direction: 'desc' } },
+  {
+    name: 'sort_majestic_tf_page_200',
+    searchParams: { sort: 'majesticTf', direction: 'desc', page: '200' }
+  },
+  {
+    name: 'sort_majestic_tf_dynadot',
+    searchParams: { source: 'dynadot', sort: 'majesticTf', direction: 'desc' }
+  },
   { name: 'sort_semrush_as', searchParams: { sort: 'semrushAs', direction: 'desc' } },
   { name: 'sort_domain_rating', searchParams: { sort: 'domainRating', direction: 'desc' } },
   {
@@ -81,8 +97,23 @@ function statementLabel(sql: string) {
 }
 
 // Wraps the D1 binding so every statement Drizzle runs is timed end to end,
-// including the local binding round trip.
+// including the local binding round trip. A batch is timed as one entry.
 function timedBinding(binding: D1Database, timings: StatementTiming[]) {
+  // The real statement behind each wrapper, for `batch`.
+  const unwrapped = new WeakMap<D1PreparedStatement, D1PreparedStatement>()
+  const time = async <Result>(
+    label: string,
+    sql: string,
+    params: unknown[],
+    run: () => Promise<Result>
+  ) => {
+    const started = performance.now()
+    try {
+      return await run()
+    } finally {
+      timings.push({ label, sql, params, ms: performance.now() - started })
+    }
+  }
   const wrap = (
     statement: D1PreparedStatement,
     sql: string,
@@ -90,20 +121,9 @@ function timedBinding(binding: D1Database, timings: StatementTiming[]) {
   ): D1PreparedStatement => {
     const timed =
       <Result>(run: () => Promise<Result>) =>
-      async () => {
-        const started = performance.now()
-        try {
-          return await run()
-        } finally {
-          timings.push({
-            label: statementLabel(sql),
-            sql,
-            params,
-            ms: performance.now() - started
-          })
-        }
-      }
-    return {
+      () =>
+        time(statementLabel(sql), sql, params, run)
+    const wrapped = {
       bind: (...values: unknown[]) => wrap(statement.bind(...values), sql, values),
       all: timed(() => statement.all()),
       run: timed(() => statement.run()),
@@ -116,10 +136,15 @@ function timedBinding(binding: D1Database, timings: StatementTiming[]) {
           column === undefined ? statement.first() : statement.first(column)
         )()) as D1PreparedStatement['first']
     } as D1PreparedStatement
+    unwrapped.set(wrapped, statement)
+    return wrapped
   }
   return {
     prepare: (sql: string) => wrap(binding.prepare(sql), sql, []),
-    batch: binding.batch.bind(binding),
+    batch: (statements: D1PreparedStatement[]) =>
+      time(`batch of ${statements.length}`, '', [], () =>
+        binding.batch(statements.map(statement => unwrapped.get(statement) ?? statement))
+      ),
     exec: binding.exec.bind(binding)
   } as unknown as D1Database
 }

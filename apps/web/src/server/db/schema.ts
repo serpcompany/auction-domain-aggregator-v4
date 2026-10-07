@@ -13,6 +13,11 @@ export const domains = sqliteTable('domains', {
 // for any character in the name.
 const TLD_SQL = sql`lower(substr("domain_name", length(rtrim("domain_name", replace("domain_name", '.', ''))) + 1))`
 
+// The predicate of the partial sort indexes. A query uses one only when its
+// own WHERE contains this exact term, so the read path writes it literally
+// rather than binding 'active'.
+export const OPEN_STATUS_SQL = sql`"status" = 'active'`
+
 export const auctionListings = sqliteTable(
   'auction_listings',
   {
@@ -77,23 +82,52 @@ export const auctionListings = sqliteTable(
       'auction_listings_renewal_price_cents_nonnegative',
       sql`${table.renewalPriceCents} is null or ${table.renewalPriceCents} >= 0`
     ),
-    index('auction_listings_status_provider_idx').on(table.status, table.provider),
+    // Reconciliation reads one provider's active listings.
+    index('auction_listings_provider_status_idx').on(table.provider, table.status),
     index('auction_listings_domain_name_idx').on(table.domainName),
-    index('auction_listings_ends_at_idx').on(table.endsAt),
-    index('auction_listings_current_bid_cents_idx').on(table.currentBidCents),
-    index('auction_listings_bid_count_idx').on(table.bidCount),
-    index('auction_listings_age_years_idx').on(table.ageYears),
-    // Column-first, so the planner never prefers them over the status index
-    // for unfiltered pages. `ends_at` makes them covering for counts, and a
-    // TLD equality returns rows already ordered by the default end-time sort.
-    // Without `sqlite_stat1` SQLite still picks the status index over a length
-    // range; see docs/technical-design/domain-discovery.md.
+    // Column-first, so the planner never prefers them over the open-listing
+    // indexes below for unfiltered pages. `ends_at` makes them covering for
+    // counts, and a TLD equality returns rows already in end-time order.
     index('auction_listings_tld_status_ends_at_idx').on(table.tld, table.status, table.endsAt),
     index('auction_listings_domain_length_status_ends_at_idx').on(
       table.domainLength,
       table.status,
       table.endsAt
-    )
+    ),
+    // One index per sort over active listings only, each in the page's full
+    // order (value, domain name, end time, rowid), so a page reads 50 index
+    // entries instead of sorting every open listing, and a count with that
+    // column's filter reads only the index. The table queries must spell
+    // `status = 'active'` as a literal for SQLite to use them. The end-time
+    // index also covers the default count and the source, type, price, and
+    // domain-name filters; see docs/technical-design/domain-discovery.md.
+    index('auction_listings_open_ends_at_idx')
+      .on(table.endsAt, table.domainName, table.provider, table.auctionType, table.currentBidCents)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_domain_name_idx')
+      .on(table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_current_bid_cents_idx')
+      .on(table.currentBidCents, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_bid_count_idx')
+      .on(table.bidCount, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_age_years_idx')
+      .on(table.ageYears, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_inbound_links_idx')
+      .on(table.inboundLinks, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_visitors_idx')
+      .on(table.visitors, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_appraisal_cents_idx')
+      .on(table.appraisalCents, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL),
+    index('auction_listings_open_renewal_price_cents_idx')
+      .on(table.renewalPriceCents, table.domainName, table.endsAt)
+      .where(OPEN_STATUS_SQL)
   ]
 )
 
@@ -200,6 +234,12 @@ export const domainMetrics = sqliteTable(
     check(
       'domain_metrics_retry_after_check',
       sql`(${table.status} in ('ok', 'not_found')) = (${table.retryAfter} is null)`
+    ),
+    // The Domain Rating sort, in its full order.
+    index('domain_metrics_metric_value_domain_name_idx').on(
+      table.metric,
+      table.value,
+      table.domainName
     )
   ]
 )
@@ -273,9 +313,14 @@ export const domainSeoMetrics = sqliteTable(
       'domain_seo_metrics_semrush_backlinks_nonnegative',
       sql`${table.semrushBacklinks} is null or ${table.semrushBacklinks} >= 0`
     ),
-    index('domain_seo_metrics_majestic_tf_idx').on(table.majesticTf),
-    index('domain_seo_metrics_majestic_cf_idx').on(table.majesticCf),
-    index('domain_seo_metrics_majestic_ref_domains_idx').on(table.majesticRefDomains),
-    index('domain_seo_metrics_semrush_as_idx').on(table.semrushAs)
+    // The domain name completes each metric sort's order, so a metric sort
+    // walks one index and stops after a page; it also covers the filters.
+    index('domain_seo_metrics_majestic_tf_domain_name_idx').on(table.majesticTf, table.domainName),
+    index('domain_seo_metrics_majestic_cf_domain_name_idx').on(table.majesticCf, table.domainName),
+    index('domain_seo_metrics_majestic_ref_domains_domain_name_idx').on(
+      table.majesticRefDomains,
+      table.domainName
+    ),
+    index('domain_seo_metrics_semrush_as_domain_name_idx').on(table.semrushAs, table.domainName)
   ]
 )

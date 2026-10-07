@@ -71,6 +71,34 @@
       "when": 1791355817578,
       "tag": "0009_run_rejection_reasons",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791394168152,
+      "tag": "0010_open_listing_end_time_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791394168664,
+      "tag": "0011_open_listing_price_bid_age_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1791394169167,
+      "tag": "0012_open_listing_nullable_sort_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "6",
+      "when": 1791394169674,
+      "tag": "0013_seo_metric_sort_indexes",
+      "breakpoints": true
     }
   ]
 }

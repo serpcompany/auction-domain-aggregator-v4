@@ -1,0 +1,4 @@
+CREATE INDEX `auction_listings_open_inbound_links_idx` ON `auction_listings` (`inbound_links`,`domain_name`,`ends_at`) WHERE "status" = 'active';--> statement-breakpoint
+CREATE INDEX `auction_listings_open_visitors_idx` ON `auction_listings` (`visitors`,`domain_name`,`ends_at`) WHERE "status" = 'active';--> statement-breakpoint
+CREATE INDEX `auction_listings_open_appraisal_cents_idx` ON `auction_listings` (`appraisal_cents`,`domain_name`,`ends_at`) WHERE "status" = 'active';--> statement-breakpoint
+CREATE INDEX `auction_listings_open_renewal_price_cents_idx` ON `auction_listings` (`renewal_price_cents`,`domain_name`,`ends_at`) WHERE "status" = 'active';

@@ -5,7 +5,10 @@ import { type DomainTableSearchParams, parseDomainTableFilters } from '../domain
 import { auctionListings } from './db/schema'
 import { createD1IngestionStorage } from './ingestion/d1-storage'
 import type { NormalizedListing, NormalizedSeoMetrics } from './providers/types'
-import { queryDomainListingsWithDatabase } from './queries/domain-listings-query'
+import {
+  queryDomainListingsWithDatabase,
+  queryInventoryStatusWithDatabase
+} from './queries/domain-listings-query'
 import type { TestDatabase } from './test-database'
 
 export const STARTED_AT = new Date('2026-07-13T00:00:00.000Z')
@@ -180,7 +183,21 @@ export async function seedProofInventory(database: TestDatabase) {
   return { storage, successfulReconciled, repeatedReconciled }
 }
 
-export function queryAt(database: TestDatabase, now = QUERY_NOW) {
+export function queryAt(
+  database: TestDatabase,
+  now = QUERY_NOW,
+  listingDrivenMetricSortLimit?: number
+) {
   return (searchParams: DomainTableSearchParams) =>
-    queryDomainListingsWithDatabase(parseDomainTableFilters(searchParams), database, now)
+    queryDomainListingsWithDatabase(
+      parseDomainTableFilters(searchParams),
+      database,
+      now,
+      listingDrivenMetricSortLimit
+    )
+}
+
+// The facets and freshness the page reads beside the listing query.
+export function statusAt(database: TestDatabase, now = QUERY_NOW) {
+  return () => queryInventoryStatusWithDatabase(database, now)
 }
