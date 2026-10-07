@@ -15,7 +15,6 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:integration": "node --import tsx scripts/test-d1-integration.ts",
     "benchmark:filters": "node --import tsx scripts/benchmark-domain-filters.ts",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
@@ -27,7 +26,7 @@
     "sync": "wrangler d1 migrations apply DB --local --config wrangler.ingestion.jsonc --env-file /dev/null && node --env-file-if-exists=../../.secrets/providers.env --import tsx scripts/sync-provider.ts",
     "sync:dynadot": "pnpm sync dynadot",
     "check:quick": "pnpm lint && pnpm typecheck && pnpm db:check && pnpm test",
-    "check": "pnpm check:quick && pnpm test:integration && pnpm test:e2e",
+    "check": "pnpm check:quick && pnpm test:e2e",
     "deploy:web": "node -e \"console.error('The website has no deployed environment yet: it waits for accounts and payments (#27).'); process.exit(1)\"",
     "preview": "pnpm db:migrate:local && opennextjs-cloudflare build && node --import tsx scripts/assert-no-bundled-env.ts && opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-file /dev/null --env-interface CloudflareEnv ./cloudflare-env.d.ts"
@@ -53,6 +52,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",
+    "@cloudflare/vitest-plugin": "^1.3.7",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@testing-library/jest-dom": "^6.9.1",
@@ -60,7 +60,7 @@
     "@types/node": "^22.20.1",
     "@types/react": "^19.1.7",
     "@types/react-dom": "^19.1.7",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-istanbul": "^4.1.10",
     "drizzle-kit": "0.31.10",
     "jsdom": "^26.1.0",
     "shadcn": "^4.13.0",

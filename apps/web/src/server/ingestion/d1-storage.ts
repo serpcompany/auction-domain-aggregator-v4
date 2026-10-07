@@ -335,7 +335,7 @@ export function createD1IngestionStorage(
             or(isNull(auctionListings.endsAt), gt(auctionListings.endsAt, finalization.completedAt))
           )
         )
-      if ((vanished?.value ?? 0) > vanishedListingsLimit(finalization.recordsFetched)) {
+      if (vanished.value > vanishedListingsLimit(finalization.recordsFetched)) {
         throw new SyncError('sync_reconciliation_guard')
       }
 

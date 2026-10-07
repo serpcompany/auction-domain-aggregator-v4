@@ -14,7 +14,7 @@ The page request parses untrusted search parameters into one normalized `DomainT
 
 The URL is canonical state. Filter submission uses GET and omits `page`, so applying a change returns to page 1. Removing one summary changes only that filter family and also returns to page 1. Sorting and pagination preserve all filters. Invalid enum values are rejected, numeric inputs are bounded, reversed ranges are normalized, and page size is always 50.
 
-Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 87 bindings (64 category values, active status, the reference time, 19 scalar filters including the four SEO-metric minimums, row limit, and offset), below D1's 100-bound-parameter ceiling. The real-D1 integration proof runs that worst case.
+Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 87 bindings (64 category values, active status, the reference time, 19 scalar filters including the four SEO-metric minimums, row limit, and offset), below D1's 100-bound-parameter ceiling. A workerd test on real D1 runs that worst case.
 
 ## D1 query behavior
 
@@ -32,13 +32,13 @@ The Source, Auction type, and TLD options do not depend on the filters, so they 
 
 A request reads the rows whose `latest_ends_at` is after its reference time, so a value disappears once all of its auctions have ended, as it did when the facets were grouped per request. Sources and auction types are then limited to the parser's allowlists in TypeScript. Every TLD is returned (479 in the local inventory); the earlier 250-value cap is gone.
 
-The facets describe the active inventory as of the last successful sync. Listings that a running or failed sync upserted appear in the table at once, but a source, auction type, or TLD that only they carry is offered after the next successful sync; it can still be filtered by URL. Fixtures that insert listings directly (the integration proof and the browser-test seed) run the same rebuild statements. On the 1.02-million-active-listing local inventory the rebuild took 1.7 seconds warm and 3.3 seconds cold, once per successful sync.
+The facets describe the active inventory as of the last successful sync. Listings that a running or failed sync upserted appear in the table at once, but a source, auction type, or TLD that only they carry is offered after the next successful sync; it can still be filtered by URL. Fixtures that insert listings directly (the D1 tests and the browser-test seed) run the same rebuild statements. On the 1.02-million-active-listing local inventory the rebuild took 1.7 seconds warm and 3.3 seconds cold, once per successful sync.
 
 ## Derived domain properties
 
 These values come from `auction_listings.domain_name`:
 
-- TLD: the final dot-separated label, lowercased. Multi-label suffixes are not special: `example.co.uk` has TLD `uk`. It is the virtual generated column `tld`, `lower(substr(domain_name, length(rtrim(domain_name, replace(domain_name, '.', ''))) + 1))`: `rtrim` strips the last label, so the remaining length is where the TLD starts. The earlier expression built a JSON array from the name and called `json_extract`, which threw "malformed JSON" for any name containing a double quote or a backslash and turned the whole page into a 500. The new one uses only string functions, and the integration proof reads names containing both.
+- TLD: the final dot-separated label, lowercased. Multi-label suffixes are not special: `example.co.uk` has TLD `uk`. It is the virtual generated column `tld`, `lower(substr(domain_name, length(rtrim(domain_name, replace(domain_name, '.', ''))) + 1))`: `rtrim` strips the last label, so the remaining length is where the TLD starts. The earlier expression built a JSON array from the name and called `json_extract`, which threw "malformed JSON" for any name containing a double quote or a backslash and turned the whole page into a 500. The new one uses only string functions, and the D1 tests read names containing both.
 - Domain length: `length(domain_name)`, the virtual generated column `domain_length`.
 - Shape: whether the normalized name contains a hyphen or an ASCII digit. These remain query expressions.
 
@@ -88,4 +88,4 @@ The table is a server-rendered stock `Table` whose columns come from one registr
 
 ## Provider-free verification
 
-The D1 integration proof and the browser tests run every predicate, sort, and facet rebuild against invented rows in isolated temporary D1; how they stay isolated is in [Isolated verification](isolated-verification.md).
+The workerd D1 tests and the browser tests run every predicate, sort, and facet rebuild against invented rows in isolated D1; how they stay isolated is in [Isolated verification](isolated-verification.md).

@@ -511,4 +511,10 @@ describe('domain table filter summaries', () => {
       )
     ).toBe(expected)
   })
+
+  it('measures staleness and recency against the current time by default', () => {
+    expect(isInventoryStale(new Date(0))).toBe(true)
+    expect(isInventoryStale(new Date(Date.now() + 60_000))).toBe(false)
+    expect(formatSyncRecency(null)).toBe('No successful sync yet')
+  })
 })

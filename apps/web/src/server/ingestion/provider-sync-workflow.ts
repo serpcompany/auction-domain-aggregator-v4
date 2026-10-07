@@ -158,7 +158,6 @@ export async function runProviderSync({
       pacer: createPacer(registration.rateLimit.intervalMs, { wait: dependencies.wait })
     })
   }
-  /* v8 ignore next 3 -- default wiring is exercised by the D1/R2 proof and local run */
   const storage = dependencies.createStorage
     ? dependencies.createStorage(env.DB, provider)
     : createD1IngestionStorage(drizzle(env.DB, { schema }), provider)

@@ -99,7 +99,7 @@ export function createD1DomainRatingStore(db: AppDatabase): DomainRatingStore {
           )
         )
       ])
-      return stored?.results.length ?? 0
+      return stored.results.length
     }
   }
 }
