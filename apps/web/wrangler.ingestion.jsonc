@@ -1,9 +1,10 @@
 // Ingestion Worker: a daily Cron Trigger starts one `provider-sync` Workflow
-// instance per provider (src/server/ingestion/sync-worker.ts). This top level
+// instance per provider (src/server/ingestion/sync-worker.ts). The top level
 // is local-only: every binding stays in Wrangler's local simulation and the
-// IDs below are placeholders, not remote resources. Deploying needs a named
-// environment with real D1 and R2 resources and the Dynadot secret; see
-// docs/technical-design/data-ingestion.md.
+// IDs are placeholders. `env.production` is the deployed Worker; named
+// environments inherit no bindings, so it declares every one, and every
+// remote command passes `--env production`. CI deploys it (.github/workflows/
+// ci.yml); see docs/technical-design/data-ingestion.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "auction-domain-aggregator-ingestion-local",
@@ -42,5 +43,47 @@
       "binding": "PROVIDER_SYNC",
       "class_name": "ProviderSyncWorkflow"
     }
-  ]
+  ],
+  "env": {
+    "production": {
+      "name": "auction-domain-aggregator-ingestion-production",
+      // No HTTP routes: no workers.dev URL and no preview URLs.
+      "workers_dev": false,
+      "preview_urls": false,
+      "limits": {
+        "cpu_ms": 60000
+      },
+      "triggers": {
+        "crons": ["30 15 * * *"]
+      },
+      "observability": {
+        "enabled": true
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "auction-domain-aggregator-production",
+          "database_id": "b6bbc65a-d376-4191-b9ae-a8f4290ac3dc",
+          "migrations_dir": "drizzle",
+          "migrations_table": "d1_migrations"
+        }
+      ],
+      // A bucket lifecycle rule expires `feed-pages/` objects after 2 days, so
+      // pages a failed cleanup step leaves behind cannot accumulate.
+      "r2_buckets": [
+        {
+          "binding": "FEED_PAGES",
+          "bucket_name": "auction-domain-aggregator-feed-pages-production"
+        }
+      ],
+      // Workflow names are account-wide, so this one is prefixed.
+      "workflows": [
+        {
+          "name": "auction-domain-aggregator-provider-sync-production",
+          "binding": "PROVIDER_SYNC",
+          "class_name": "ProviderSyncWorkflow"
+        }
+      ]
+    }
+  }
 }

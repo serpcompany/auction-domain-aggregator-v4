@@ -58,7 +58,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm build`: verify the standard Next.js production build.
 - `corepack pnpm cf-typegen`: regenerate Cloudflare binding types from `apps/web/wrangler.jsonc`.
 
-`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Integration and browser tests use temporary persistence and never mutate the owner's `apps/web/.wrangler` inventory. Both `pnpm upload` and `pnpm deploy` mutate external Cloudflare state, require explicit authorization, and are not routine verification steps. Creating remote Cloudflare resources also requires explicit authorization. The ingestion Worker (`apps/web/wrangler.ingestion.jsonc`) is not deployed; `docs/technical-design/data-ingestion.md` lists the D1, R2, Workflow, cron, and secret settings a deploy needs.
+`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Integration and browser tests use temporary persistence and never mutate the owner's `apps/web/.wrangler` inventory. Production is the sync only: CI deploys the ingestion Worker's `env.production` (`apps/web/wrangler.ingestion.jsonc`) and applies migrations to its D1 on each push to `main`. Agents never run `--remote` commands from their own machine, and creating or changing remote Cloudflare resources requires explicit authorization. The website has no deployed environment until #27 (`deploy:web` refuses).
 
 ## ExecPlans
 

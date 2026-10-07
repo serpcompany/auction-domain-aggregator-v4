@@ -21,7 +21,7 @@ const ALLOWANCES = {
   "docs/plans/completed/ui-redesign.md": 533,
   "docs/references/data-licensing.md": 435,
   "docs/references/spamzilla/spamzilla-filter-reference.md": 4524,
-  "docs/technical-design/data-ingestion.md": 478,
+  "docs/technical-design/data-ingestion.md": 465,
 };
 
 process.chdir(fileURLToPath(new URL("../../", import.meta.url)));

@@ -3,7 +3,6 @@
 // Runtime types generated with workerd@1.20260708.1 2026-07-13 enable_request_signal,global_fetch_strictly_public,nodejs_compat
 interface __BaseEnv_CloudflareEnv {
 	DB: D1Database;
-	IMAGES: ImagesBinding;
 	ASSETS: Fetcher;
 	APP_ENV: string;
 	WORKER_SELF_REFERENCE: Service<typeof import("./.open-next/worker").default>;

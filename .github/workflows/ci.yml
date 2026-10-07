@@ -72,3 +72,78 @@ jobs:
           path: apps/web/tmp/playwright/
           retention-days: 7
           if-no-files-found: ignore
+
+  # The sync (ingestion Worker) is the only deployed target; the website waits for #27.
+  # It waits for the check, deploys only the branch tip, and keeps build, migrate, deploy and
+  # verification in one job (SERP ci-workflows).
+  deploy-sync-production:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: check
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    concurrency:
+      group: deploy-sync-production
+      cancel-in-progress: false
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Require Cloudflare credentials
+        id: credentials
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::warning::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; the sync was not deployed."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node.js
+        if: steps.credentials.outputs.ready == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: apps/web/.node-version
+
+      - name: Install dependencies
+        if: steps.credentials.outputs.ready == 'true'
+        run: |
+          npm install --global corepack@0.34.0
+          corepack enable
+          pnpm install --frozen-lockfile
+
+      - name: Build the sync Worker
+        if: steps.credentials.outputs.ready == 'true'
+        run: pnpm exec wrangler deploy --config wrangler.ingestion.jsonc --env production --env-file /dev/null --dry-run --outdir "$RUNNER_TEMP/sync-worker"
+
+      - name: Deploy only the branch tip
+        id: tip
+        if: steps.credentials.outputs.ready == 'true'
+        run: |
+          tip=$(git ls-remote origin refs/heads/main | cut -f1)
+          if [ "$tip" = "$GITHUB_SHA" ]; then
+            echo "current=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::main moved to $tip; this older commit is not deployed."
+            echo "current=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Apply D1 migrations
+        if: steps.tip.outputs.current == 'true'
+        run: pnpm db:migrate:production
+
+      - name: Deploy the sync Worker
+        if: steps.tip.outputs.current == 'true'
+        run: pnpm deploy:sync:production
+
+      - name: Verify the deployment
+        if: steps.tip.outputs.current == 'true'
+        run: |
+          pnpm db:migrations:list:production | tee migrations.txt
+          grep -q "No migrations to apply" migrations.txt
+          pnpm exec wrangler deployments status --config wrangler.ingestion.jsonc --env production --env-file /dev/null
