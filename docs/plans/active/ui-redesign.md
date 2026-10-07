@@ -28,7 +28,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
 - [x] (2026-10-07) Milestone 2b (#55), done before Milestone 2 so the toolbar's All filters button has a target: Filters page at `/filters/`.
 - [x] (2026-10-07) Milestone 3 (#56): details panel and the phone layout.
-- [ ] Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
+- [x] (2026-10-07) Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
 - [ ] Milestone 5 (#58): Sync status screen.
 - [ ] Milestone 6 (in #52): documentation, final verification at both widths, plan moved to `completed/`.
 
@@ -91,6 +91,10 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - Decision: New pages follow the SERP trailing-slash standard: `/filters/` and `/syncs/` are canonical, the slashless form redirects with a 308, and `/api/*` is served exactly as requested, never redirected. Next's `trailingSlash: true` alone would also redirect API routes, so #53 enables it with `skipTrailingSlashRedirect: true`, and the Worker entry (`apps/web/worker.ts`, rule in `apps/web/src/lib/trailing-slash.ts`) adds the slash to page paths and removes it from file paths, leaving `/api`, `/_next`, and `/.well-known` alone. `next dev` serves both forms. All internal links use the slashed form. The homepage stays `/`.
   Rationale: The standard (`serp/docs/engineering/standards/url-trailing-slash.md`) exempts `/api` because redirects break callers; the DR enrichment POST must not hop. This also settles the trailing-slash item in #36 for this app.
   Date/Author: 2026-10-07, Claude, recorded in #59 for owner approval.
+
+- Decision: The loading state is a `Suspense` boundary keyed by the table URL inside the page, not `app/loading.tsx`.
+  Rationale: `loading.tsx` shows only on the first navigation to a route; Next keeps the old page on screen for search-parameter changes, so a filter, sort, or page change would show nothing. A keyed boundary shows the skeleton on every change while the toolbar, chips, and header (which need only the URL and a small status read) stay interactive.
+  Date/Author: 2026-10-07, Claude (#57).
 
 - Decision: Implement only after the owner approves the mockups; a visible deviation needs re-approval before merge.
   Rationale: SERP shadcn-first standard, "Designing a new screen".

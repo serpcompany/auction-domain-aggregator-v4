@@ -2,7 +2,7 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, ExternalLinkIcon } from
 import Link from 'next/link'
 import type * as React from 'react'
 
-import { EnrichVisibleDomainRatings } from '@/components/auctions/enrich-visible-domain-ratings'
+import { PendingRating } from '@/components/auctions/domain-ratings'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
 import {
   Table,
@@ -72,7 +72,12 @@ function Count({ value, unit }: { value: number | null; unit: string }) {
 function DomainRating({ row }: { row: DomainListingRow }) {
   if (row.domainRating !== null)
     return <span title="Domain Rating by Ahrefs">{Math.round(row.domainRating)}</span>
-  if (!row.domainRatingFetched) return <NotCollected />
+  if (!row.domainRatingFetched)
+    return (
+      <PendingRating domain={row.domainName}>
+        <NotCollected />
+      </PendingRating>
+    )
   return (
     <span className="text-muted-foreground" title="Ahrefs has no rating for this domain">
       <span aria-hidden="true">—</span>
@@ -335,11 +340,6 @@ export function ResultsTable({
           ))}
         </TableBody>
       </Table>
-      {visibleColumns.includes('domainRating') ? (
-        <EnrichVisibleDomainRatings
-          domains={rows.filter(row => !row.domainRatingFetched).map(row => row.domainName)}
-        />
-      ) : null}
     </>
   )
 }

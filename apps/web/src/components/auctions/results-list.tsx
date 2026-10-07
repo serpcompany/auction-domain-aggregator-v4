@@ -1,5 +1,6 @@
 import { ExternalLinkIcon } from 'lucide-react'
 
+import { PendingRatingBadge } from '@/components/auctions/domain-ratings'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
 import { Badge } from '@/components/ui/badge'
 import {
@@ -91,6 +92,7 @@ export function ResultsList({
           const badges = badgeColumns
             .map(column => [column.key, badge(column.key, row)] as const)
             .filter((entry): entry is [ColumnKey, string] => entry[1] !== null)
+          const pendingRating = visibleColumns.includes('domainRating') && !row.domainRatingFetched
           return (
             <li
               key={`${row.provider}:${row.externalId}`}
@@ -122,7 +124,7 @@ export function ResultsList({
               >
                 {end.relative}
               </time>
-              {badges.length > 0 ? (
+              {badges.length > 0 || pendingRating ? (
                 <div className="col-span-2 mt-1.5 flex flex-wrap gap-1">
                   {badges.map(([key, text]) => (
                     <Badge
@@ -134,6 +136,7 @@ export function ResultsList({
                       {text}
                     </Badge>
                   ))}
+                  {pendingRating ? <PendingRatingBadge domain={row.domainName} /> : null}
                 </div>
               ) : null}
               <ListingDetailsTrigger row={row} stretched />

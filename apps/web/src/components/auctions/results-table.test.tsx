@@ -102,7 +102,7 @@ describe('ResultsTable', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  it('shows unknown values as not collected and asks Ahrefs for missing ratings', () => {
+  it('shows unknown values as not collected', () => {
     render(
       <ResultsTable rows={[emptyRow]} filters={filters} visibleColumns={allColumns} now={now} />
     )
@@ -126,10 +126,6 @@ describe('ResultsTable', () => {
       '—Not collected',
       ''
     ])
-    expect(fetchMock).toHaveBeenCalledWith(
-      '/api/enrichment/domain-rating',
-      expect.objectContaining({ body: JSON.stringify({ domains: ['fresh2example.net'] }) })
-    )
   })
 
   it('says when Ahrefs has no rating, and when a row ends within a day', () => {
@@ -155,7 +151,7 @@ describe('ResultsTable', () => {
     expect(screen.getByText(/^10h/)).toHaveClass('text-warning-foreground')
   })
 
-  it('drops hidden columns, their group headers, and the DR request', () => {
+  it('drops hidden columns and their group headers', () => {
     render(
       <ResultsTable
         rows={[emptyRow]}

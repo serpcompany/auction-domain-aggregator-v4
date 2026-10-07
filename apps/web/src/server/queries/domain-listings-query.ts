@@ -391,3 +391,21 @@ export async function queryListingFacetsWithDatabase(
     tlds: facetValues('tld')
   }
 }
+
+export interface InventoryStatus extends ListingFacets {
+  latestSuccessfulSync: Date | null
+}
+
+// What the page needs before the listing query finishes: the filter facets
+// and the freshness of the inventory. Both reads are small.
+export async function queryInventoryStatusWithDatabase(
+  database: AppDatabase,
+  now = new Date()
+): Promise<InventoryStatus> {
+  const facets = await queryListingFacetsWithDatabase(database, now)
+  const latestSyncRows = await database
+    .select({ value: max(ingestionRuns.completedAt) })
+    .from(ingestionRuns)
+    .where(eq(ingestionRuns.status, 'succeeded'))
+  return { ...facets, latestSuccessfulSync: latestSyncRows[0]?.value ?? null }
+}

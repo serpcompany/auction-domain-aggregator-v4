@@ -22,13 +22,13 @@ beforeAll(() => {
 beforeEach(() => push.mockClear())
 afterEach(cleanup)
 
-function renderToolbar(params: Record<string, string | string[]> = {}, total = 857_412) {
+function renderToolbar(params: Record<string, string | string[]> = {}) {
   return render(
     <AuctionsToolbar
       filters={parseDomainTableFilters({ sort: 'price', direction: 'desc', ...params })}
       sources={['dynadot', 'godaddy']}
       tlds={['co', 'com', 'net']}
-      total={total}
+      count={<span>857,412 listings</span>}
       visibleColumns={DEFAULT_COLUMNS}
     />
   )
@@ -43,8 +43,7 @@ describe('AuctionsToolbar', () => {
   it('shows the count, the All filters link, and no Reset without filters', () => {
     renderToolbar()
 
-    expect(screen.getByText('857,412')).toBeInTheDocument()
-    expect(screen.getByText('listings')).toBeInTheDocument()
+    expect(screen.getByText('857,412 listings')).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'All filters' })).toHaveAttribute(
       'href',
       '/filters/?sort=price&direction=desc&page=1'
@@ -54,8 +53,7 @@ describe('AuctionsToolbar', () => {
   })
 
   it('searches on Enter and returns to page 1', () => {
-    renderToolbar({ page: '4' }, 1)
-    expect(screen.getByText('listing')).toBeInTheDocument()
+    renderToolbar({ page: '4' })
 
     const search = screen.getByRole('searchbox', { name: 'Domain contains' })
     fireEvent.change(search, { target: { value: '  Garden ' } })
