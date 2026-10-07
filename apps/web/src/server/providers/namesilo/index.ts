@@ -12,6 +12,7 @@ import {
 } from '../normalize'
 import { DEFAULT_RATE_LIMIT, type Pacer, parseRetryAfter, type RateLimit } from '../rate-limit'
 import {
+  INGESTION_USER_AGENT,
   type NormalizedListing,
   type ProviderAdapter,
   ProviderError,
@@ -223,14 +224,24 @@ async function requestAuctions({
   try {
     let response: Response
     try {
-      response = await fetchImpl(url, { signal: timeout.signal })
+      response = await fetchImpl(url, {
+        headers: { 'user-agent': INGESTION_USER_AGENT },
+        signal: timeout.signal
+      })
     } catch {
       throw new NamesiloProviderError('namesilo_network_error', { transient: true })
     }
 
     if (!response.ok) {
-      // A rate limit or a server error may clear; other statuses will not.
       const { status } = response
+      // Workers Logs shows why, including a Cloudflare block or challenge in
+      // front of NameSilo. The URL carries the key and is never logged.
+      console.warn('namesilo_http_error', {
+        status,
+        server: response.headers.get('server'),
+        cfMitigated: response.headers.get('cf-mitigated')
+      })
+      // A rate limit or a server error may clear; other statuses will not.
       throw new NamesiloProviderError('namesilo_http_error', {
         transient: status === 429 || status >= 500,
         retryAfterMs:

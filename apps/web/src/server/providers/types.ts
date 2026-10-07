@@ -68,6 +68,10 @@ export type FeedPageSource = {
 // `<field>: <code>`, for example `renewal_price: invalid_decimal`.
 export type RejectionReasons = Record<string, number>
 
+// Sent on every provider request: a Worker's fetch sends no User-Agent by
+// default, and some providers' CDNs reject a request without one.
+export const INGESTION_USER_AGENT = 'auction-domain-aggregator-ingestion/1'
+
 export type ProviderErrorOptions = {
   transient?: boolean
   retryAfterMs?: number | null

@@ -1,8 +1,8 @@
 // @vitest-environment node
 import { describe, expect, it, vi } from 'vitest'
-
+import { INGESTION_USER_AGENT } from '../providers/types'
 import { createCsvRowScanner, stageCsvFeed, writeCsvFeedPages } from './feed-csv'
-import { FEED_USER_AGENT, FeedError } from './feed-stage'
+import { FeedError } from './feed-stage'
 import { chunkedStream } from './zip-fixture'
 
 const encoder = new TextEncoder()
@@ -180,7 +180,7 @@ describe('CSV feed staging', () => {
     expect(pages.map(page => page.isLastPage)).toEqual([false, false, true])
     const [url, init] = fetchImpl.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe(options.url)
-    expect(init.headers).toEqual({ 'user-agent': FEED_USER_AGENT })
+    expect(init.headers).toEqual({ 'user-agent': INGESTION_USER_AGENT })
   })
 
   it('maps a failed download to a fixed code', async () => {

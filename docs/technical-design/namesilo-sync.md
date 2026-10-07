@@ -8,7 +8,7 @@ NameSilo is a paged API. Its adapter plugs into the provider-neutral sync descri
 
 ## Source
 
-The adapter (`apps/web/src/server/providers/namesilo/index.ts`) calls `GET https://www.namesilo.com/public/apibatch/listAuctions?version=1&type=json&key=<key>&typeId=<t>&statusId=<s>&page=<p>&pageSize=500`. The key is the Worker secret `NAMESILO_API_KEY`, sent in the query string as NameSilo requires, and never written to an error or a log.
+The adapter (`apps/web/src/server/providers/namesilo/index.ts`) calls `GET https://www.namesilo.com/public/apibatch/listAuctions?version=1&type=json&key=<key>&typeId=<t>&statusId=<s>&page=<p>&pageSize=500`. The key is the Worker secret `NAMESILO_API_KEY`, sent in the query string as NameSilo requires, and never written to an error or a log. Each request sends the `User-Agent` `auction-domain-aggregator-ingestion/1`, like the GoDaddy feed download, because a Worker's fetch sends none.
 
 Facts verified with the owner's key on 2026-10-07 (#83):
 
@@ -50,10 +50,10 @@ Each record is validated with zod and normalized on its own. An invalid record i
 
 ## Errors
 
-- A network failure, a body that stops partway, a request over 30 seconds, and HTTP 429 or 5xx are transient: `namesilo_network_error` and `namesilo_http_error`. A `Retry-After` header on a 429 or 503 sets the Workflow's wait. Any other HTTP status is permanent.
+- A network failure, a body that stops partway, a request over 30 seconds, and HTTP 429 or 5xx are transient: `namesilo_network_error` and `namesilo_http_error`. A `Retry-After` header on a 429 or 503 sets the Workflow's wait. Any other HTTP status is permanent. Every non-2xx answer is logged to Workers Logs with its status and the `server` and `cf-mitigated` headers, so a Cloudflare block in front of NameSilo shows there (#104).
 - A reply code other than 300 is `namesilo_api_error`. On the run's first request (customer page 1) it is permanent, because there it most likely means an invalid key. On any later request the key has already worked, so it is most likely a limit or an outage, and is retried, like Dynadot's `dynadot_api_error`.
 - A body that is not JSON (`namesilo_parse_error`), lacks a `reply` with a `body` list or holds more than 500 records (`namesilo_response_error`), or is over 10 MiB (`namesilo_response_too_large`) is permanent.
 
 ## Evidence
 
-Unit tests with invented records cover the page mapping, the customer cap, pacing before every request, each mapping rule, and the error classification. The first real `corepack pnpm sync namesilo` is pending and will be recorded here.
+Unit tests with invented records cover the page mapping, the customer cap, pacing before every request, each mapping rule, and the error classification. A real local `corepack pnpm sync namesilo` on 2026-10-07 fetched 438 pages and 221,501 records. Staging's first deployed run failed on its first request with `namesilo_http_error` (#104).

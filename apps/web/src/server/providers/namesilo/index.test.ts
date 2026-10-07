@@ -1,7 +1,8 @@
-import { afterEach, describe, expect, it, type Mock, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, type Mock, vi } from 'vitest'
 
 import { createPacer, DEFAULT_RATE_LIMIT, type Pacer } from '../rate-limit'
 import { type ApiProviderRegistration, PROVIDER_REGISTRY } from '../registry'
+import { INGESTION_USER_AGENT } from '../types'
 import {
   createNamesiloAdapter,
   NAMESILO_MAX_CUSTOMER_PAGES,
@@ -89,6 +90,7 @@ async function caught(promise: Promise<unknown>) {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 describe('NameSilo expired pages', () => {
@@ -100,6 +102,7 @@ describe('NameSilo expired pages', () => {
 
     const url = requested(fetchImpl)
     expect(url.origin + url.pathname).toBe('https://www.namesilo.com/public/apibatch/listAuctions')
+    expect(fetchImpl.mock.calls[0]?.[1]?.headers).toEqual({ 'user-agent': INGESTION_USER_AGENT })
     expect(Object.fromEntries(url.searchParams)).toEqual({
       version: '1',
       type: 'json',
@@ -384,6 +387,10 @@ describe('NameSilo record mapping', () => {
 })
 
 describe('NameSilo errors', () => {
+  beforeEach(() => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+  })
+
   const fail = (response: () => Response | Promise<Response>, pageIndex = 2) =>
     caught(
       adapterWith(vi.fn<typeof fetch>(async () => response())).adapter.fetchPage({ pageIndex })
@@ -434,6 +441,23 @@ describe('NameSilo errors', () => {
     for (const [response, expected] of cases) {
       expect(await fail(response)).toEqual(expected)
     }
+  })
+
+  it('logs the status and any Cloudflare verdict of an HTTP error, never the key', async () => {
+    const error = await fail(
+      () =>
+        new Response('blocked', {
+          status: 403,
+          headers: { server: 'cloudflare', 'cf-mitigated': 'challenge' }
+        })
+    )
+    expect(error).toEqual(new NamesiloProviderError('namesilo_http_error'))
+    expect(console.warn).toHaveBeenCalledWith('namesilo_http_error', {
+      status: 403,
+      server: 'cloudflare',
+      cfMitigated: 'challenge'
+    })
+    expect(JSON.stringify(vi.mocked(console.warn).mock.calls)).not.toContain('invented-key')
   })
 
   it('retries a body that fails mid-stream', async () => {
