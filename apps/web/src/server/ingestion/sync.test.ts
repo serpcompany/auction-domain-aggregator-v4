@@ -642,6 +642,27 @@ describe('syncDynadotWithStorage', () => {
     ).rejects.toEqual(new SyncError('dynadot_response_error'))
   })
 
+  it('logs why storage failed, whatever was thrown', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    for (const thrown of [
+      new Error('D1 DB exceeded its CPU time limit and was reset.'),
+      'D1 down'
+    ]) {
+      const storage = new MemoryStorage()
+      storage.upsertListings = async () => {
+        throw thrown
+      }
+      await expect(
+        runSegment(storage, { fetchPage: async () => [listing('a', 'a.example')] })
+      ).rejects.toEqual(new SyncError('sync_failed', { transient: true }))
+    }
+    expect(warn.mock.calls).toEqual([
+      ['sync_storage_failed', { message: 'D1 DB exceeded its CPU time limit and was reset.' }],
+      ['sync_storage_failed', { message: 'D1 down' }]
+    ])
+    warn.mockRestore()
+  })
+
   it('commits the stored pages on a transient failure, so the retry resumes at the failing page', async () => {
     const storage = new MemoryStorage()
     const fetched: number[] = []

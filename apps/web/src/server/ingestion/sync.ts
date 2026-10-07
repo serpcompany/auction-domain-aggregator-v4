@@ -156,6 +156,11 @@ async function stored<T>(call: () => Promise<T>) {
     return await call()
   } catch (error) {
     if (error instanceof SyncError) throw error
+    // Workers Logs shows the cause, such as a D1 limit, while the run keeps
+    // the fixed code. D1 messages carry no credentials.
+    console.warn('sync_storage_failed', {
+      message: error instanceof Error ? error.message : String(error)
+    })
     throw new StorageFailure()
   }
 }

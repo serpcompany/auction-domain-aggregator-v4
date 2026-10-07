@@ -339,21 +339,19 @@ export function createD1IngestionStorage(
         throw new SyncError('sync_reconciliation_guard')
       }
 
-      // One atomic batch: record the count, inactivate exactly those rows
-      // while the run is still running, mark the run succeeded, then rebuild
-      // the facet values from the reconciled active inventory. The run's seen
-      // pages are deleted after the statements that read them.
-      const [, , completed] = await db.batch([
-        db
-          .update(ingestionRuns)
-          .set({
-            recordsInactivated: sql`(select count(*) from ${auctionListings} where ${reconciliationFilter})`
-          })
-          .where(runFilter),
+      // One atomic batch: inactivate exactly those rows while the run is
+      // still running, mark the run succeeded, then rebuild the facet values
+      // from the reconciled active inventory. The run's seen pages are deleted
+      // after the statement that reads them. The reconciliation runs once:
+      // `changes()` is the count the inactivation just made. On Staging's
+      // 1.1-million-listing Namecheap inventory each pass took about 15
+      // seconds, and counting in a second pass overran D1's request limit.
+      const [, completed] = await db.batch([
         db.update(auctionListings).set({ status: 'inactive' }).where(reconciliationFilter),
         db
           .update(ingestionRuns)
           .set({
+            recordsInactivated: sql`changes()`,
             status: 'succeeded',
             completedAt: finalization.completedAt,
             pagesFetched: finalization.pagesFetched,
