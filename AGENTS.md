@@ -50,7 +50,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm format`: format with Biome. `corepack pnpm exec biome check --write` also applies safe lint fixes and sorts imports.
 - `corepack pnpm test`: run the unit and component tests with coverage.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
-- `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
+- `corepack pnpm test:e2e`: build OpenNext into `tmp/e2e/` (the developer's `.open-next` is left in place) and run browser acceptance against deterministic fixtures in an isolated local D1/workerd instance on port 8797.
 - `corepack pnpm benchmark:filters`: time whole table requests through `queryDomainListingsWithDatabase` (the page's read path) against the populated local D1 inventory, without loading credentials or printing rows.
 - `corepack pnpm check`: the finish gate. Runs the quick checks, isolated D1 integration proof, and isolated browser acceptance. UI changes also need a check at 1440px and 390px; ingestion changes that touch a provider need one real `pnpm sync` of that provider.
 - `node .github/scripts/check-docs.mjs` (from the repository root): doc size budgets and kebab-case paths, also run by the Docs Checks workflow.

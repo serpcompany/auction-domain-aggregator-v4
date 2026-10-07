@@ -1,7 +1,5 @@
 import { expect, type Page, test } from '@playwright/test'
 
-import { E2E_BASE_URL } from '../scripts/e2e-preview-lifecycle'
-
 async function expectUrlParameter(page: Page, name: string, expected: string | null) {
   await expect.poll(() => new URL(page.url()).searchParams.get(name)).toBe(expected)
 }
@@ -151,7 +149,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'q', 'garden')
 
   await page.getByRole('link', { name: 'Clear all', exact: true }).click()
-  await expect(page).toHaveURL(`${E2E_BASE_URL}/?sort=endsAt&direction=asc&page=1`)
+  await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
   await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('')
 })
@@ -408,14 +406,14 @@ test('explains filters that match nothing and keeps the way back', async ({ page
   await expect(page.getByText('Nothing in the active inventory meets all 2 filters.')).toBeVisible()
   await expect(page.getByText('0 listings', { exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'Clear all filters' }).click()
-  await expect(page).toHaveURL(`${E2E_BASE_URL}/?sort=price&direction=asc&page=1`)
+  await expect(page).toHaveURL('/?sort=price&direction=asc&page=1')
   await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
 })
 
 test('shows each provider sync and the recent runs on Sync status', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('link', { name: 'Sync status' }).click()
-  await expect(page).toHaveURL(`${E2E_BASE_URL}/syncs/`)
+  await expect(page).toHaveURL('/syncs/')
   await expect(page.getByRole('heading', { level: 1, name: 'Sync status' })).toBeAttached()
 
   await expect(page.getByText('Auction API')).toBeVisible()
