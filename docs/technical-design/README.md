@@ -5,7 +5,7 @@ Accepted technical choices and how the implemented system behaves, one topic per
 ## Platform
 
 - [Technology stack](technology-stack.md): the chosen platform, framework, database, UI, and check tools, the constraints they impose, and the decisions still open. Read it before adding a dependency or a Cloudflare service.
-- [Production sync](production-sync.md): the one deployed target, its Cloudflare resources, and the CI deploy job. Read it before touching `env.production` or the deploy workflow.
+- [Deployment](deployment.md): Staging and Production, their Cloudflare resources, the Cloudflare Access gate on the website, the CI deploy job, and promotion. Read it before touching `env.staging`, `env.production`, the Worker entry's gate, or the deploy workflow.
 - [Isolated verification](isolated-verification.md): how the workerd D1 tests and browser tests stay away from secrets, providers, and the owner's local inventory.
 
 ## Reading and enrichment

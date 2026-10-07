@@ -33,6 +33,6 @@ When a request finds every domain held by another one, it stores nothing and doe
 
 ## Gaps
 
-- The route has no access control. The website is not deployed; payment-gated access arrives with accounts (#27).
+- The route has no access control of its own. On Staging and Production the whole website is owner-only behind Cloudflare Access ([Deployment](deployment.md)); payment-gated access arrives with accounts (#27). Each deployed website calls Ahrefs only once the owner sets its `AHREFS_API_KEY` secret.
 - Ahrefs calls are not paced beyond the claim and the cool-down; they are not yet on the shared provider pacer ([Provider rate limits](provider-rate-limits.md)).
 - Majestic Topic is not planned (#19).

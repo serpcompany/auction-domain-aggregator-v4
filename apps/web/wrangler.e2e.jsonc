@@ -25,5 +25,10 @@
       "binding": "WORKER_SELF_REFERENCE",
       "service": "auction-domain-aggregator-e2e-local"
     }
-  ]
+  ],
+  // A local run: no Access check and no host redirect. Any other value, or none, makes the
+  // application Worker treat the run as a deployment and fail closed (src/lib/deployment.ts).
+  "vars": {
+    "APP_ENV": "local"
+  }
 }

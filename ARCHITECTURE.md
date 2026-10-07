@@ -2,7 +2,7 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 ([Production sync](docs/technical-design/production-sync.md)). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
+This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. CI deploys the sync and the website to Staging (from the `staging` branch) and Production (from `main`), each environment with its own D1 ([Deployment](docs/technical-design/deployment.md)). Until accounts and payments (#27), both websites are owner-only behind Cloudflare Access. Other auction providers are not implemented yet.
 
 How each part behaves in detail is in the [technical design](docs/technical-design/README.md); this document keeps only what is unlikely to change.
 
@@ -53,7 +53,7 @@ A provider either has a paged API, paced to its declared rate limit, or publishe
 
 ### Domain enrichment
 
-Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, the browser posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`, the only request path that calls a provider. It accepts at most 50 domains, claims them atomically in D1 so overlapping requests never ask Ahrefs for the same domain, logs every call, and honors a cool-down after a 429. The route has no access control; the website is not deployed until #27. Every displayed value sits under the "Domain Rating by Ahrefs" attribution link the DR licence requires ([Ahrefs licensing](docs/references/data-licensing/ahrefs.md)). Details are in [Ahrefs Domain Rating enrichment](docs/technical-design/domain-rating-enrichment.md). Majestic Topic is not planned (#19).
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, the browser posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`, the only request path that calls a provider. It accepts at most 50 domains, claims them atomically in D1 so overlapping requests never ask Ahrefs for the same domain, logs every call, and honors a cool-down after a 429. The route has no access control of its own; deployed, it sits behind the website's Access gate until #27. Every displayed value sits under the "Domain Rating by Ahrefs" attribution link the DR licence requires ([Ahrefs licensing](docs/references/data-licensing/ahrefs.md)). Details are in [Ahrefs Domain Rating enrichment](docs/technical-design/domain-rating-enrichment.md). Majestic Topic is not planned (#19).
 
 ### Cloudflare D1
 
@@ -68,7 +68,7 @@ D1 is the current source of truth. `apps/web/src/server/db/schema.ts` defines:
 - `ingestion_runs`: provider run status, server-owned continuation, counters, a fixed diagnostic code, and why a page's records were rejected.
 - `ingestion_run_seen_pages`: the external IDs each page of a running sync returned, so reconciliation needs no write for unchanged listings; deleted when the run finishes.
 
-Reviewed generated migrations are in `apps/web/drizzle/`. The top level of both Wrangler configurations binds a local-only database (`remote: false`); only the ingestion Worker's `env.production` binds a remote one.
+Reviewed generated migrations are in `apps/web/drizzle/`. The top level of both Wrangler configurations binds a local-only database (`remote: false`); `env.staging` and `env.production` bind that environment's remote database, shared by its sync and website Workers.
 
 ### Cloudflare R2 and Workflows
 
@@ -85,6 +85,7 @@ The ingestion Worker binds `FEED_PAGES` (R2) for transient file-feed pages and `
 - Unknown provider values are stored as null, never as an invented zero.
 - Provider credentials remain outside the repository and must not appear in logs, fixtures, errors, or documentation.
 - Remote D1, deployment, and provider calls are not part of routine checks.
+- A deployed website serves no data without a valid Cloudflare Access token, and missing gate configuration fails closed (503). Only an explicit `APP_ENV=local` skips the gate.
 - Ingestion does not depend on the owner's machine: the Cron Trigger, Workflow, R2, and D1 hold every step and its state.
 - Staged feed pages are transient and scoped to one Workflow instance; they are deleted when the instance ends.
 
@@ -98,7 +99,7 @@ D1 statements stay below its 100-bound-parameter limit, and a sync is segmented 
 
 All application code is under `apps/web/`.
 
-- `worker.ts` is the Worker entry (Wrangler `main`). It wraps the OpenNext build in the application Worker (`src/lib/app-worker.ts`), which applies the URL trailing-slash rule (`src/lib/trailing-slash.ts`), then hands the request to OpenNext. Unless `APP_ENV` is `production`, every response carries `X-Robots-Tag: noindex, nofollow` and `/robots.txt` disallows crawling (`src/lib/indexing.ts`).
+- `worker.ts` is the Worker entry (Wrangler `main`). It wraps the OpenNext build in the application Worker (`src/lib/app-worker.ts`). In a deployment (any `APP_ENV` but `local`) it first answers 503 without its canonical host and Access settings, 308s every other host to the canonical one (`src/lib/deployment.ts`), and 403s any request without a valid Cloudflare Access token (`src/lib/access.ts`). Everywhere, it applies the URL trailing-slash rule (`src/lib/trailing-slash.ts`), then hands the request to OpenNext. Unless `APP_ENV` is `production`, every response carries `X-Robots-Tag: noindex, nofollow` and `/robots.txt` disallows crawling (`src/lib/indexing.ts`).
 - `src/app/`: Next.js routes and the root layout. `/` is the Auctions table, `/filters/` the Filters page (the same URL contract, every filter), `/syncs/` Sync status (D1 only, never the provider registry), plus the D1 health and DR enrichment routes. The root layout reads how many providers' latest run failed for the sidebar badge and treats a read failure as zero, so a D1 error never breaks the shell; `error.tsx` catches a failed page read.
 - `src/components/`: site components grouped by area (`app-shell/`, `auctions/`, `filters/`, `sync/`); `ui/` holds stock shadcn source.
 - `src/domain/`: pure logic shared by server and browser: URL filter parsing and links (`domain-table.ts`), the column registry and `columns` cookie (`table-columns.ts`), the Filters form (`filter-form.ts`), and the sync schedule, which mirrors the ingestion cron under a test.

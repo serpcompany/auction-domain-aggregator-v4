@@ -13,7 +13,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - `README.md`: human-facing project overview.
 - `ARCHITECTURE.md`: stable system map, boundaries, and architectural invariants.
 - `docs/product-specs/`: agreed product behavior and scope.
-- `docs/technical-design/README.md`: map of accepted technical choices and system design, one topic per leaf (stack, read model, DR enrichment, ingestion, each provider, production sync, test isolation).
+- `docs/technical-design/README.md`: map of accepted technical choices and system design, one topic per leaf (stack, read model, DR enrichment, ingestion, each provider, deployment, test isolation).
 - `docs/plans/README.md`: when and how to maintain durable implementation plans, and summaries of completed ones.
 - `docs/references/README.md`: external research (data licensing per provider, the SpamZilla inventory). Reference material is not automatically a product requirement.
 
@@ -57,7 +57,11 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm build`: verify the standard Next.js production build.
 - `corepack pnpm cf-typegen`: regenerate Cloudflare binding types from `apps/web/wrangler.jsonc`.
 
-`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Workerd D1 tests keep their storage in memory and browser tests use temporary persistence; neither touches the owner's `apps/web/.wrangler` inventory. Production is the sync only: CI deploys the ingestion Worker's `env.production` (`apps/web/wrangler.ingestion.jsonc`) and applies migrations to its D1 on each push to `main`. Agents never run `--remote` commands from their own machine, and creating or changing remote Cloudflare resources requires explicit authorization. The website has no deployed environment until #27 (`deploy:web` refuses).
+`dev` and `preview` exercise different runtimes: `dev` is the Next.js Node development server, while `preview` runs the OpenNext output under Cloudflare's local workerd runtime. The configured D1 binding is local-only. Workerd D1 tests keep their storage in memory and browser tests use temporary persistence; neither touches the owner's `apps/web/.wrangler` inventory. Agents never run `--remote` commands from their own machine, and creating or changing remote Cloudflare resources requires explicit authorization.
+
+## Branches and deploys
+
+`staging` is the base and default branch: branch from `origin/staging` and target pull requests at it. A push to `staging` deploys Staging; `main` is Production, reached only by promotion: `git fetch origin && git push origin origin/staging:main`. Only CI runs `db:migrate:<env>`, `deploy:sync:<env>`, and `deploy:web:<env>`, barring an emergency ([Deployment](docs/technical-design/deployment.md)).
 
 ## ExecPlans
 
