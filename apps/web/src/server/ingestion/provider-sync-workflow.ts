@@ -34,6 +34,7 @@ import {
   timePageWrites
 } from './feed-pages'
 import { type FeedErrorCode, feedErrorCode, stageZippedFeed } from './feed-stage'
+import { findNamesiloRecording, replayNamesiloRecording } from './namesilo-recording'
 import {
   failSyncRun,
   type IngestionStorage,
@@ -166,6 +167,22 @@ export async function runProviderSync({
     : createD1IngestionStorage(drizzle(env.DB, { schema }), provider)
 
   const stageAndSync = async (): Promise<SyncSummary> => {
+    // NameSilo blocks Cloudflare Workers, so a deployed sync replays the
+    // responses a GitHub Actions job recorded (`namesilo-recording.ts`). The
+    // step pins the recording for the whole run; without a fresh one, as in
+    // local development, the adapter calls NameSilo.
+    if (provider === 'namesilo' && !registration.fileFeed) {
+      const { recording } = await step.do('find recorded responses', SYNC_STEP, async () => ({
+        recording: await findNamesiloRecording(bucket, new Date())
+      }))
+      if (recording) {
+        adapter = registration.createAdapter({
+          secrets: env,
+          pacer: async () => undefined,
+          fetchImpl: replayNamesiloRecording(bucket, recording)
+        })
+      }
+    }
     // Started before staging, so the Sync status page shows a feed that is
     // downloading, and one that fails to stage. A failure here (a D1 error)
     // changed nothing that a retry would not replace, so it is retried.

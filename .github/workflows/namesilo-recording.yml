@@ -1,0 +1,66 @@
+name: NameSilo recording
+
+# NameSilo's Cloudflare zone answers 403 to requests from Cloudflare Workers
+# (#104), so this job runs the NameSilo adapter from a GitHub-hosted runner and
+# uploads the recorded responses to both environments' FEED_PAGES buckets.
+# Each deployed sync replays the newest recording under 26 hours old. It runs
+# well before Production's 15:30 UTC sync, which allows for scheduled-run
+# delays and the 20 to 30 paced minutes NameSilo takes; Staging's 11:30 UTC sync
+# the next day replays the same recording. See docs/technical-design/namesilo-sync.md.
+on:
+  schedule:
+    - cron: '45 13 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: namesilo-recording
+  cancel-in-progress: false
+
+jobs:
+  record:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: apps/web
+    env:
+      NAMESILO_API_KEY: ${{ secrets.NAMESILO_API_KEY }}
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version-file: apps/web/.node-version
+
+      - name: Install Corepack
+        run: npm install --global corepack@0.34.0
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+
+      - name: Cache pnpm store
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ steps.pnpm-store.outputs.path }}
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('apps/web/pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Record NameSilo and upload to both environments
+        run: >-
+          node --import tsx scripts/record-namesilo.ts
+          auction-domain-aggregator-feed-pages-staging
+          auction-domain-aggregator-feed-pages-production

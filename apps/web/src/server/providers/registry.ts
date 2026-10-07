@@ -45,7 +45,9 @@ type Registration<Context> = {
 // A paged API. It must declare its rate limit (`DEFAULT_RATE_LIMIT` when the
 // provider publishes none); the Workflow builds `pacer` from it, and the
 // adapter awaits the pacer before every request.
-export type ApiProviderRegistration = Registration<{ pacer: Pacer }> & {
+// `fetchImpl` replaces the network, as when NameSilo's recorded responses are
+// replayed.
+export type ApiProviderRegistration = Registration<{ pacer: Pacer; fetchImpl?: typeof fetch }> & {
   rateLimit: RateLimit
   fileFeed?: never
 }
@@ -101,9 +103,9 @@ export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistra
   namesilo: {
     secretNames: ['NAMESILO_API_KEY'],
     rateLimit: NAMESILO_RATE_LIMIT,
-    createAdapter: ({ secrets, pacer }) =>
+    createAdapter: ({ secrets, pacer, fetchImpl }) =>
       // The Workflow checks the key is set; an empty one fails the request.
-      createNamesiloAdapter({ apiKey: secrets.NAMESILO_API_KEY ?? '', pacer })
+      createNamesiloAdapter({ apiKey: secrets.NAMESILO_API_KEY ?? '', pacer, fetchImpl })
   }
 }
 
