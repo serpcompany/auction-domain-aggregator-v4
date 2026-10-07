@@ -2,6 +2,7 @@ import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, ExternalLinkIcon } from
 import Link from 'next/link'
 import type * as React from 'react'
 
+import { ColumnResizeHandle, ColumnWidthsProvider } from '@/components/auctions/column-resize'
 import { PendingRating } from '@/components/auctions/domain-ratings'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
 import {
@@ -28,7 +29,8 @@ import {
 import {
   type ColumnGroup,
   type ColumnKey,
-  columnGroup,
+  type ColumnWidths,
+  columnWidthCss,
   TABLE_COLUMNS,
   type TableColumn
 } from '@/domain/table-columns'
@@ -186,6 +188,10 @@ function SortLink({
   )
 }
 
+function columnName(column: TableColumn) {
+  return 'menuLabel' in column ? column.menuLabel : column.label
+}
+
 function ariaSort(filters: DomainTableFilters, sort: DomainTableSort) {
   if (filters.sort !== sort) return undefined
   return filters.direction === 'asc' ? 'ascending' : 'descending'
@@ -212,11 +218,13 @@ export function ResultsTable({
   rows,
   filters,
   visibleColumns,
+  columnWidths,
   now
 }: {
   rows: DomainListingRow[]
   filters: DomainTableFilters
   visibleColumns: readonly ColumnKey[]
+  columnWidths: ColumnWidths
   now: Date
 }) {
   const visible = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
@@ -232,26 +240,40 @@ export function ResultsTable({
   const ordered: TableColumn[] = [...listing, ...grouped]
   const rowSpan = groups.length > 0 ? 2 : 1
   // Every header sticks to the top; the Domain header also sticks left, above the rest.
-  const headClass = 'sticky top-0 z-20 bg-background'
+  const headClass = 'sticky top-0 z-20 truncate bg-background'
+  // Fixed layout takes each width from the `<col>` elements. The Details
+  // column has none, so it absorbs the space the others leave.
+  const resizable = ['domain' as const, ...ordered.map(column => column.key)]
+  const tableWidth = `max(100%, calc(${resizable.map(columnWidthCss).join(' + ')} + 2.5rem))`
 
   return (
-    <>
-      <Table className="[&_td]:h-10">
+    <ColumnWidthsProvider key={JSON.stringify(columnWidths)} initialWidths={columnWidths}>
+      <Table className="table-fixed [&_td]:h-10 [&_td]:truncate" style={{ width: tableWidth }}>
+        <colgroup>
+          {resizable.map(key => (
+            <col key={key} style={{ width: columnWidthCss(key) }} />
+          ))}
+          <col />
+        </colgroup>
         <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead
               scope="col"
               rowSpan={rowSpan}
+              // Keeps the resize handle's label out of the header's name.
+              aria-label="Domain"
               aria-sort={ariaSort(filters, 'domain')}
-              className={cn(headClass, 'left-0 z-30 w-56')}
+              className={cn(headClass, 'left-0 z-30')}
             >
               <SortLink filters={filters} sort="domain" label="Domain" />
+              <ColumnResizeHandle column="domain" label="Domain" />
             </TableHead>
             {listing.map(column => (
               <TableHead
                 key={column.key}
                 scope="col"
                 rowSpan={rowSpan}
+                aria-label={column.label}
                 aria-sort={ariaSort(filters, column.sort)}
                 className={cn(headClass, 'numeric' in column && 'text-right')}
               >
@@ -261,6 +283,7 @@ export function ResultsTable({
                   label={column.label}
                   numeric={'numeric' in column}
                 />
+                <ColumnResizeHandle column={column.key} label={columnName(column)} />
               </TableHead>
             ))}
             {groups.map(({ group, columns }) => (
@@ -276,7 +299,7 @@ export function ResultsTable({
                 {groupLabel(group)}
               </TableHead>
             ))}
-            <TableHead scope="col" rowSpan={rowSpan} className={cn(headClass, 'w-10')}>
+            <TableHead scope="col" rowSpan={rowSpan} className={headClass}>
               <span className="sr-only">Details</span>
             </TableHead>
           </TableRow>
@@ -287,6 +310,7 @@ export function ResultsTable({
                   key={column.key}
                   scope="col"
                   title={`${column.group} ${column.menuLabel}`}
+                  aria-label={column.label}
                   aria-sort={ariaSort(filters, column.sort)}
                   className={cn(
                     headClass,
@@ -295,6 +319,10 @@ export function ResultsTable({
                   )}
                 >
                   <SortLink filters={filters} sort={column.sort} label={column.label} numeric />
+                  <ColumnResizeHandle
+                    column={column.key}
+                    label={`${column.group} ${columnName(column)}`}
+                  />
                 </TableHead>
               ))}
             </TableRow>
@@ -337,6 +365,6 @@ export function ResultsTable({
           ))}
         </TableBody>
       </Table>
-    </>
+    </ColumnWidthsProvider>
   )
 }

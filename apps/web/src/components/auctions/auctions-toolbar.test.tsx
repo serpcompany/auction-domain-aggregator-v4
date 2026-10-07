@@ -183,12 +183,17 @@ describe('AuctionsToolbar', () => {
   it('names a sort the list does not offer', () => {
     renderToolbar({ sort: 'links', direction: 'asc' })
     expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveDisplayValue(
-      'Sorted by links (ascending)'
+      'Sorted by Inbound links (ascending)'
     )
     cleanup()
     renderToolbar({ sort: 'visitors', direction: 'desc' })
     expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveDisplayValue(
-      'Sorted by visitors (descending)'
+      'Sorted by Visitors (descending)'
+    )
+    cleanup()
+    renderToolbar({ sort: 'domain', direction: 'desc' })
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveDisplayValue(
+      'Sorted by Domain (descending)'
     )
     expect(screen.getByRole('link', { name: 'Filters' })).toBeInTheDocument()
   })
