@@ -3,7 +3,7 @@
 import { CheckIcon, ListFilterIcon, SearchIcon, XIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useRef, useState, useTransition } from 'react'
 
 import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
 import { FacetedFilter, FacetTrigger } from '@/components/auctions/faceted-filter'
@@ -250,13 +250,13 @@ export function AuctionsToolbar({
   filters,
   sources,
   tlds,
-  total,
+  count,
   visibleColumns
 }: {
   filters: DomainTableFilters
   sources: string[]
   tlds: string[]
-  total: number
+  count: ReactNode
   visibleColumns: ColumnKey[]
 }) {
   const router = useRouter()
@@ -345,15 +345,14 @@ export function AuctionsToolbar({
         />
         <FieldsDrawer visibleColumns={visibleColumns} />
       </div>
-      <p
+      <div
         className={cn(
           'ml-auto text-sm text-muted-foreground tabular-nums',
           pending && 'animate-pulse'
         )}
       >
-        <span className="font-medium text-foreground">{total.toLocaleString('en-US')}</span>{' '}
-        {total === 1 ? 'listing' : 'listings'}
-      </p>
+        {count}
+      </div>
       <div className="hidden md:block">
         <ColumnsMenu visibleColumns={visibleColumns} />
       </div>

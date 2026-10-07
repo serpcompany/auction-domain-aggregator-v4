@@ -390,3 +390,14 @@ test('shows listings as a list on phones and opens details from a tap', async ({
   await page.getByRole('combobox', { name: 'Sort' }).selectOption('domain:asc')
   await expectUrlParameter(page, 'sort', 'domain')
 })
+
+test('explains filters that match nothing and keeps the way back', async ({ page }) => {
+  await page.goto('/?q=no-such-domain-anywhere&tld=com&sort=price')
+
+  await expect(page.getByRole('heading', { name: 'No listings match these filters' })).toBeVisible()
+  await expect(page.getByText('Nothing in the active inventory meets all 2 filters.')).toBeVisible()
+  await expect(page.getByText('0 listings', { exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Clear all filters' }).click()
+  await expect(page).toHaveURL(`${E2E_BASE_URL}/?sort=price&direction=asc&page=1`)
+  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+})
