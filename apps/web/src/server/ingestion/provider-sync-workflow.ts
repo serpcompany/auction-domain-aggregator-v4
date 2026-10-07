@@ -2,7 +2,7 @@
 // thin runtime entry (Workflow class and Cron Trigger); everything here takes
 // its step runner and bindings as arguments so it is tested directly.
 //
-//   [stage feed]                  file feeds only: zip -> R2 page files
+//   [stage feed]                  file feeds only: zip or CSV -> R2 page files
 //   start run                     a new running row in D1
 //   sync pages, segment 1..n      runSyncSegment over 20 pages per step
 //   [delete staged pages]         file feeds only, also after a failure
@@ -19,6 +19,7 @@ import * as schema from '../db/schema'
 import { implementedProvider, PROVIDER_REGISTRY, type ProviderSecrets } from '../providers/registry'
 import type { AuctionProvider } from '../providers/types'
 import { createD1IngestionStorage } from './d1-storage'
+import { stageCsvFeed } from './feed-csv'
 import {
   createR2PageSink,
   createR2PageSource,
@@ -76,6 +77,8 @@ const SEGMENT_PAGES = 20
 const FEED_DOWNLOAD_TIMEOUT_MS = 10 * 60_000
 const FEED_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024
 const FEED_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024 * 1024
+// Namecheap's CSV is about 194 MB.
+const FEED_CSV_MAX_BYTES = 1024 * 1024 * 1024
 // A failed or truncated download, or a failed page write, may succeed on
 // retry; an unsupported, malformed, or oversized feed will not.
 const RETRYABLE_FEED_ERRORS = new Set<FeedErrorCode>([
@@ -132,22 +135,27 @@ export async function runProviderSync({
   const stageAndSync = async (): Promise<SyncSummary> => {
     if (fileFeed && prefix) {
       await step.do('stage feed', STAGE_STEP, async () => {
+        const common = {
+          url: fileFeed.url,
+          pageSize: fileFeed.pageSize,
+          limits: {
+            maxPages: fileFeed.maxPages,
+            maxPageBytes: fileFeed.maxPageBytes
+          },
+          timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
+          sink: createR2PageSink(bucket, prefix),
+          fetchImpl: dependencies.fetchImpl
+        }
         try {
-          return await stageZippedFeed({
-            url: fileFeed.url,
-            entry: fileFeed.entry,
-            field: fileFeed.field,
-            pageSize: fileFeed.pageSize,
-            maxArchiveBytes: FEED_ARCHIVE_MAX_BYTES,
-            maxDocumentBytes: FEED_DOCUMENT_MAX_BYTES,
-            limits: {
-              maxPages: fileFeed.maxPages,
-              maxPageBytes: fileFeed.maxPageBytes
-            },
-            timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
-            sink: createR2PageSink(bucket, prefix),
-            fetchImpl: dependencies.fetchImpl
-          })
+          return fileFeed.format === 'csv'
+            ? await stageCsvFeed({ ...common, maxBytes: FEED_CSV_MAX_BYTES })
+            : await stageZippedFeed({
+                ...common,
+                entry: fileFeed.entry,
+                field: fileFeed.field,
+                maxArchiveBytes: FEED_ARCHIVE_MAX_BYTES,
+                maxDocumentBytes: FEED_DOCUMENT_MAX_BYTES
+              })
         } catch (error) {
           const code = feedErrorCode(error)
           if (!code) throw nonRetryable('feed_stage_failed')

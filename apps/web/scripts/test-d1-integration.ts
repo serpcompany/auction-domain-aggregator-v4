@@ -44,6 +44,7 @@ type ProofSummary = {
   wildcardEscapeProof: true
   godaddyFeedProof: true
   cloudFeedProof: true
+  csvFeedProof: true
   derivedNameColumnProof: true
   uncappedTldFacetProof: true
   feedErrorProof: true
@@ -149,6 +150,7 @@ function parseSummary(value: unknown): ProofSummary {
     wildcardEscapeProof: true,
     godaddyFeedProof: true,
     cloudFeedProof: true,
+    csvFeedProof: true,
     derivedNameColumnProof: true,
     uncappedTldFacetProof: true,
     feedErrorProof: true

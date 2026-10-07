@@ -53,7 +53,7 @@ function asFeedError(error: unknown, fallback: FeedErrorCode) {
 
 // Cancelling a stream that has already failed rejects; the original failure
 // is the one reported.
-function ignoreRejection() {
+export function ignoreRejection() {
   return undefined
 }
 
@@ -763,31 +763,19 @@ export async function writeFeedPages({
 
 export const FEED_USER_AGENT = 'auction-domain-aggregator-ingestion/1'
 
-// Downloads a zipped JSON feed and stages the `field` array of its single
-// entry into page files.
-export async function stageZippedFeed({
+// Requests a feed and returns its body, failing when the server declares a
+// size above `maxBytes`. Callers still count the bytes they read.
+export async function downloadFeed({
   url,
-  entry,
-  field,
-  pageSize,
-  maxArchiveBytes,
-  maxDocumentBytes,
-  limits,
+  maxBytes,
   timeoutMs,
-  sink,
   fetchImpl = fetch
 }: {
   url: string
-  entry: string
-  field: string
-  pageSize: number
-  maxArchiveBytes: number
-  maxDocumentBytes: number
-  limits?: FeedPageLimits
+  maxBytes: number
   timeoutMs: number
-  sink: FeedPageSink
   fetchImpl?: typeof fetch
-}): Promise<FeedPagesSummary> {
+}): Promise<ReadableStream<Uint8Array>> {
   let response: Response
   try {
     response = await fetchImpl(url, {
@@ -804,11 +792,40 @@ export async function stageZippedFeed({
     throw new FeedError('feed_download_failed')
   }
   const declared = Number(response.headers.get('content-length') ?? '')
-  if (Number.isSafeInteger(declared) && declared > maxArchiveBytes) {
+  if (Number.isSafeInteger(declared) && declared > maxBytes) {
     await response.body.cancel().catch(ignoreRejection)
     throw new FeedError('feed_too_large')
   }
-  const document = await openZipEntry(response.body, {
+  return response.body
+}
+
+// Downloads a zipped JSON feed and stages the `field` array of its single
+// entry into page files.
+export async function stageZippedFeed({
+  url,
+  entry,
+  field,
+  pageSize,
+  maxArchiveBytes,
+  maxDocumentBytes,
+  limits,
+  timeoutMs,
+  sink,
+  fetchImpl
+}: {
+  url: string
+  entry: string
+  field: string
+  pageSize: number
+  maxArchiveBytes: number
+  maxDocumentBytes: number
+  limits?: FeedPageLimits
+  timeoutMs: number
+  sink: FeedPageSink
+  fetchImpl?: typeof fetch
+}): Promise<FeedPagesSummary> {
+  const archive = await downloadFeed({ url, maxBytes: maxArchiveBytes, timeoutMs, fetchImpl })
+  const document = await openZipEntry(archive, {
     entry,
     maxCompressedBytes: maxArchiveBytes
   })

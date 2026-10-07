@@ -630,6 +630,74 @@ async function cloudFeedObjects(bucket: R2Bucket) {
   return listing.objects.length
 }
 
+// Runs the provider-sync Workflow for Namecheap's CSV feed against real local
+// D1 and R2: rows (one with a quoted, comma-bearing field) are staged into R2
+// pages of 2,000, synced through the adapter with their feed metrics, and the
+// pages are deleted.
+async function proveCsvFeedSync(
+  env: IntegrationEnv,
+  database: ReturnType<typeof drizzle<typeof schema>>
+) {
+  const rows = Array.from({ length: 2_500 }, (_, index) =>
+    [
+      `https://www.namecheap.com/market/sale/CsvSale${index}/`,
+      `csv-feed-${index}.integration.test`,
+      '2026-07-01T00:00:00Z',
+      '2026-07-20T15:00:00Z',
+      index === 0 ? '"12.50"' : '12.50',
+      index % 10,
+      index === 7 ? '"note, with a comma"' : '',
+      index === 2_499 ? '9' : ''
+    ].join(',')
+  )
+  const csv = ['url,name,startDate,endDate,price,bidCount,note,semrushAScore', ...rows].join('\r\n')
+  const steps: string[] = []
+  let stagedObjects = 0
+  const summary = await runProviderSync({
+    provider: 'namecheap',
+    runKey: 'namecheap-integration-ok',
+    env: { DB: env.DB, FEED_PAGES: env.FEED_PAGES },
+    step: {
+      async do(name, _config, callback) {
+        steps.push(name)
+        const result = await callback()
+        if (name === 'stage feed') stagedObjects = await cloudFeedObjects(env.FEED_PAGES)
+        return result
+      }
+    },
+    nonRetryable: code => new Error(code),
+    dependencies: { fetchImpl: (async () => new Response(csv)) as typeof fetch }
+  })
+  const [stored] = await database
+    .select({ value: count() })
+    .from(auctionListings)
+    .where(and(eq(auctionListings.provider, 'namecheap'), eq(auctionListings.status, 'active')))
+  const [first] = await database
+    .select({
+      price: auctionListings.currentBidCents,
+      startsAt: auctionListings.startsAt,
+      auctionUrl: auctionListings.auctionUrl
+    })
+    .from(auctionListings)
+    .where(eq(auctionListings.externalId, 'CsvSale0'))
+  const metrics = await seoMetricsFor(database, 'csv-feed-2499.integration.test')
+  assertIntegration(
+    summary.pagesFetched === 2 &&
+      summary.recordsUpserted === 2_500 &&
+      summary.recordsRejected === 0 &&
+      stagedObjects === 2 &&
+      steps.join('|') === 'stage feed|start run|sync pages, segment 1|delete staged pages' &&
+      (await cloudFeedObjects(env.FEED_PAGES)) === 0 &&
+      stored?.value === 2_500 &&
+      first?.price === 1_250 &&
+      first.startsAt?.toISOString() === '2026-07-01T00:00:00.000Z' &&
+      first.auctionUrl === 'https://www.namecheap.com/market/sale/CsvSale0/' &&
+      metrics?.source === 'namecheap' &&
+      metrics.semrushAs === 9,
+    'csv_feed_synced'
+  )
+}
+
 // Runs the provider-sync Workflow orchestration for GoDaddy against real
 // local D1 and R2: an invented zipped feed (with a data descriptor, the
 // harder zip layout) is staged into R2 pages, synced through the adapter,
@@ -1526,6 +1594,7 @@ async function runProof(env: IntegrationEnv) {
   await proveDomainRatingEnrichment(database)
   await proveReconciliationSafety(database, storage)
   await proveCloudFeedSync(env, database)
+  await proveCsvFeedSync(env, database)
   await proveFeedErrorCodes()
 
   return {
@@ -1554,6 +1623,7 @@ async function runProof(env: IntegrationEnv) {
     wildcardEscapeProof: true as const,
     godaddyFeedProof: true as const,
     cloudFeedProof: true as const,
+    csvFeedProof: true as const,
     derivedNameColumnProof: true as const,
     uncappedTldFacetProof: true as const,
     feedErrorProof: true as const

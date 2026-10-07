@@ -27,12 +27,13 @@ End times show a compact relative value as the primary text and an absolute UTC 
 
 ## Current data availability
 
-Dynadot and GoDaddy are the implemented auction sources.
+Dynadot, GoDaddy, and Namecheap are the implemented auction sources.
 
 - Dynadot supplies source URL, auction type, current bid, bid and bidder counts, start and end times, age, inbound links, visitors, Dynadot appraisal, and renewal price when it supplies them.
 - GoDaddy's public inventory file supplies source URL, auction type (`Auction` for bid listings, `Buy Now` for fixed-price ones), current price, bid count, end time, age, monthly parking pageviews (shown as visitors), and GoDaddy valuation (shown as appraisal). It publishes no bidder count, start time, inbound links, or renewal price; those stay unknown rather than zero.
+- Namecheap Market's public sales file supplies source URL, current price, bid count, start and end times, age (whole years from registration to the sale's start), Estibot valuation (shown as appraisal), and renewal price. Every Namecheap sale is a timed auction. It publishes no bidder count, inbound links, or visitors.
 
-GoDaddy's file also carries per-domain Majestic Trust Flow, Citation Flow, backlinks, and referring domains, and SEMrush Authority Score, referring domains, and backlinks. These are stored per domain, replaced by each GoDaddy sync, and apply to every listing of that domain, whatever its source.
+GoDaddy's file also carries per-domain Majestic Trust Flow, Citation Flow, backlinks, and referring domains, and SEMrush Authority Score, referring domains, and backlinks. Namecheap's carries Trust Flow, Citation Flow, Majestic backlinks, Authority Score, and SEMrush backlinks. These are stored per domain, replaced by each sync that carries them, and apply to every listing of that domain, whatever its source.
 
 TLD, domain length, hyphen presence, and digit presence are deterministic properties of the normalized domain name; no provider supplies them. The TLD is the final label, so `example.co.uk` is listed under `.uk`.
 
@@ -48,7 +49,7 @@ The documents under `docs/references/spamzilla/` describe a much larger portion 
 
 User accounts, subscriptions, billing, teams, saved searches, bidding, additional providers, scheduled synchronization, remote Cloudflare resources, and deployment are outside this slice.
 
-GoDaddy's inventory content is licensed for the owner's internal use only (`docs/references/data-licensing.md`). Showing it to anyone else needs GoDaddy's written permission first.
+GoDaddy's inventory content is licensed for the owner's internal use only (`docs/references/data-licensing.md`). Showing it to anyone else needs GoDaddy's written permission first. Namecheap publishes its sales file without a licence for showing it to others, so the same applies until Namecheap answers.
 
 ## Remaining product dependencies
 

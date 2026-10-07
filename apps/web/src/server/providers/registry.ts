@@ -7,6 +7,13 @@ import {
   GODADDY_PAGE_BYTE_LIMIT,
   GODADDY_PAGE_SIZE
 } from './godaddy'
+import {
+  createNamecheapAdapter,
+  NAMECHEAP_FEED_URL,
+  NAMECHEAP_MAX_PAGES,
+  NAMECHEAP_PAGE_BYTE_LIMIT,
+  NAMECHEAP_PAGE_SIZE
+} from './namecheap'
 import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types'
 
 // Every credential an adapter may read from the ingestion worker env.
@@ -14,19 +21,18 @@ export type ProviderSecretName = 'DYNADOT_API_PRODUCTION_KEY'
 
 export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>
 
-// A provider that publishes one zipped JSON file instead of a paged API. The
-// ingestion Workflow downloads `url`, splits the `field` array of archive
-// entry `entry` into page files of `pageSize` records, and gives the adapter
-// a source for those pages. `maxPages` and `maxPageBytes` are the adapter's
-// limits for reading them back.
+// A provider that publishes one inventory file instead of a paged API. The
+// ingestion Workflow downloads `url`, splits its records into page files of
+// `pageSize` records, and gives the adapter a source for those pages.
+// `maxPages` and `maxPageBytes` are the adapter's limits for reading them
+// back. A `zipped-json` feed's records are the `field` array of archive
+// entry `entry`; a `csv` feed's are its rows after the header.
 export type FileFeed = {
   url: string
-  entry: string
-  field: string
   pageSize: number
   maxPages: number
   maxPageBytes: number
-}
+} & ({ format: 'zipped-json'; entry: string; field: string } | { format: 'csv' })
 
 export type AdapterContext = {
   secrets: ProviderSecrets
@@ -54,6 +60,7 @@ export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistra
   godaddy: {
     secretNames: [],
     fileFeed: {
+      format: 'zipped-json',
       url: GODADDY_FEED_URL,
       entry: GODADDY_FEED_ENTRY,
       field: 'data',
@@ -62,6 +69,18 @@ export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistra
       maxPageBytes: GODADDY_PAGE_BYTE_LIMIT
     },
     createAdapter: ({ feedPages }) => createGodaddyAdapter({ pages: feedPages })
+  },
+  // Namecheap's public market sales CSV needs no credentials either.
+  namecheap: {
+    secretNames: [],
+    fileFeed: {
+      format: 'csv',
+      url: NAMECHEAP_FEED_URL,
+      pageSize: NAMECHEAP_PAGE_SIZE,
+      maxPages: NAMECHEAP_MAX_PAGES,
+      maxPageBytes: NAMECHEAP_PAGE_BYTE_LIMIT
+    },
+    createAdapter: ({ feedPages }) => createNamecheapAdapter({ pages: feedPages })
   }
 }
 

@@ -226,6 +226,32 @@ describe('provider sync workflow', () => {
     expect(bucket.objects.size).toBe(0)
   })
 
+  it('stages a CSV feed the same way', async () => {
+    const rows = Array.from(
+      { length: 2_001 },
+      (_, index) =>
+        `https://www.namecheap.com/market/sale/Sale${index}/,invented-${index}.example,2026-10-09T15:00:00Z,12.00,0`
+    )
+    const csv = ['url,name,endDate,price,bidCount', ...rows].join('\n')
+    const { run, steps, stores, fetchImpl, bucket } = setup({})
+    fetchImpl.mockImplementation(async () => new Response(csv))
+    await expect(run('namecheap', 'namecheap-test-1')).resolves.toEqual({
+      provider: 'namecheap',
+      status: 'succeeded',
+      pagesFetched: 2,
+      recordsFetched: 2_001,
+      recordsUpserted: 2_001,
+      recordsInactivated: 0,
+      recordsRejected: 0
+    })
+    expect(fetchImpl.mock.calls[0]![0]).toBe(
+      'https://d3ry1h4w5036x1.cloudfront.net/reports/Namecheap_Market_Sales.csv'
+    )
+    expect(steps.names()[0]).toBe('stage feed')
+    expect(stores.get('namecheap')!.listings.size).toBe(2_001)
+    expect(bucket.objects.size).toBe(0)
+  })
+
   it('fails unknown providers and missing credentials before any step', async () => {
     const { run, steps } = setup({})
     await expect(run('sedo')).rejects.toThrow('sync_unknown_provider')
@@ -490,10 +516,11 @@ describe('scheduled provider syncs', () => {
     const create = vi.fn(async () => ({}) as WorkflowInstance)
     await expect(
       scheduleProviderSyncs({ create }, new Date('2026-10-06T15:30:00.000Z'))
-    ).resolves.toEqual(['dynadot', 'godaddy'])
+    ).resolves.toEqual(['dynadot', 'godaddy', 'namecheap'])
     expect(create.mock.calls).toEqual([
       [{ id: 'dynadot-20261006T1530', params: { provider: 'dynadot' } }],
-      [{ id: 'godaddy-20261006T1530', params: { provider: 'godaddy' } }]
+      [{ id: 'godaddy-20261006T1530', params: { provider: 'godaddy' } }],
+      [{ id: 'namecheap-20261006T1530', params: { provider: 'namecheap' } }]
     ])
   })
 
@@ -505,6 +532,6 @@ describe('scheduled provider syncs', () => {
     await expect(
       scheduleProviderSyncs({ create }, new Date('2026-10-06T15:30:00.000Z'))
     ).rejects.toThrow('sync_schedule_failed')
-    expect(create).toHaveBeenCalledTimes(2)
+    expect(create).toHaveBeenCalledTimes(3)
   })
 })
