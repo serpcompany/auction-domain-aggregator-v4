@@ -114,9 +114,11 @@ Implementation uncovered these runtime constraints:
 
 ## Listing identity and lifecycle
 
-`domains.name` is normalized domain identity. `auction_listings` uses `(provider, external_id)` as its composite primary key and references the domain. Reprocessing the same listing updates mutable auction fields, sets it active, and records the current run start as `last_seen_at` without duplicating either identity.
+`domains.name` is normalized domain identity. `auction_listings` uses `(provider, external_id)` as its composite primary key and references the domain. Reprocessing the same listing writes it only when a mutable auction field differs or it was inactive; it then updates those fields, sets it active, and records the current run start as `last_seen_at`. Feed SEO metrics follow the same rule, so `updated_at` is when a value last changed.
 
-A listing becomes inactive only when a successful full reconciliation confirms that its `last_seen_at` predates the completed run. It is not deleted. Failure, interruption, a page cap, malformed provider data, and stale continuation cannot trigger reconciliation.
+D1 bills every row written, plus a row for each index the write touches. Rewriting every listing on every sync cost 14 rows per GoDaddy listing (8.0 million per sync), so an unchanged listing is not written at all. Instead, each fetched page stores its external IDs as one JSON row in `ingestion_run_seen_pages`, in the same guarded D1 batch as the upserts; inserting nothing there is how a stale continuation is detected. After the change, an unchanged GoDaddy sync wrote no listing rows, and a Dynadot sync two days after the last one wrote 1.6 rows per listing.
+
+A listing becomes inactive only when a successful full reconciliation finds it active and absent from every seen page of the completed run. It is not deleted. Finishing a run, successfully or not, deletes its seen pages, and starting a run deletes any left by that provider's crashed runs. Failure, interruption, a page cap, malformed provider data, and stale continuation cannot trigger reconciliation.
 
 The final page is the first page whose raw auction count is below the page size, counted before validation so a skipped record cannot end a run early. Individual auctions that fail validation are skipped and counted in `records_rejected`; a page where more than 10% of auctions are invalid fails as a response-format change. Internationalized domain names are stored in punycode.
 
