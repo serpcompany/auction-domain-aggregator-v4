@@ -20,6 +20,7 @@ Confidence labels:
 | Dynadot API                   | No, not without written permission               | Verified   |
 | DropCatch API                 | Not addressed; ask first                         | Inferred   |
 | GoDaddy API and inventory     | Not granted; content licensed for internal use   | Verified   |
+| Namecheap market sales CSV    | Yes, by the owner's decision (2026-10-07)        | Inferred   |
 | Ahrefs Domain Rating (DR API) | Yes, with attribution and link                   | Verified   |
 | Other Ahrefs metrics          | Only through Ahrefs Connect (Enterprise, OAuth)  | Verified   |
 | Linking out to auction pages  | No clause against plain links; affiliate links OK | Inferred   |
@@ -67,7 +68,22 @@ The inventory download page is arguably a way of access GoDaddy "may designate",
 
 **Current use (2026-10-06, issue #16):** `pnpm sync godaddy` downloads `all_biddable_auctions.json.zip` from these public files into the owner's local D1 for the owner's own use, which is internal use. That includes the file's Majestic and SEMrush metrics. Nothing from it may be shown to other people, including paying customers, until GoDaddy grants written permission.
 
-## 4. Ahrefs
+## 4. Namecheap
+
+Researched 2026-10-07 for issue #71. Namecheap runs its own expired-domain auctions (it stopped sending expired names to GoDaddy Auctions in 2021) on Namecheap Market. The auctions page (`namecheap.com/market/auctions/`) links "Export all current domain auctions to CSV" to a public file at `https://d3ry1h4w5036x1.cloudfront.net/reports/Namecheap_Market_Sales.csv`. No login is needed, and the knowledge base says it is refreshed once per hour. The Market Auctions API (`aftermarketapi.namecheap.com`, Bearer key, phone-verified Market account) carries the same sales, but its rate limits are not documented. The classic Namecheap API has no auction data.
+
+| Question   | Answer |
+| ---------- | ------ |
+| Allowed?   | **Not addressed.** No licence covers the CSV, and no clause addresses showing listings to third parties. |
+| Conditions | The Universal Terms of Service cover "platforms, APIs". They forbid using them to "abuse and/or overload", including "repetitive, high volume requests", and forbid harvesting user content without permission. One download a day is not high volume. Rows with `isPartnerSale=1` are cross-listed from partner registrars' platforms. |
+| Evidence   | Universal ToS (`namecheap.com/legal/universal/universal-tos/`); Domain Market agreement (`namecheap.com/legal/domains/marketplace-agreement/`), which has no clause on scraping or redistribution; `robots.txt` does not disallow `/market/`. |
+| Confidence | **Inferred.** Namecheap publishes the file for anyone to download, but silence is not permission to republish it. |
+
+**Current use (2026-10-07, issue #71):** `pnpm sync namecheap` downloads the CSV once per run into the owner's local D1 for the owner's own use, and every row links back to its Namecheap sale page. That includes the file's Majestic, Semrush, and Estibot values. Its Ahrefs Domain Rating column is not stored.
+
+**Owner decision (2026-10-07):** the owner approved showing Namecheap listings to paying customers, each row linking back to its Namecheap sale page. This is the owner's call on the terms' silence, not written permission from Namecheap. Revisit it if Namecheap publishes terms for the file or objects.
+
+## 5. Ahrefs
 
 ### Domain Rating
 
@@ -90,7 +106,7 @@ Ahrefs published a separate Domain Rating licence (last modified 2026-06-11) and
 | Evidence   | Ahrefs Connect Terms of Service §§1 to 8; Ahrefs Connect introduction; Ahrefs Terms of Service §§4.4(i), 4.4(j), 4.4(l), 12.4.                                                                                                                                                                                                                                                                                                                                                                    |
 | Confidence | **Verified** for Connect rules and internal-use limit. **Inferred** that pasted BYO keys are unsafe.                                                                                                                                                                                                                                                                                                                                                                                               |
 
-## 5. Competitors
+## 6. Competitors
 
 | Product           | What they say publicly                                                                                                                                                                                                                                                                                                                                                                      | Confidence |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------- |
@@ -103,6 +119,8 @@ Competitors operating openly is evidence of tolerance, not of permission. None p
 ## Recommended actions
 
 ### Safe to build now
+
+- Namecheap listings from the public market sales CSV, linked back to each sale (owner decision, 2026-10-07; see section 4).
 
 - Keep the current single-owner, local use. Every source above permits the owner's own use of their own account and API.
 - Show Ahrefs DR from the free `domain-rating-free` endpoint with "Domain Rating by Ahrefs" adjacent to each value (or the column header, if Ahrefs confirms that counts as adjacent) and linked to `https://ahrefs.com/`.

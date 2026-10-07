@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
-import { parseDomain, parseMoneyCents, ResponseTooLargeError } from '../normalize'
+import { parseDomain, parseMoneyCents } from '../normalize'
+import { normalizeStagedRecords, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
   type NormalizedListing,
@@ -26,9 +27,6 @@ export const GODADDY_PAGE_SIZE = 1000
 // staging rather than in every sync.
 export const GODADDY_PAGE_BYTE_LIMIT = 10 * 1024 * 1024
 export const GODADDY_MAX_PAGES = 1000
-// A page where more than this share of records is invalid indicates a format
-// change rather than a few bad records.
-const MAX_REJECTED_RATIO = 0.1
 
 const money = z.union([z.string().max(64), z.number()])
 const count = z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER)
@@ -56,16 +54,6 @@ const godaddyRecordSchema = z
   .passthrough()
 
 type GodaddyRecord = z.infer<typeof godaddyRecordSchema>
-
-// The page envelope written by the stage step. Records are validated one at
-// a time so a single malformed listing is skipped, not the whole page.
-const pageSchema = z
-  .object({
-    page: z.number().int().positive(),
-    isLastPage: z.boolean(),
-    records: z.array(z.unknown()).max(GODADDY_PAGE_SIZE)
-  })
-  .strict()
 
 export type GodaddyProviderErrorCode =
   | 'godaddy_invalid_request'
@@ -164,21 +152,11 @@ function normalizeRecord(record: GodaddyRecord): NormalizedListing {
 }
 
 export function normalizeGodaddyRecords(records: unknown[]): Omit<ProviderPage, 'isLastPage'> {
-  const listings: NormalizedListing[] = []
-  for (const record of records) {
-    const parsed = godaddyRecordSchema.safeParse(record)
-    if (!parsed.success) continue
-    try {
-      listings.push(normalizeRecord(parsed.data))
-    } catch {
-      // Counted as rejected below.
-    }
-  }
-  const rejected = records.length - listings.length
-  if (rejected > records.length * MAX_REJECTED_RATIO) {
-    throw new GodaddyProviderError('godaddy_response_error')
-  }
-  return { listings, received: records.length, rejected }
+  return normalizeStagedRecords(
+    records,
+    record => normalizeRecord(godaddyRecordSchema.parse(record)),
+    () => new GodaddyProviderError('godaddy_response_error')
+  )
 }
 
 export function createGodaddyAdapter({
@@ -189,41 +167,17 @@ export function createGodaddyAdapter({
   return {
     provider: 'godaddy',
     async fetchPage({ pageIndex }) {
-      if (
-        !pages ||
-        !Number.isSafeInteger(pageIndex) ||
-        pageIndex < 1 ||
-        pageIndex > GODADDY_MAX_PAGES
-      ) {
-        throw new GodaddyProviderError('godaddy_invalid_request')
-      }
-      let text: string | null
-      try {
-        text = await pages.readPage(pageIndex, GODADDY_PAGE_BYTE_LIMIT)
-      } catch (error) {
-        throw new GodaddyProviderError(
-          error instanceof ResponseTooLargeError
-            ? 'godaddy_response_too_large'
-            : 'godaddy_page_read_error'
-        )
-      }
-      // The stage marks the final page explicitly, so a page that does not
-      // exist is an error rather than the end of the feed.
-      if (text === null) throw new GodaddyProviderError('godaddy_missing_page')
-      let body: unknown
-      try {
-        body = JSON.parse(text)
-      } catch {
-        throw new GodaddyProviderError('godaddy_parse_error')
-      }
-      const parsed = pageSchema.safeParse(body)
-      if (!parsed.success || parsed.data.page !== pageIndex) {
-        throw new GodaddyProviderError('godaddy_response_error')
-      }
-      return {
-        ...normalizeGodaddyRecords(parsed.data.records),
-        isLastPage: parsed.data.isLastPage
-      }
+      const page = await readStagedPage(
+        pages,
+        pageIndex,
+        {
+          pageSize: GODADDY_PAGE_SIZE,
+          maxPages: GODADDY_MAX_PAGES,
+          maxPageBytes: GODADDY_PAGE_BYTE_LIMIT
+        },
+        code => new GodaddyProviderError(`godaddy_${code}`)
+      )
+      return { ...normalizeGodaddyRecords(page.records), isLastPage: page.isLastPage }
     }
   }
 }
