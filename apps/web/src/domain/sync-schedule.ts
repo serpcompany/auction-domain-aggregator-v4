@@ -1,21 +1,30 @@
 import { compactDuration } from '@/domain/domain-table'
 
-// The ingestion Worker's daily Cron Trigger (`wrangler.ingestion.jsonc`,
-// `triggers.crons`). A test keeps the two in step.
-export const SYNC_CRON = '30 15 * * *'
-const SYNC_HOUR_UTC = 15
-const SYNC_MINUTE_UTC = 30
+// Each environment's ingestion Worker syncs daily at its own time
+// (`wrangler.ingestion.jsonc`, `triggers.crons`): Staging later than
+// Production, so the two never page the same provider API at once. The
+// website shows the time from its own `SYNC_TIME_UTC` var (`wrangler.jsonc`),
+// and a test keeps each environment's pair in step.
+export type SyncSchedule = { hour: number; minute: number; cron: string; label: string }
 
-export const SYNC_SCHEDULE_LABEL = 'Daily at 15:30 UTC'
+const SYNC_TIME = /^([01]\d|2[0-3]):([0-5]\d)$/
 
-export function nextScheduledSync(now: Date) {
+// `HH:MM` in UTC; anything else falls back to Production's 15:30.
+export function syncSchedule(time?: string): SyncSchedule {
+  const match = SYNC_TIME.exec(time ?? '')
+  const [hour, minute] = match ? [Number(match[1]), Number(match[2])] : [15, 30]
+  const clock = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`
+  return { hour, minute, cron: `${minute} ${hour} * * *`, label: `Daily at ${clock} UTC` }
+}
+
+export function nextScheduledSync(now: Date, schedule: SyncSchedule = syncSchedule()) {
   const next = new Date(
     Date.UTC(
       now.getUTCFullYear(),
       now.getUTCMonth(),
       now.getUTCDate(),
-      SYNC_HOUR_UTC,
-      SYNC_MINUTE_UTC
+      schedule.hour,
+      schedule.minute
     )
   )
   if (next <= now) next.setUTCDate(next.getUTCDate() + 1)

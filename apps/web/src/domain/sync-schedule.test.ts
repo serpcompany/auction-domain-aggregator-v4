@@ -8,15 +8,41 @@ import {
   formatRunDuration,
   nextScheduledSync,
   providerFeed,
-  SYNC_CRON
+  syncSchedule
 } from '@/domain/sync-schedule'
 
 const now = new Date('2026-10-07T02:19:00.000Z')
 
 describe('sync schedule', () => {
-  it('matches the ingestion Worker cron', () => {
-    const config = readFileSync(join(process.cwd(), 'wrangler.ingestion.jsonc'), 'utf8')
-    expect(config).toContain(`"crons": ["${SYNC_CRON}"]`)
+  it('shows each environment the time its ingestion Worker runs', () => {
+    const read = (file: string) => readFileSync(join(process.cwd(), file), 'utf8')
+    // Top level (local), then env.staging, then env.production, in both files.
+    const crons = [...read('wrangler.ingestion.jsonc').matchAll(/"crons": \["([^"]+)"\]/g)].map(
+      match => match[1]
+    )
+    const times = [...read('wrangler.jsonc').matchAll(/"SYNC_TIME_UTC": "([^"]+)"/g)].map(
+      match => match[1]
+    )
+    expect(crons).toHaveLength(3)
+    expect(times.map(time => syncSchedule(time).cron)).toEqual(crons)
+    // Staging runs after Production, so they never page a provider at once.
+    expect(times).toEqual(['15:30', '17:30', '15:30'])
+  })
+
+  it('reads HH:MM in UTC and falls back to 15:30', () => {
+    expect(syncSchedule('17:30')).toEqual({
+      hour: 17,
+      minute: 30,
+      cron: '30 17 * * *',
+      label: 'Daily at 17:30 UTC'
+    })
+    expect(syncSchedule('07:05').label).toBe('Daily at 07:05 UTC')
+    for (const invalid of [undefined, '', '24:00', '9:30', 'noon']) {
+      expect(syncSchedule(invalid).label).toBe('Daily at 15:30 UTC')
+    }
+    expect(nextScheduledSync(now, syncSchedule('17:30')).toISOString()).toBe(
+      '2026-10-07T17:30:00.000Z'
+    )
   })
 
   it('finds the next 15:30 UTC run', () => {
