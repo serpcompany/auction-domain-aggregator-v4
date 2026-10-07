@@ -659,11 +659,12 @@ describe('scheduled provider syncs', () => {
     const create = vi.fn(async () => ({}) as WorkflowInstance)
     await expect(
       scheduleProviderSyncs({ create }, new Date('2026-10-06T15:30:00.000Z'))
-    ).resolves.toEqual(['dynadot', 'godaddy', 'namecheap'])
+    ).resolves.toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
     expect(create.mock.calls).toEqual([
       [{ id: 'dynadot-20261006T1530', params: { provider: 'dynadot' } }],
       [{ id: 'godaddy-20261006T1530', params: { provider: 'godaddy' } }],
-      [{ id: 'namecheap-20261006T1530', params: { provider: 'namecheap' } }]
+      [{ id: 'namecheap-20261006T1530', params: { provider: 'namecheap' } }],
+      [{ id: 'namesilo-20261006T1530', params: { provider: 'namesilo' } }]
     ])
   })
 
@@ -675,6 +676,6 @@ describe('scheduled provider syncs', () => {
     await expect(
       scheduleProviderSyncs({ create }, new Date('2026-10-06T15:30:00.000Z'))
     ).rejects.toThrow('sync_schedule_failed')
-    expect(create).toHaveBeenCalledTimes(3)
+    expect(create).toHaveBeenCalledTimes(4)
   })
 })

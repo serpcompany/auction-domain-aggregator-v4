@@ -17,5 +17,5 @@ Accepted technical choices and how the implemented system behaves, one topic per
 
 - [Data ingestion](data-ingestion.md): the Worker and Workflow steps, retries, reconciliation, listing lifecycle, run state, and feed metrics. Read it before changing anything under `apps/web/src/server/ingestion/`.
 - [Provider rate limits](provider-rate-limits.md): each provider's published limit and what the sync enforces.
-- [Dynadot](dynadot-sync.md), [GoDaddy](godaddy-sync.md), and [Namecheap](namecheap-sync.md) synchronization: one leaf per provider with its source, staging, adapter, record mapping, and evidence. Read the provider's leaf before changing its adapter.
+- [Dynadot](dynadot-sync.md), [GoDaddy](godaddy-sync.md), [Namecheap](namecheap-sync.md), and [NameSilo](namesilo-sync.md) synchronization: one leaf per provider with its source, staging, adapter, record mapping, and evidence. Read the provider's leaf before changing its adapter.
 - [Local sync runs](local-sync-runs.md): how `pnpm sync <provider>` runs the Workflow locally and keeps credentials out of the bundle.

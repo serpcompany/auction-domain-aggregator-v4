@@ -1,7 +1,13 @@
 import { z } from 'zod'
 
-import { parseDomain, parseField, parseMoneyCents } from '../normalize'
-import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
+import {
+  normalizeRecords,
+  parseDomain,
+  parseField,
+  parseMoneyCents,
+  wholeYearsBetween
+} from '../normalize'
+import { isTransientStagedPageError, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
   type NormalizedListing,
@@ -97,18 +103,6 @@ function parseSaleUrl(value: string) {
   return { auctionUrl: url.toString(), externalId: match[1]! }
 }
 
-// Whole years from registration to the sale's start, so the value does not
-// depend on when the feed is read. Null when either date is missing or the
-// registration is reported after the start.
-function ageYears(registered: Date | null, startsAt: Date | null) {
-  if (!registered || !startsAt) return null
-  let years = startsAt.getUTCFullYear() - registered.getUTCFullYear()
-  const anniversary = new Date(registered)
-  anniversary.setUTCFullYear(startsAt.getUTCFullYear())
-  if (anniversary > startsAt) years -= 1
-  return years >= 0 ? years : null
-}
-
 function seoMetrics(record: NamecheapRecord): NormalizedSeoMetrics | undefined {
   const metrics = {
     majesticTf: record.majesticTrustFlow ?? null,
@@ -146,7 +140,8 @@ function normalizeRecord(record: NamecheapRecord): NormalizedListing {
     bidderCount: null,
     startsAt,
     endsAt: parseField('endDate', () => parseTimestamp(record.endDate)),
-    ageYears: ageYears(registered, startsAt),
+    // Whole years from registration to the sale's start.
+    ageYears: wholeYearsBetween(registered, startsAt),
     inboundLinks: null,
     visitors: null,
     // Namecheap shows Estibot's valuation as the sale's appraisal.
@@ -161,7 +156,7 @@ function normalizeRecord(record: NamecheapRecord): NormalizedListing {
 }
 
 export function normalizeNamecheapRecords(records: unknown[]): Omit<ProviderPage, 'isLastPage'> {
-  return normalizeStagedRecords(
+  return normalizeRecords(
     records,
     record => normalizeRecord(namecheapRecordSchema.parse(record)),
     rejections => new NamecheapProviderError('namecheap_too_many_rejected', { rejections })

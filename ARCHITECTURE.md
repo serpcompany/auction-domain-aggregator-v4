@@ -2,7 +2,7 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 ([Production sync](docs/technical-design/production-sync.md)). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
+This document maps the current application and its stable boundaries. Dynadot, GoDaddy, Namecheap, and NameSilo auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler; NameSilo's first real sync is pending. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 ([Production sync](docs/technical-design/production-sync.md)). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
 
 How each part behaves in detail is in the [technical design](docs/technical-design/README.md); this document keeps only what is unlikely to change.
 
@@ -49,7 +49,7 @@ Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps
 
 Adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`): they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `sync.ts` defines provider-neutral synchronization, run in segments of pages per Workflow step. Continuation state is server-owned in D1, so a segment that runs again resumes the same run from its last committed page. `d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so one provider's run never reconciles or interrupts another's. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
-A provider either has a paged API, paced to its declared rate limit, or publishes one file. A file feed is downloaded once per run and split into page files under the Workflow instance's own prefix in the `FEED_PAGES` R2 bucket; its adapter reads those pages and follows the same sync path. Dynadot is a paged API; GoDaddy (zipped JSON) and Namecheap (CSV) are file feeds. The details are in [Data ingestion](docs/technical-design/data-ingestion.md) and one leaf per provider.
+A provider either has a paged API, paced to its declared rate limit, or publishes one file. A file feed is downloaded once per run and split into page files under the Workflow instance's own prefix in the `FEED_PAGES` R2 bucket; its adapter reads those pages and follows the same sync path. Dynadot and NameSilo are paged APIs; GoDaddy (zipped JSON) and Namecheap (CSV) are file feeds. The details are in [Data ingestion](docs/technical-design/data-ingestion.md) and one leaf per provider.
 
 ### Domain enrichment
 

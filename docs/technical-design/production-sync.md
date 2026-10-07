@@ -7,6 +7,7 @@ Production is the ingestion Worker only; the website has no deployed environment
 - R2 `auction-domain-aggregator-feed-pages-production`, binding `FEED_PAGES`. A lifecycle rule (`expire-staged-feed-pages`) expires `feed-pages/` objects after 2 days, so pages a failed cleanup step leaves behind can't accumulate.
 - Workflow `auction-domain-aggregator-provider-sync-production` (workflow names are account-wide), binding `PROVIDER_SYNC`, class `ProviderSyncWorkflow`.
 - Secret `DYNADOT_API_PRODUCTION_KEY`, which the owner sets with `wrangler secret put DYNADOT_API_PRODUCTION_KEY --config wrangler.ingestion.jsonc --env production`. Without it, Dynadot's instance fails with `dynadot_missing_credentials` and the others run.
+- Secret `NAMESILO_API_KEY`, set the same way. Without it, NameSilo's instance fails with `namesilo_missing_credentials`.
 
 CI deploys it (`deploy-sync-production` in `.github/workflows/ci.yml`) on each push to `main` after `check` passes: build with `--dry-run`, skip unless the commit is still `main`'s tip, `pnpm db:migrate:production`, `pnpm deploy:sync:production`, then verify no migration is pending. It needs the `CLOUDFLARE_API_TOKEN` secret (D1, Workers Scripts and R2 edit) and the `CLOUDFLARE_ACCOUNT_ID` variable, and warns without deploying when either is missing. Agents never run `--remote` commands locally.
 

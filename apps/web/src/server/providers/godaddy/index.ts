@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { parseDomain, parseField, parseMoneyCents } from '../normalize'
-import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
+import { normalizeRecords, parseDomain, parseField, parseMoneyCents } from '../normalize'
+import { isTransientStagedPageError, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
   type NormalizedListing,
@@ -157,7 +157,7 @@ function normalizeRecord(record: GodaddyRecord): NormalizedListing {
 }
 
 export function normalizeGodaddyRecords(records: unknown[]): Omit<ProviderPage, 'isLastPage'> {
-  return normalizeStagedRecords(
+  return normalizeRecords(
     records,
     record => normalizeRecord(godaddyRecordSchema.parse(record)),
     rejections => new GodaddyProviderError('godaddy_too_many_rejected', { rejections })
