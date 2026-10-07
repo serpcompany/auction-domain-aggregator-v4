@@ -1,0 +1,146 @@
+import { ExternalLinkIcon } from 'lucide-react'
+
+import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
+import { Badge } from '@/components/ui/badge'
+import {
+  type EndTimeState,
+  formatAuctionType,
+  formatCompactCount,
+  formatEndTime,
+  formatMoney,
+  formatProvider
+} from '@/domain/domain-table'
+import { type ColumnKey, TABLE_COLUMNS } from '@/domain/table-columns'
+import type { DomainListingRow } from '@/server/queries/domain-listings'
+
+const urgency: Record<EndTimeState, string> = {
+  neutral: '',
+  amber: 'font-medium text-warning-foreground',
+  red: 'font-semibold text-destructive',
+  ended: 'font-semibold text-destructive'
+}
+
+// The metric badges under each listing follow the chosen columns. Source,
+// price, bids, and the end time are always in the item itself.
+function badge(key: ColumnKey, row: DomainListingRow): string | null {
+  const seo = row.seoMetrics
+  const count = (value: number) => formatCompactCount(value).compact
+  switch (key) {
+    case 'age':
+      return row.ageYears === null ? null : `${row.ageYears} yrs`
+    case 'links':
+      return row.inboundLinks === null ? null : `${count(row.inboundLinks)} links`
+    case 'appraisal':
+      return row.appraisalCents === null
+        ? null
+        : `Appr. ${formatMoney(row.appraisalCents, row.currency)}`
+    case 'renewal':
+      return row.renewalPriceCents === null
+        ? null
+        : `Renews ${formatMoney(row.renewalPriceCents, row.currency)}`
+    case 'visitors':
+      return row.visitors === null ? null : `${count(row.visitors)} visitors`
+    case 'length':
+      return `${row.domainLength} chars`
+    case 'majesticTf':
+      return seo?.majesticTf == null ? null : `TF ${seo.majesticTf}`
+    case 'majesticCf':
+      return seo?.majesticCf == null ? null : `CF ${seo.majesticCf}`
+    case 'majesticRefDomains':
+      return seo?.majesticRefDomains == null
+        ? null
+        : `${count(seo.majesticRefDomains)} ref. domains`
+    case 'semrushAs':
+      return seo?.semrushAs == null ? null : `AS ${seo.semrushAs}`
+    case 'domainRating':
+      return row.domainRating === null ? null : `DR ${Math.round(row.domainRating)}`
+    default:
+      return null
+  }
+}
+
+export function ResultsList({
+  rows,
+  visibleColumns,
+  now
+}: {
+  rows: DomainListingRow[]
+  visibleColumns: readonly ColumnKey[]
+  now: Date
+}) {
+  const badgeColumns = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
+  return (
+    <div>
+      {visibleColumns.includes('domainRating') ? (
+        <p className="border-b bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+          DR = {/* Required by the Ahrefs Domain Rating licence. */}
+          <a
+            href="https://ahrefs.com/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="underline underline-offset-2"
+          >
+            Domain Rating by Ahrefs
+          </a>
+          . Tap a listing for details.
+        </p>
+      ) : null}
+      <ul aria-label="Domain results" className="divide-y">
+        {rows.map(row => {
+          const end = formatEndTime(row.endsAt, now)
+          const badges = badgeColumns
+            .map(column => [column.key, badge(column.key, row)] as const)
+            .filter((entry): entry is [ColumnKey, string] => entry[1] !== null)
+          return (
+            <li
+              key={`${row.provider}:${row.externalId}`}
+              className="relative grid grid-cols-[minmax(0,1fr)_auto] gap-x-3 gap-y-0.5 px-3 py-3 hover:bg-muted/50"
+            >
+              <a
+                href={row.auctionUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 justify-self-start font-mono font-medium underline-offset-4 hover:underline"
+              >
+                <span className="truncate">{row.domainName}</span>
+                <ExternalLinkIcon
+                  className="size-3 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
+                />
+                <span className="sr-only"> (opens auction in a new tab)</span>
+              </a>
+              <span className="text-right font-semibold tabular-nums">
+                {formatMoney(row.currentBidCents, row.currency)}
+              </span>
+              <span className="truncate text-xs text-muted-foreground">
+                {formatProvider(row.provider)} · {formatAuctionType(row.auctionType)} ·{' '}
+                {row.bidCount.toLocaleString('en-US')} {row.bidCount === 1 ? 'bid' : 'bids'}
+              </span>
+              <time
+                dateTime={row.endsAt.toISOString()}
+                className={`text-right text-xs tabular-nums ${urgency[end.state]}`}
+              >
+                {end.relative}
+              </time>
+              {badges.length > 0 ? (
+                <div className="col-span-2 mt-1.5 flex flex-wrap gap-1">
+                  {badges.map(([key, text]) => (
+                    <Badge
+                      key={key}
+                      variant="secondary"
+                      className="font-normal tabular-nums"
+                      title={key === 'domainRating' ? 'Domain Rating by Ahrefs' : undefined}
+                    >
+                      {text}
+                    </Badge>
+                  ))}
+                </div>
+              ) : null}
+              <ListingDetailsTrigger row={row} stretched />
+            </li>
+          )
+        })}
+      </ul>
+    </div>
+  )
+}

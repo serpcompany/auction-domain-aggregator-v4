@@ -146,9 +146,10 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('')
 })
 
+// Below 768 px the list replaces the table (see the phone journey below).
 for (const viewport of [
   { name: 'desktop', width: 1280, height: 720 },
-  { name: '375px', width: 375, height: 812 }
+  { name: 'narrow desktop', width: 800, height: 720 }
 ]) {
   test(`contains table scrolling and renders sticky, hover, and focus states at ${viewport.name}`, async ({
     page
@@ -339,3 +340,53 @@ for (const viewport of [
       .not.toBe(focusBefore)
   })
 }
+
+test('opens listing details beside the table on desktop', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?q=garden')
+
+  await page.getByRole('button', { name: 'Details for garden.com' }).click()
+  const sheet = page.getByRole('dialog')
+  await expect(sheet.getByText('garden.com', { exact: true })).toBeVisible()
+  await expect(sheet.getByRole('link', { name: /Open auction on Dynadot/ })).toHaveAttribute(
+    'target',
+    '_blank'
+  )
+  await expect(sheet.getByRole('region', { name: 'Auction' })).toContainText('Current price')
+  await expect(sheet.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(sheet).toBeHidden()
+})
+
+test('shows listings as a list on phones and opens details from a tap', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/')
+
+  const list = page.getByRole('list', { name: 'Domain results' })
+  await expect(list).toBeVisible()
+  await expect(page.getByTestId('domain-results-scroll-container')).toBeHidden()
+  await expect(list.getByRole('listitem')).toHaveCount(50)
+  const width = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: document.documentElement.clientWidth
+  }))
+  expect(width.document).toBeLessThanOrEqual(width.viewport)
+
+  await expect(page.getByRole('link', { name: /^Filters/ })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('endsAt:asc')
+  await expect(page.getByRole('button', { name: 'Fields shown' })).toBeVisible()
+
+  const garden = list.getByRole('listitem').filter({ hasText: 'garden.com' })
+  await expect(garden.getByRole('link', { name: /garden\.com.*opens auction/i })).toHaveAttribute(
+    'target',
+    '_blank'
+  )
+  await garden.getByRole('button', { name: 'Details for garden.com' }).click()
+  const drawer = page.getByRole('dialog')
+  await expect(drawer.getByText('garden.com', { exact: true })).toBeVisible()
+  await expect(drawer.getByRole('region', { name: 'Domain' })).toContainText('TLD')
+
+  await page.goto('/?sort=price&direction=desc')
+  await page.getByRole('combobox', { name: 'Sort' }).selectOption('domain:asc')
+  await expectUrlParameter(page, 'sort', 'domain')
+})

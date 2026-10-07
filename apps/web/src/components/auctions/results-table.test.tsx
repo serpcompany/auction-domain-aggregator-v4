@@ -43,6 +43,7 @@ describe('ResultsTable', () => {
       'Majestic',
       'Semrush',
       'Domain Ratingby Ahrefs',
+      'Details',
       'TF',
       'CF',
       'AS',
@@ -87,13 +88,17 @@ describe('ResultsTable', () => {
       '15',
       '28',
       '33',
-      '42'
+      '42',
+      ''
     ])
     const domain = screen.getByRole('link', { name: /garden-example\.com/ })
     expect(domain).toHaveAttribute('target', '_blank')
     expect(domain).toHaveAttribute('rel', 'noopener noreferrer')
     expect(screen.getByText('30m')).toHaveClass('text-destructive')
     expect(screen.getByTitle('Dynadot appraisal')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Details for garden-example.com' })
+    ).toBeInTheDocument()
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
@@ -103,12 +108,12 @@ describe('ResultsTable', () => {
     )
 
     expect(cells(2)).toEqual([
-      'fresh-example.net (opens auction in a new tab)',
+      'fresh2example.net (opens auction in a new tab)',
       'GoDaddy · Auction',
       '$9.99',
       '1',
       '2d 2hJul 15, 12:00 UTC',
-      '1 yr',
+      '—Not collected',
       '—Not collected',
       '—Not collected',
       '—Not collected',
@@ -118,11 +123,12 @@ describe('ResultsTable', () => {
       '—Not collected',
       '—Not collected',
       '—Not collected',
-      '—Not collected'
+      '—Not collected',
+      ''
     ])
     expect(fetchMock).toHaveBeenCalledWith(
       '/api/enrichment/domain-rating',
-      expect.objectContaining({ body: JSON.stringify({ domains: ['fresh-example.net'] }) })
+      expect.objectContaining({ body: JSON.stringify({ domains: ['fresh2example.net'] }) })
     )
   })
 
@@ -163,6 +169,7 @@ describe('ResultsTable', () => {
       'Domain',
       'Renewal',
       'Majestic',
+      'Details',
       'Ref. dom.'
     ])
     expect(screen.getByRole('link', { name: 'Renewal' })).toHaveAttribute(
@@ -199,6 +206,18 @@ describe('ResultsTable', () => {
         `/?sort=${sort}&direction=desc&page=1`
       )
     }
+  })
+
+  it('uses the singular for a one-year-old domain', () => {
+    render(
+      <ResultsTable
+        rows={[{ ...fullRow, ageYears: 1 }]}
+        filters={filters}
+        visibleColumns={['age']}
+        now={now}
+      />
+    )
+    expect(screen.getByText('1 yr')).toBeInTheDocument()
   })
 
   it('uses one header row when no metric column is shown', () => {

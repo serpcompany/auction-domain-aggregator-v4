@@ -27,7 +27,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
 - [x] (2026-10-07) Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
 - [x] (2026-10-07) Milestone 2b (#55), done before Milestone 2 so the toolbar's All filters button has a target: Filters page at `/filters/`.
-- [ ] Milestone 3 (#56): details panel and the phone layout.
+- [x] (2026-10-07) Milestone 3 (#56): details panel and the phone layout.
 - [ ] Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
 - [ ] Milestone 5 (#58): Sync status screen.
 - [ ] Milestone 6 (in #52): documentation, final verification at both widths, plan moved to `completed/`.

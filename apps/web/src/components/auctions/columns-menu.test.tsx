@@ -1,7 +1,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { ColumnsMenu } from '@/components/auctions/columns-menu'
+import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
 import { DEFAULT_COLUMNS } from '@/domain/table-columns'
 
 const refresh = vi.fn()
@@ -69,5 +69,22 @@ describe('ColumnsMenu', () => {
     fireEvent.click(screen.getByRole('menuitem', { name: 'Reset to default' }))
     expect(document.cookie).toContain(`columns=${DEFAULT_COLUMNS.join(',')}`)
     expect(refresh).toHaveBeenCalled()
+  })
+
+  it('lets phones choose the metrics under each listing', async () => {
+    render(<FieldsDrawer visibleColumns={DEFAULT_COLUMNS} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Fields shown' }))
+
+    const drawer = await screen.findByRole('dialog')
+    expect(drawer).toHaveTextContent('Price, source, bids, and end time always show.')
+    expect(screen.queryByRole('checkbox', { name: 'Price' })).not.toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: /Domain Rating/ })).toBeChecked()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Visitors' }))
+    expect(document.cookie).toContain(
+      'columns=source,price,bids,ends,age,links,appraisal,visitors,majesticTf,majesticCf,semrushAs,domainRating'
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
+    expect(document.cookie).toContain(`columns=${DEFAULT_COLUMNS.join(',')}`)
+    expect(refresh).toHaveBeenCalledTimes(2)
   })
 })
