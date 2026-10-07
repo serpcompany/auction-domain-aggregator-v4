@@ -47,7 +47,7 @@
   ],
   "env": {
     // Staging: the same Worker and Workflow on Staging's own D1 and R2, synced
-    // daily at 23:30 UTC (08:30 in Japan), eight hours after Production.
+    // daily at 11:30 UTC (20:30 in Japan), four hours before Production.
     "staging": {
       "name": "auction-domain-aggregator-ingestion-staging",
       // No HTTP routes: no workers.dev URL and no preview URLs.
@@ -57,7 +57,7 @@
         "cpu_ms": 60000
       },
       "triggers": {
-        "crons": ["30 23 * * *"]
+        "crons": ["30 11 * * *"]
       },
       "observability": {
         "enabled": true

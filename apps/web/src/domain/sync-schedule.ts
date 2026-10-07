@@ -1,7 +1,7 @@
 import { compactDuration } from '@/domain/domain-table'
 
 // Each environment's ingestion Worker syncs daily at its own time
-// (`wrangler.ingestion.jsonc`, `triggers.crons`): Staging later than
+// (`wrangler.ingestion.jsonc`, `triggers.crons`): Staging hours apart from
 // Production, so the two never page the same provider API at once. The
 // website shows the time from its own `SYNC_TIME_UTC` var (`wrangler.jsonc`),
 // and a test keeps each environment's pair in step.
