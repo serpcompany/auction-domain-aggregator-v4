@@ -1,7 +1,0 @@
-# Allow pnpm 10 to run install scripts only for the native tooling required by
-# the generated Next.js and Cloudflare development stack.
-onlyBuiltDependencies:
-  - esbuild
-  - sharp
-  - unrs-resolver
-  - workerd

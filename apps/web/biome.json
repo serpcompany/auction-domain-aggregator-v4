@@ -1,0 +1,81 @@
+{
+  "$schema": "https://biomejs.dev/schemas/2.5.15/schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true,
+    "root": "../.."
+  },
+  "files": {
+    "ignoreUnknown": true,
+    "includes": [
+      "**",
+      "!node_modules",
+      "!.next",
+      "!.open-next",
+      "!.wrangler",
+      "!coverage",
+      "!tmp",
+      "!drizzle",
+      "!cloudflare-env.d.ts",
+      "!next-env.d.ts",
+      "!public"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineEnding": "lf",
+    "lineWidth": 100
+  },
+  "css": {
+    "parser": {
+      "tailwindDirectives": true
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true
+    },
+    "domains": {
+      "next": "recommended",
+      "react": "recommended"
+    }
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "semicolons": "asNeeded",
+      "trailingCommas": "none",
+      "arrowParentheses": "asNeeded"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["src/components/ui/**"],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off",
+            "noRedundantRoles": "off",
+            "noLabelWithoutControl": "off",
+            "useKeyWithClickEvents": "off"
+          },
+          "suspicious": {
+            "noDoubleEquals": "off",
+            "noArrayIndexKey": "off"
+          }
+        }
+      }
+    }
+  ]
+}

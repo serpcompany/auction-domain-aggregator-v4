@@ -18,7 +18,7 @@ This is a Cloudflare-first decision, not a requirement to use every Cloudflare p
 
 ### Package manager: pnpm
 
-Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package scripts. Install that known-good Corepack release with npm before enabling its shims; do not rely on the Corepack version bundled with Node.js. Commit `pnpm-lock.yaml` and keep the concrete pnpm version in `package.json` so local development and CI resolve the same dependency graph. The supported runtime is Node.js 22.12 or a newer 22.x release; `.node-version` pins the major version for local version managers and CI. Newer majors are excluded because Node 25 previously hung local Wrangler platform proxies.
+Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package scripts. Install that known-good Corepack release with npm before enabling its shims; do not rely on the Corepack version bundled with Node.js. Commit `apps/web/pnpm-lock.yaml` and keep the concrete pnpm version in `apps/web/package.json` so local development and CI resolve the same dependency graph. The supported runtime is Node.js 22.12 or a newer 22.x release; `apps/web/.node-version` pins the major version for local version managers and CI. Newer majors are excluded because Node 25 previously hung local Wrangler platform proxies.
 
 ### Application framework: Next.js
 
@@ -30,7 +30,7 @@ The local adapter and runtime path are verified. `pnpm upload` and `pnpm deploy`
 
 Host the website on Cloudflare. Use Cloudflare-native compute for server-side application behavior and domain-ingestion workloads when it fits their runtime and execution requirements. Use Cloudflare Cron Triggers to start periodic auction synchronization outside the user request path.
 
-Ingestion is a separate Worker (`wrangler.ingestion.jsonc`, entry `src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one Cloudflare Workflow instance per provider; Workflow steps give each stage of a sync its own CPU budget, persisted results, and retries, which replaced a loopback continuation loop on the owner's machine. Measured on 2026-10-06, staging GoDaddy's 450 MB feed inside one step used about 3 to 8 seconds of Worker CPU and about 10 MiB of JavaScript heap, so no Container is needed (`docs/plans/completed/cloud-ingestion.md`). The Worker sets `limits.cpu_ms` to 60,000 (Workers Paid). Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
+Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps/web/src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one Cloudflare Workflow instance per provider; Workflow steps give each stage of a sync its own CPU budget, persisted results, and retries, which replaced a loopback continuation loop on the owner's machine. Measured on 2026-10-06, staging GoDaddy's 450 MB feed inside one step used about 3 to 8 seconds of Worker CPU and about 10 MiB of JavaScript heap, so no Container is needed (`docs/plans/completed/cloud-ingestion.md`). The Worker sets `limits.cpu_ms` to 60,000 (Workers Paid). Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
 
 ### Object storage: Cloudflare R2
 
@@ -50,11 +50,11 @@ Use Drizzle for the database schema, migrations, and typed application queries a
 
 Do not allow provider-specific response shapes to become the database schema directly. The application schema should represent the product's domain concepts, with provider adapters translating external data into those concepts.
 
-Use Drizzle ORM 0.44.7 and Drizzle Kit 0.31.x. Keep database construction behind the server-only `src/server/db/` boundary. The concrete schema lives in `src/server/db/schema.ts`, with reviewed generated migrations under `drizzle/` and local-only migration commands in `package.json`.
+Use Drizzle ORM 0.44.7 and Drizzle Kit 0.31.x. Keep database construction behind the server-only `apps/web/src/server/db/` boundary. The concrete schema lives in `apps/web/src/server/db/schema.ts`, with reviewed generated migrations under `apps/web/drizzle/` and local-only migration commands in `apps/web/package.json`.
 
 ### UI components: shadcn/ui
 
-Follow the SERP web UI rules (serp.co `docs/agents/web.md`, "Rules for UI work"). Build from stock shadcn components first: style `base-nova` on `@base-ui/react`, added with `corepack pnpm exec shadcn add <component>` and kept stock in `src/components/ui/`, styled through `className`. Write a custom component only when shadcn has no equivalent. Color only through the tokens in `src/app/globals.css`, never Tailwind palette colors; add a token when a new color is needed. Check every UI change at 1440px and 390px wide. There is no client table framework (no TanStack): the results use the stock shadcn `Table`.
+Follow the SERP web UI rules (serp.co `docs/agents/web.md`, "Rules for UI work"). Build from stock shadcn components first: style `base-nova` on `@base-ui/react`, added with `corepack pnpm exec shadcn add <component>` and kept stock in `apps/web/src/components/ui/`, styled through `className`. Write a custom component only when shadcn has no equivalent. Color only through the tokens in `apps/web/src/app/globals.css`, never Tailwind palette colors; add a token when a new color is needed. Check every UI change at 1440px and 390px wide. There is no client table framework (no TanStack): the results use the stock shadcn `Table`.
 
 Do not treat the default appearance of generated components as the product's finished UI design. The first domain-discovery table establishes the current dense, server-rendered application pattern; later UI changes should preserve its accessible table and URL-backed filtering behavior unless a product decision replaces them.
 
@@ -62,7 +62,7 @@ Add components only as they are needed. The current set includes Alert, Badge, B
 
 ### Validation and continuous integration
 
-Use Zod 4 for runtime validation of provider responses. File feeds are split by a small dependency-free byte scanner (`src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Prettier for formatting and ESLint for static linting. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
+Use Zod 4 for runtime validation of provider responses. File feeds are split by a small dependency-free byte scanner (`apps/web/src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Biome for formatting and linting (`apps/web/biome.json`, the SERP standard settings), with stock `apps/web/src/components/ui/` exempt from the few rules that conflict with upstream shadcn. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
 `pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded runs, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. It installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
 

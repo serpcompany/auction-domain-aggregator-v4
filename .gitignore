@@ -25,7 +25,7 @@ next-env.d.ts
 
 # Test and coverage output
 coverage/
-/tmp/playwright/
+/apps/web/tmp/playwright/
 
 # Logs and local operating-system files
 *.log

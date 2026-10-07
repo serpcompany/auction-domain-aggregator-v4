@@ -12,15 +12,15 @@ This document defines the current external-data write path and its persistence r
 
 The Next.js application queries D1 for table contents, filtering, sorting, pagination, source options, and latest successful sync time. A normal page or health request does not call Dynadot, Ahrefs, Majestic, or another external provider.
 
-`src/server/queries/domain-listings.ts` is the implemented table read model. User input is normalized or selected from allowlists before Drizzle constructs parameterized queries. Only active listings and the fields needed by the table are selected. The source, auction-type, and TLD filter options come from `listing_facets`, which the write path rebuilds (below).
+`apps/web/src/server/queries/domain-listings.ts` is the implemented table read model. User input is normalized or selected from allowlists before Drizzle constructs parameterized queries. Only active listings and the fields needed by the table are selected. The source, auction-type, and TLD filter options come from `listing_facets`, which the write path rebuilds (below).
 
 ## Ingestion Worker and Workflow
 
-Ingestion runs in its own Worker, configured by `wrangler.ingestion.jsonc` with entry `src/server/ingestion/sync-worker.ts`. It has no `fetch` handler, so it serves no HTTP routes. Its bindings are `DB` (D1), `FEED_PAGES` (R2), and `PROVIDER_SYNC` (the `provider-sync` Workflow, class `ProviderSyncWorkflow`); the Dynadot key is a Worker secret.
+Ingestion runs in its own Worker, configured by `apps/web/wrangler.ingestion.jsonc` with entry `apps/web/src/server/ingestion/sync-worker.ts`. It has no `fetch` handler, so it serves no HTTP routes. Its bindings are `DB` (D1), `FEED_PAGES` (R2), and `PROVIDER_SYNC` (the `provider-sync` Workflow, class `ProviderSyncWorkflow`); the Dynadot key is a Worker secret.
 
 A daily Cron Trigger (`30 15 * * *`, after GoDaddy publishes its file around 14:30 UTC) calls `scheduled()`, which creates one `provider-sync` instance per implemented provider with ID `<provider>-<yyyymmdd>T<hhmm>` from the scheduled time, so a repeated delivery of the same firing cannot start a second instance. Instances run independently; one provider's failure does not affect another's.
 
-`sync-worker.ts` only adapts the runtime: `ProviderSyncWorkflow.run` passes its step object, bindings, and `NonRetryableError` to `runProviderSync` in `src/server/ingestion/provider-sync-workflow.ts`, which holds the steps and is unit-tested directly:
+`sync-worker.ts` only adapts the runtime: `ProviderSyncWorkflow.run` passes its step object, bindings, and `NonRetryableError` to `runProviderSync` in `apps/web/src/server/ingestion/provider-sync-workflow.ts`, which holds the steps and is unit-tested directly:
 
 1. Before any step, an unknown provider or missing credentials ends the instance with `sync_unknown_provider` or `<provider>_missing_credentials`.
 2. `stage feed` (file feeds only, described below): download and split the feed into R2 pages. Retried twice for `feed_download_failed`, `feed_extract_failed` (a truncated or corrupt download), and `feed_page_write_failed`; re-staging rewrites the same page keys. Other feed errors describe the feed itself and are not retried.
@@ -36,7 +36,7 @@ The ingestion Worker's per-invocation CPU limit applies to each step separately;
 
 ## Dynadot synchronization
 
-The Dynadot adapter (`src/server/providers/dynadot/index.ts`) requests `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the sync service. It requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
+The Dynadot adapter (`apps/web/src/server/providers/dynadot/index.ts`) requests `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the sync service. It requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
 
 For a synchronization:
 
@@ -53,7 +53,7 @@ A stale or completed run ID is rejected. Every listing write, progress update, f
 
 GoDaddy needs no credentials: the source is the public, daily `all_biddable_auctions.json.zip` from `https://inventory.auctions.godaddy.com/` (index at `/metadata.json`), about 37 MB zipped and 450 MB unzipped, shaped as `{ "meta": {...}, "data": [ ...listings ] }`. GoDaddy licenses this content for internal use only (`docs/references/data-licensing.md`), so it is for the owner's own use.
 
-The registry declares it as a file feed (`url`, archive `entry`, `field: "data"`, `pageSize: 1000`). The `stage feed` step streams it into R2 with only web-platform APIs (`src/server/ingestion/feed-stage.ts`), never holding the document in memory:
+The registry declares it as a file feed (`url`, archive `entry`, `field: "data"`, `pageSize: 1000`). The `stage feed` step streams it into R2 with only web-platform APIs (`apps/web/src/server/ingestion/feed-stage.ts`), never holding the document in memory:
 
 1. `fetch` the archive with a fixed `User-Agent` (GoDaddy's CDN answers 403 without one) and a 10-minute timeout. A declared or local-header compressed size above 512 MiB fails with `feed_too_large`.
 2. Parse the zip local file header of the first entry, which must be named `all_biddable_auctions.json`; accept deflate or stored, and a zip64 compressed size in the local header. When the entry has a data descriptor, its local sizes are placeholders (0, or `0xFFFFFFFF` with a zip64 field of 0 from streaming writers), so hold back the archive's last 256 KiB and read the size from the central directory when the download ends, because workerd's `DecompressionStream` rejects any bytes after the deflate data. Zip64 central directory and end records are not read; an archive that needs them fails with `feed_unsupported_archive`, as do a different entry name, encryption, and other compression methods.
@@ -63,7 +63,7 @@ The registry declares it as a file feed (`url`, archive `entry`, `field: "data"`
 
 Staging failures use fixed codes: `feed_download_failed` (including a connection that drops mid-archive), `feed_too_large`, `feed_extract_failed`, `feed_unsupported_archive`, `feed_parse_error`, `feed_empty`, `feed_page_write_failed` (an R2 write failure), and `feed_stage_failed` (anything unexpected, not retried).
 
-The GoDaddy adapter (`src/server/providers/godaddy/index.ts`) reads pages through a `FeedPageSource` (`src/server/ingestion/feed-pages.ts` implements it on R2 for the instance's prefix). It refuses pages above 10 MiB, requires the envelope's page number to match, parses the page with `JSON.parse` (so a record the scanner copied but that is not valid JSON fails the page with `godaddy_parse_error`), and validates each record separately with the same 10% page rejection threshold as Dynadot. Read failures are `godaddy_page_read_error`, a missing page `godaddy_missing_page`. The run then uses the unchanged sync service, storage, segmenting, and reconciliation guard.
+The GoDaddy adapter (`apps/web/src/server/providers/godaddy/index.ts`) reads pages through a `FeedPageSource` (`apps/web/src/server/ingestion/feed-pages.ts` implements it on R2 for the instance's prefix). It refuses pages above 10 MiB, requires the envelope's page number to match, parses the page with `JSON.parse` (so a record the scanner copied but that is not valid JSON fails the page with `godaddy_parse_error`), and validates each record separately with the same 10% page rejection threshold as Dynadot. Read failures are `godaddy_page_read_error`, a missing page `godaddy_missing_page`. The run then uses the unchanged sync service, storage, segmenting, and reconciliation guard.
 
 Record mapping:
 
@@ -86,17 +86,17 @@ Record mapping:
 
 ## Facet read model
 
-`listing_facets` holds the source, auction-type, and TLD values of the active inventory, across every provider, each with the latest `ends_at` among its active listings. The successful-finalization batch ends with the two statements from `src/server/db/listing-facets.ts`: delete every row, then insert the grouped values. The rebuild reads the whole table rather than one provider's rows, so it is correct whichever provider finishes last, and it is idempotent; it does not need the running-run guard. A failed or still-running run does not rebuild it, so values that only its upserted listings carry are offered after the next successful run. The rebuild took 1.7 to 3.3 seconds against the 1.02-million-active-listing local inventory, once per successful run. Migration `0006_listing_tld_length_facets.sql` backfilled it once.
+`listing_facets` holds the source, auction-type, and TLD values of the active inventory, across every provider, each with the latest `ends_at` among its active listings. The successful-finalization batch ends with the two statements from `apps/web/src/server/db/listing-facets.ts`: delete every row, then insert the grouped values. The rebuild reads the whole table rather than one provider's rows, so it is correct whichever provider finishes last, and it is idempotent; it does not need the running-run guard. A failed or still-running run does not rebuild it, so values that only its upserted listings carry are offered after the next successful run. The rebuild took 1.7 to 3.3 seconds against the 1.02-million-active-listing local inventory, once per successful run. Migration `0006_listing_tld_length_facets.sql` backfilled it once.
 
 `auction_listings.tld` and `domain_length` are virtual generated columns, so ingestion writes neither of them.
 
 ## Local runs
 
-`corepack pnpm sync <provider>` (alias `pnpm sync:dynadot`) applies local migrations, then `scripts/sync-provider.ts` starts a temporary `wrangler dev` of the ingestion Worker on `127.0.0.1:8790` (inspector `9330`) with local D1, R2, and Workflows, creates a `provider-sync` instance named `<provider>-manual-<ms>` through Wrangler's local-only explorer API (`/cdn-cgi/explorer/api/workflows/...`), polls it every 2 seconds for up to 30 minutes, and prints the summary or the instance's fixed error code. It drives the same Workflow code as the Cron Trigger. `curl "http://127.0.0.1:8790/cdn-cgi/handler/scheduled"` against a running local session fires the Cron Trigger path.
+`corepack pnpm sync <provider>` (alias `pnpm sync:dynadot`) applies local migrations, then `apps/web/scripts/sync-provider.ts` starts a temporary `wrangler dev` of the ingestion Worker on `127.0.0.1:8790` (inspector `9330`) with local D1, R2, and Workflows, creates a `provider-sync` instance named `<provider>-manual-<ms>` through Wrangler's local-only explorer API (`/cdn-cgi/explorer/api/workflows/...`), polls it every 2 seconds for up to 30 minutes, and prints the summary or the instance's fixed error code. It drives the same Workflow code as the Cron Trigger. `curl "http://127.0.0.1:8790/cdn-cgi/handler/scheduled"` against a running local session fires the Cron Trigger path.
 
 The runner loads `.secrets/providers.env`, when it exists, only into the Node process; GoDaddy needs no secrets, and Dynadot fails with `dynadot_missing_credentials` without it. Credentials are never kept in `.env*` files, because OpenNext inlines those into the Worker bundle at build time. The child Wrangler process receives an explicit allowlist of ordinary process variables, not the parent's entire environment, and only that provider's registered secrets through a mode-0600 temporary env file outside the repository. Normal exit, `SIGINT`, and `SIGTERM` terminate the child process group and remove that directory.
 
-`wrangler dev` reloads the Worker when an imported source file changes. A reload while an instance is running orphans it locally (it stays `running` and is not resumed), so do not edit `src/` during a local sync; the runner then times out with `sync_runner_timeout`, and the next run interrupts the orphaned run. Staged pages of an orphaned instance stay in the local bucket under its prefix.
+`wrangler dev` reloads the Worker when an imported source file changes. A reload while an instance is running orphans it locally (it stays `running` and is not resumed), so do not edit `apps/web/src/` during a local sync; the runner then times out with `sync_runner_timeout`, and the next run interrupts the orphaned run. Staged pages of an orphaned instance stay in the local bucket under its prefix.
 
 ## Verified local evidence
 
@@ -136,11 +136,11 @@ The future schema must enforce domain/metric-provider identity. A later listing 
 
 ## Future providers
 
-Additional auction adapters implement `ProviderAdapter` (`src/server/providers/types.ts`) and register their secret names, optional file feed, and factory in `src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
+Additional auction adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`) and register their secret names, optional file feed, and factory in `apps/web/src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
 
 ## Deploying (not done; needs owner authorization)
 
-Nothing remote exists. Per `serp` environment configuration, the top level of `wrangler.ingestion.jsonc` stays local-only; a deploy adds a named environment (for example `env.production`) and always passes `--env`. It needs:
+Nothing remote exists. Per `serp` environment configuration, the top level of `apps/web/wrangler.ingestion.jsonc` stays local-only; a deploy adds a named environment (for example `env.production`) and always passes `--env`. It needs:
 
 - D1: the production database's real `database_name` and `database_id` for binding `DB` (shared with the web application's environment), with migrations applied by `wrangler d1 migrations apply DB --remote --env <env>` before the Worker deploys.
 - R2: a bucket for binding `FEED_PAGES` (for example `auction-domain-aggregator-feed-pages-<env>`), ideally with a lifecycle rule expiring objects under `feed-pages/` after a day or two, so pages left by a failed cleanup step cannot accumulate.

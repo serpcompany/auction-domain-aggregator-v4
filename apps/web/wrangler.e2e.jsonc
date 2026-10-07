@@ -1,0 +1,29 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "auction-domain-aggregator-e2e-local",
+  "main": ".open-next/worker.js",
+  "compatibility_date": "2026-07-13",
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "assets": {
+    "binding": "ASSETS",
+    "directory": ".open-next/assets"
+  },
+  "images": {
+    "binding": "IMAGES"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "auction-domain-aggregator-e2e-local",
+      "database_id": "e2e-only-do-not-deploy",
+      "migrations_dir": "drizzle",
+      "remote": false
+    }
+  ],
+  "services": [
+    {
+      "binding": "WORKER_SELF_REFERENCE",
+      "service": "auction-domain-aggregator-e2e-local"
+    }
+  ]
+}
