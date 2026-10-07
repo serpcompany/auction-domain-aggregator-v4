@@ -1,0 +1,947 @@
+<title>Domain Aggregator Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<script src="https://cdn.jsdelivr.net/npm/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<style>
+/* Layout: review bar on top, the app rendered at true 1440px or 390px inside a scaled device frame, notes below.
+   Tokens: shadcn base-nova "neutral" exactly as src/app/globals.css ships them, plus the app's warning pair. */
+:root, .force-light {
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.145 0 0);
+  --card: oklch(1 0 0);
+  --popover: oklch(1 0 0);
+  --primary: oklch(0.205 0 0);
+  --primary-foreground: oklch(0.985 0 0);
+  --secondary: oklch(0.97 0 0);
+  --secondary-foreground: oklch(0.205 0 0);
+  --muted: oklch(0.97 0 0);
+  --muted-foreground: oklch(0.556 0 0);
+  --accent: oklch(0.97 0 0);
+  --destructive: oklch(0.577 0.245 27.325);
+  --warning: oklch(0.97 0.05 85);
+  --warning-foreground: oklch(0.47 0.12 60);
+  --border: oklch(0.922 0 0);
+  --input: oklch(0.922 0 0);
+  --ring: oklch(0.708 0 0);
+  --sidebar: oklch(0.985 0 0);
+  --sidebar-border: oklch(0.922 0 0);
+  --sidebar-accent: oklch(0.97 0 0);
+  --scrim: oklch(0 0 0 / 0.1);
+  --canvas: oklch(0.955 0.003 250);
+  --bezel: oklch(0.2 0 0);
+  --radius: 0.625rem;
+  --font-sans: 'Geist', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.force-light { color-scheme: light; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --popover: oklch(0.205 0 0);
+    --primary: oklch(0.922 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --accent: oklch(0.269 0 0);
+    --destructive: oklch(0.704 0.191 22.216);
+    --warning: oklch(0.3 0.06 70);
+    --warning-foreground: oklch(0.85 0.12 85);
+    --border: oklch(1 0 0 / 10%);
+    --input: oklch(1 0 0 / 15%);
+    --ring: oklch(0.556 0 0);
+    --sidebar: oklch(0.205 0 0);
+    --sidebar-border: oklch(1 0 0 / 10%);
+    --sidebar-accent: oklch(0.269 0 0);
+    --scrim: oklch(0 0 0 / 0.4);
+    --canvas: oklch(0.11 0 0);
+    --bezel: oklch(0.32 0 0);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"], .force-dark {
+  --background: oklch(0.145 0 0);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.205 0 0);
+  --popover: oklch(0.205 0 0);
+  --primary: oklch(0.922 0 0);
+  --primary-foreground: oklch(0.205 0 0);
+  --secondary: oklch(0.269 0 0);
+  --secondary-foreground: oklch(0.985 0 0);
+  --muted: oklch(0.269 0 0);
+  --muted-foreground: oklch(0.708 0 0);
+  --accent: oklch(0.269 0 0);
+  --destructive: oklch(0.704 0.191 22.216);
+  --warning: oklch(0.3 0.06 70);
+  --warning-foreground: oklch(0.85 0.12 85);
+  --border: oklch(1 0 0 / 10%);
+  --input: oklch(1 0 0 / 15%);
+  --ring: oklch(0.556 0 0);
+  --sidebar: oklch(0.205 0 0);
+  --sidebar-border: oklch(1 0 0 / 10%);
+  --sidebar-accent: oklch(0.269 0 0);
+  --scrim: oklch(0 0 0 / 0.4);
+  --canvas: oklch(0.11 0 0);
+  --bezel: oklch(0.32 0 0);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+@media (max-width: 700px) { .rbar { position: static; } }
+body { background: var(--canvas); color: var(--foreground); font-family: var(--font-sans); }
+button { font-family: inherit; }
+:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* ---------- Review chrome ---------- */
+.rbar { position: sticky; top: env(safe-area-inset-top, 0px); z-index: 100; background: color-mix(in oklch, var(--canvas) 88%, transparent); backdrop-filter: blur(10px); border-bottom: 1px solid var(--border); padding-block: 12px; padding-inline: 16px; display: flex; flex-direction: column; gap: 10px; }
+.rrow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
+.rtitle { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.rtitle h1 { font-size: 15px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.rtitle span { font-size: 12.5px; color: var(--muted-foreground); }
+.rctl { display: flex; flex-wrap: wrap; gap: 8px; }
+.seg { display: inline-flex; padding: 2px; gap: 2px; border-radius: var(--radius); background: color-mix(in oklch, var(--foreground) 7%, transparent); }
+.seg button { border: 0; background: none; height: 28px; padding-inline: 10px; border-radius: calc(var(--radius) * 0.8); font-size: 12.5px; font-weight: 500; color: var(--muted-foreground); cursor: pointer; white-space: nowrap; }
+.seg button[aria-pressed="true"] { background: var(--background); color: var(--foreground); box-shadow: 0 0 0 1px var(--border), 0 1px 2px oklch(0 0 0 / 0.06); }
+.chips { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; padding-block: 1px; }
+.chips::-webkit-scrollbar { display: none; }
+.chip { flex: none; height: 28px; padding-inline: 11px; border-radius: 999px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: 12.5px; font-weight: 500; cursor: pointer; white-space: nowrap; }
+.chip[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.chip.prop::after { content: " · proposed"; opacity: 0.6; }
+.stage { padding-block: 20px; padding-inline: 16px; overflow-x: auto; }
+.fw { position: relative; margin-inline: auto; }
+.device { position: absolute; top: 0; left: 0; transform-origin: 0 0; border-radius: 12px; overflow: hidden; box-shadow: 0 0 0 1px var(--border), 0 12px 40px oklch(0 0 0 / 0.10); background: var(--background); color: var(--foreground); }
+.device.phone { border-radius: 40px; box-shadow: 0 0 0 7px var(--bezel), 0 0 0 8px var(--border), 0 16px 40px oklch(0 0 0 / 0.18); }
+.notes { max-width: 1240px; margin-inline: auto; padding-inline: 16px; padding-block: 4px 56px; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: 24px; }
+.notes section { min-width: 0; }
+.notes h2 { font-size: 12px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted-foreground); margin: 0 0 8px; }
+.notes p, .notes li { font-size: 13.5px; line-height: 1.55; margin: 0; max-width: 62ch; }
+.notes ul { margin: 0; padding-left: 18px; display: grid; gap: 4px; }
+.notes .lede { font-size: 15px; font-weight: 500; line-height: 1.45; margin-bottom: 6px; }
+.notes code { font-family: var(--font-mono); font-size: 12px; background: color-mix(in oklch, var(--foreground) 7%, transparent); padding: 1px 5px; border-radius: 5px; }
+.notes .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 1px 7px; border-radius: 999px; background: var(--warning); color: var(--warning-foreground); margin-left: 6px; vertical-align: 1px; }
+
+/* ---------- App (mock of stock shadcn base-nova components) ---------- */
+.app { position: relative; width: 100%; height: 100%; overflow: hidden; background: var(--background); color: var(--foreground); font: 400 14px/1.43 var(--font-sans); -webkit-font-smoothing: antialiased; }
+.app svg.lucide { width: 16px; height: 16px; flex: none; }
+.app .i14 svg.lucide, .app svg.lucide.i14 { width: 14px; height: 14px; }
+.app svg.i12 { width: 12px !important; height: 12px !important; }
+.mono { font-family: var(--font-mono); }
+.muted { color: var(--muted-foreground); }
+.num { text-align: right; font-variant-numeric: tabular-nums; }
+.tab { font-variant-numeric: tabular-nums; }
+.grow { flex: 1; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 6px; height: 32px; padding-inline: 10px; border-radius: var(--radius); border: 1px solid transparent; background: none; color: inherit; font: 500 14px/1 var(--font-sans); white-space: nowrap; cursor: pointer; text-decoration: none; }
+.btn.sm { height: 28px; padding-inline: 8px; font-size: 13px; border-radius: calc(var(--radius) * 0.8); }
+.btn.lg { height: 36px; }
+.btn.icon { width: 32px; padding: 0; }
+.btn.icon.sm { width: 28px; }
+.btn.primary { background: var(--primary); color: var(--primary-foreground); }
+.btn.primary:hover { background: color-mix(in oklch, var(--primary) 85%, transparent); }
+.btn.outline { border-color: var(--border); background: var(--background); }
+.btn.outline:hover, .btn.ghost:hover { background: var(--muted); }
+.btn.dashed { border-style: dashed; }
+.btn.secondary { background: var(--secondary); color: var(--secondary-foreground); }
+.btn.block { width: 100%; }
+.btn .bdg { height: 20px; padding-inline: 5px; border-radius: 4px; background: var(--secondary); font-size: 12px; font-weight: 400; display: inline-flex; align-items: center; }
+.btn .vsep { width: 1px; height: 16px; background: var(--border); margin-inline: 2px; }
+.badge { display: inline-flex; align-items: center; gap: 4px; height: 20px; padding-inline: 8px; border-radius: 999px; border: 1px solid transparent; font-size: 12px; font-weight: 500; white-space: nowrap; line-height: 1; }
+.badge svg.lucide { width: 12px; height: 12px; }
+.badge.secondary { background: var(--secondary); color: var(--secondary-foreground); }
+.badge.outline { border-color: var(--border); }
+.badge.destructive { background: color-mix(in oklch, var(--destructive) 12%, transparent); color: var(--destructive); }
+.badge.warning { background: var(--warning); color: var(--warning-foreground); }
+.badge.x { padding-right: 4px; cursor: pointer; }
+.badge.x:hover { background: var(--muted); }
+.dot { width: 6px; height: 6px; border-radius: 99px; background: var(--muted-foreground); }
+.kbd { display: inline-flex; align-items: center; justify-content: center; height: 20px; min-width: 20px; padding-inline: 4px; border-radius: 4px; background: var(--muted); color: var(--muted-foreground); font-size: 11px; font-weight: 500; }
+.ig { display: flex; align-items: center; gap: 6px; height: 32px; padding-inline: 8px; border: 1px solid var(--input); border-radius: var(--radius); color: var(--muted-foreground); background: transparent; min-width: 0; }
+.ig input { flex: 1; min-width: 0; width: 0; border: 0; outline: 0; background: none; color: var(--foreground); font: 400 14px var(--font-sans); }
+.ig input::placeholder { color: var(--muted-foreground); }
+.ig.err { border-color: var(--destructive); box-shadow: 0 0 0 3px color-mix(in oklch, var(--destructive) 20%, transparent); }
+.sep-v { width: 1px; height: 16px; background: var(--border); flex: none; }
+.hr { height: 1px; background: var(--border); }
+.card { background: var(--card); border-radius: calc(var(--radius) * 1.4); box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent); display: flex; flex-direction: column; gap: 16px; padding-block: 16px; min-width: 0; }
+.card-h { padding-inline: 16px; display: grid; grid-template-columns: 1fr auto; gap: 2px 8px; align-items: start; }
+.card-t { font-size: 15px; font-weight: 500; }
+.card-d { font-size: 13px; color: var(--muted-foreground); grid-column: 1; }
+.card-a { grid-column: 2; grid-row: 1 / span 2; }
+.card-c { padding-inline: 16px; }
+.card-f { margin-bottom: -16px; padding: 10px 16px; border-top: 1px solid var(--border); background: color-mix(in oklch, var(--muted) 50%, transparent); display: flex; align-items: center; gap: 8px; border-radius: 0 0 calc(var(--radius) * 1.4) calc(var(--radius) * 1.4); }
+.alert { display: grid; grid-template-columns: auto 1fr auto; gap: 2px 8px; align-items: start; border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; font-size: 13px; }
+.alert svg.lucide { margin-top: 2px; }
+.alert b { font-weight: 500; }
+.alert.warn { background: var(--warning); color: var(--warning-foreground); border-color: color-mix(in oklch, var(--warning-foreground) 25%, transparent); }
+.alert.bad { color: var(--destructive); background: var(--card); }
+.alert .a-d { grid-column: 2; color: inherit; opacity: 0.9; }
+.alert .a-x { grid-column: 3; grid-row: 1 / span 2; align-self: center; }
+.empty { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding: 40px 24px; text-wrap: balance; }
+.empty .media { width: 36px; height: 36px; border-radius: var(--radius); background: var(--muted); display: grid; place-items: center; }
+.empty h3 { margin: 0; font-size: 14px; font-weight: 500; }
+.empty p { margin: 4px 0 0; font-size: 13.5px; color: var(--muted-foreground); max-width: 46ch; }
+.empty .acts { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; }
+.code { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding-inline: 10px 4px; border-radius: var(--radius); background: var(--muted); font: 400 12.5px var(--font-mono); color: var(--foreground); }
+.skel { background: var(--muted); border-radius: 6px; height: 12px; animation: pulse 2s ease-in-out infinite; }
+@keyframes pulse { 50% { opacity: 0.5; } }
+.spin { animation: spin 1s linear infinite; color: var(--muted-foreground); }
+@keyframes spin { to { transform: rotate(360deg); } }
+.check { width: 16px; height: 16px; border-radius: 4px; border: 1px solid var(--input); display: inline-grid; place-items: center; flex: none; background: var(--background); }
+.check.on { background: var(--primary); border-color: var(--primary); color: var(--primary-foreground); }
+.check.on svg.lucide { width: 12px; height: 12px; stroke-width: 3; }
+.radio { width: 16px; height: 16px; border-radius: 99px; border: 1px solid var(--input); flex: none; display: inline-grid; place-items: center; }
+.radio.on::after { content: ""; width: 8px; height: 8px; border-radius: 99px; background: var(--primary); }
+.progress { height: 6px; border-radius: 99px; background: var(--muted); overflow: hidden; }
+.progress > i { display: block; height: 100%; background: var(--primary); border-radius: 99px; }
+
+/* Shell: sidebar-07 (collapsible="icon") + SidebarInset */
+.shell { display: flex; height: 100%; }
+.sb { width: 256px; flex: none; background: var(--sidebar); border-right: 1px solid var(--sidebar-border); display: flex; flex-direction: column; padding: 8px; gap: 8px; transition: width 0.2s; }
+.collapsed .sb { width: 48px; }
+.sb-brand { display: flex; align-items: center; gap: 8px; height: 48px; padding: 8px; border-radius: var(--radius); }
+.logo { width: 32px; height: 32px; border-radius: var(--radius); background: var(--primary); color: var(--primary-foreground); display: grid; place-items: center; flex: none; }
+.collapsed .sb-brand { padding: 0; justify-content: center; }
+.sb-text { display: grid; line-height: 1.2; min-width: 0; }
+.sb-text b { font-size: 14px; font-weight: 600; }
+.sb-text small { font-size: 12px; color: var(--muted-foreground); }
+.collapsed .sb-text, .collapsed .sb-label, .collapsed .nav span, .collapsed .nav .nbdg { display: none; }
+.sb-label { font-size: 12px; font-weight: 500; color: var(--muted-foreground); padding: 0 8px; height: 32px; display: flex; align-items: center; }
+.nav { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: calc(var(--radius) * 0.8); cursor: pointer; font-size: 14px; color: var(--foreground); border: 0; background: none; width: 100%; text-align: left; }
+.nav:hover, .nav.on { background: var(--sidebar-accent); }
+.nav.on { font-weight: 500; }
+.collapsed .nav { width: 32px; justify-content: center; padding: 0; }
+.nbdg { margin-left: auto; font-size: 12px; font-weight: 500; min-width: 20px; height: 20px; display: grid; place-items: center; border-radius: 6px; color: var(--destructive); }
+.inset { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.hd { height: 48px; flex: none; display: flex; align-items: center; gap: 8px; padding-inline: 12px 16px; border-bottom: 1px solid var(--border); }
+.crumb { font-size: 14px; display: flex; align-items: center; gap: 6px; min-width: 0; }
+.crumb .muted { white-space: nowrap; }
+.hd-r { margin-left: auto; display: flex; align-items: center; gap: 6px; }
+
+/* Auctions page */
+.page { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.tb { display: flex; align-items: center; gap: 8px; padding: 12px 16px 10px; flex-wrap: wrap; }
+.pa { position: relative; }
+.fbar { display: flex; align-items: center; gap: 6px; padding: 0 16px 10px; flex-wrap: wrap; }
+.fbar .lbl { font-size: 12.5px; color: var(--muted-foreground); margin-right: 2px; }
+.box { margin: 0 16px; flex: 1; min-height: 0; border: 1px solid var(--border); border-radius: var(--radius); overflow: auto; position: relative; }
+.pg { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 16px 12px; font-size: 13px; flex-wrap: wrap; }
+.pg .ctl { display: flex; align-items: center; gap: 6px; }
+table.t { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; color: inherit; font-family: inherit; }
+.t th { position: sticky; top: 0; z-index: 2; background: var(--background); height: 36px; padding: 0 8px; text-align: left; font-weight: 500; white-space: nowrap; border-bottom: 1px solid var(--border); }
+.t thead tr.grp th { height: 26px; font-size: 11.5px; font-weight: 500; color: var(--muted-foreground); text-align: center; border-bottom: 1px solid var(--border); }
+.t thead tr.grp th.gl { border-left: 1px solid var(--border); }
+.t thead tr.col th { top: 26px; }
+.t th.rs { top: 0 !important; }
+.t th .sh { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; margin-inline: -4px; border-radius: 6px; cursor: pointer; }
+.t th .sh:hover { background: var(--muted); }
+.t th.num .sh { flex-direction: row; }
+.t th .sh svg.lucide { width: 13px; height: 13px; color: var(--muted-foreground); }
+.t th .sh.on svg.lucide { color: var(--foreground); }
+.t th .gl, .t td.gl { border-left: 1px solid var(--border); }
+.t td { height: 40px; padding: 0 8px; border-bottom: 1px solid var(--border); white-space: nowrap; background: var(--background); }
+.t tbody tr:hover td, .t tbody tr.rsel td { background: color-mix(in oklch, var(--muted) 70%, var(--background)); }
+.t tbody tr:last-child td { border-bottom: 0; }
+.t .c0 { position: sticky; left: 0; z-index: 1; }
+.t th.c0 { z-index: 3; }
+.t a.dn { color: var(--foreground); text-decoration: none; font-family: var(--font-mono); font-size: 13px; font-weight: 500; display: inline-flex; align-items: center; gap: 5px; }
+.t a.dn:hover { text-decoration: underline; text-underline-offset: 3px; }
+.t a.dn svg.lucide { width: 12px; height: 12px; color: var(--muted-foreground); }
+.t .gattr { color: var(--muted-foreground); text-decoration: none; font-size: 11px; line-height: 1.15; display: inline-block; }
+.t .gattr:hover { text-decoration: underline; color: var(--foreground); }
+.urg-amber { color: var(--warning-foreground); font-weight: 500; }
+.urg-red { color: var(--destructive); font-weight: 600; }
+.abs { color: var(--muted-foreground); font-size: 12px; margin-left: 6px; }
+.t .rowbtn { opacity: 0.55; }
+.t tr:hover .rowbtn, .t tr.rsel .rowbtn { opacity: 1; }
+
+/* Overlays: Popover + Command, Sheet, Drawer */
+.pop { position: absolute; top: 36px; left: 0; z-index: 50; width: 232px; background: var(--popover); border-radius: var(--radius); box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent), 0 8px 24px oklch(0 0 0 / 0.12); padding: 4px; font-size: 13.5px; }
+.cmd-in { display: flex; align-items: center; gap: 6px; height: 36px; padding: 0 8px; border-bottom: 1px solid var(--border); margin: -4px -4px 4px; color: var(--muted-foreground); }
+.cmd-in span { color: var(--foreground); }
+.opt { display: flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px; border-radius: 6px; cursor: pointer; }
+.opt:hover, .opt.hl { background: var(--accent); }
+.opt .r { margin-left: auto; font-size: 12px; color: var(--muted-foreground); }
+.pop .foot { border-top: 1px solid var(--border); margin: 4px -4px -4px; padding: 4px; }
+.pop .foot .opt { justify-content: center; }
+.grp-l { font-size: 12px; color: var(--muted-foreground); padding: 6px 8px 2px; }
+.scrim { position: absolute; inset: 0; z-index: 60; background: var(--scrim); backdrop-filter: blur(2px); }
+.sheet { position: absolute; top: 0; right: 0; bottom: 0; z-index: 61; width: 440px; max-width: 100%; background: var(--background); border-left: 1px solid var(--border); box-shadow: -12px 0 32px oklch(0 0 0 / 0.08); display: flex; flex-direction: column; }
+.sheet.left { left: 0; right: auto; width: 288px; border-left: 0; border-right: 1px solid var(--border); }
+.sh-h { padding: 16px; display: grid; gap: 4px; position: relative; }
+.sh-h h2 { margin: 0; font-size: 16px; font-weight: 500; }
+.sh-h p { margin: 0; font-size: 13px; color: var(--muted-foreground); }
+.sh-x { position: absolute; top: 10px; right: 10px; }
+.sh-b { flex: 1; min-height: 0; overflow: auto; padding: 0 16px 16px; display: flex; flex-direction: column; gap: 20px; }
+.sh-f { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; justify-content: flex-end; }
+.drawer { position: absolute; left: 0; right: 0; bottom: 0; z-index: 61; max-height: 90%; background: var(--background); border-top: 1px solid var(--border); border-radius: 16px 16px 0 0; display: flex; flex-direction: column; }
+.handle { width: 100px; height: 6px; border-radius: 99px; background: var(--muted); margin: 12px auto 4px; flex: none; }
+.drawer .sh-h { text-align: center; padding: 8px 16px 12px; }
+.drawer .sh-f { flex-direction: column; padding-bottom: 28px; }
+fieldset.fs { border: 0; padding: 0; margin: 0; display: grid; gap: 12px; }
+.fs legend { font-size: 14px; font-weight: 500; padding: 0; margin-bottom: 12px; }
+.fs .legd { font-size: 12.5px; color: var(--muted-foreground); margin-top: -10px; }
+.field { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; }
+.field label, .flabel { font-size: 13px; font-weight: 500; }
+.field .err { font-size: 12.5px; color: var(--destructive); }
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.chk { display: flex; align-items: center; gap: 8px; font-size: 13.5px; cursor: pointer; }
+.chkrow { display: flex; gap: 16px; flex-wrap: wrap; }
+.acc { border-bottom: 1px solid var(--border); }
+.acc-h { display: flex; align-items: center; justify-content: space-between; height: 44px; font-size: 14px; font-weight: 500; }
+.acc-b { padding-bottom: 16px; display: grid; gap: 12px; }
+dl.kv { display: grid; grid-template-columns: 1fr auto; gap: 8px 16px; margin: 0; font-size: 13.5px; }
+dl.kv dt { color: var(--muted-foreground); }
+dl.kv dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.dsec h3 { font-size: 12px; font-weight: 500; color: var(--muted-foreground); margin: 0 0 10px; letter-spacing: 0.02em; }
+.mtiles { display: grid; grid-template-columns: 1fr 1fr 1fr 1.5fr; gap: 8px; }
+.mtile { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: grid; gap: 2px; }
+.mtile .k { font-size: 11.5px; color: var(--muted-foreground); }
+.mtile .v { font-size: 18px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.mtile a { font-size: 11px; color: var(--muted-foreground); }
+
+/* Phone */
+.ph { display: flex; flex-direction: column; height: 100%; padding-top: 44px; }
+.ph .hd { padding-inline: 8px 12px; }
+.ph-scroll { flex: 1; min-height: 0; overflow: auto; }
+.ph-tb { padding: 12px 16px 8px; display: grid; gap: 8px; }
+.ph-tb .r { display: flex; gap: 8px; align-items: center; }
+.selbtn { display: inline-flex; align-items: center; justify-content: space-between; gap: 6px; height: 32px; padding: 0 8px 0 10px; border: 1px solid var(--input); border-radius: var(--radius); font-size: 13.5px; white-space: nowrap; background: transparent; color: inherit; }
+.items { border-top: 1px solid var(--border); }
+.item { display: grid; grid-template-columns: 1fr auto; gap: 3px 12px; padding: 12px 16px; border-bottom: 1px solid var(--border); cursor: pointer; }
+.item:hover { background: color-mix(in oklch, var(--muted) 60%, transparent); }
+.item .t1 { font-family: var(--font-mono); font-weight: 500; font-size: 14px; display: inline-flex; align-items: center; gap: 5px; min-width: 0; color: var(--foreground); text-decoration: none; }
+.item .t1 span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .t1 svg.lucide { width: 12px; height: 12px; color: var(--muted-foreground); }
+.item .p { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.item .d { font-size: 12.5px; color: var(--muted-foreground); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.item .e { font-size: 12.5px; text-align: right; font-variant-numeric: tabular-nums; }
+.item .m { grid-column: 1 / -1; display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.item .m .badge { font-weight: 400; font-variant-numeric: tabular-nums; }
+.attr-line { padding: 8px 16px; font-size: 12px; color: var(--muted-foreground); display: flex; justify-content: space-between; gap: 8px; border-top: 1px solid var(--border); background: color-mix(in oklch, var(--muted) 40%, transparent); }
+.attr-line a { color: inherit; }
+.homebar { position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); width: 134px; height: 5px; border-radius: 99px; background: var(--foreground); opacity: 0.85; z-index: 80; }
+.statusbar { position: absolute; top: 0; left: 0; right: 0; height: 44px; display: flex; align-items: center; justify-content: space-between; padding: 0 28px; font-size: 15px; font-weight: 600; z-index: 70; }
+
+/* Sync status */
+.sync { flex: 1; min-height: 0; overflow: auto; padding: 16px; display: grid; gap: 16px; align-content: start; }
+.pgrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.big { font-size: 28px; font-weight: 600; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.ph .pgrid { grid-template-columns: 1fr; }
+.ph .sync { padding: 16px; }
+
+/* v2: Columns menu (DropdownMenu checkbox items) and the Filters page */
+.catch { position: absolute; inset: 0; z-index: 40; }
+.tb { position: relative; z-index: 45; }
+.menu { position: absolute; top: 36px; right: 0; z-index: 50; width: 260px; background: var(--popover); border-radius: var(--radius); box-shadow: 0 0 0 1px color-mix(in oklch, var(--foreground) 10%, transparent), 0 8px 24px oklch(0 0 0 / 0.12); padding: 4px; font-size: 13.5px; }
+.menu .ml { font-size: 12px; font-weight: 500; color: var(--muted-foreground); padding: 6px 8px 4px; }
+.menu .mi { display: flex; align-items: center; gap: 8px; height: 30px; padding: 0 8px 0 4px; border-radius: 6px; cursor: pointer; }
+.menu .mi:hover { background: var(--accent); }
+.menu .mi.dis { opacity: 0.55; cursor: default; }
+.menu .mi.dis:hover { background: none; }
+.menu .mi .r { margin-left: auto; font-size: 11.5px; color: var(--muted-foreground); }
+.menu .ck { width: 20px; display: grid; place-items: center; flex: none; }
+.menu .ck svg.lucide { width: 14px; height: 14px; }
+.menu .msep { height: 1px; background: var(--border); margin: 4px -4px; }
+.fp { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fp-body { flex: 1; min-height: 0; overflow: auto; display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 32px; padding: 24px; align-items: start; }
+.fp-nav { position: sticky; top: 0; display: grid; gap: 2px; }
+.fp-nav a { display: flex; justify-content: space-between; align-items: center; height: 32px; padding: 0 8px; border-radius: calc(var(--radius) * 0.8); font-size: 14px; color: var(--muted-foreground); text-decoration: none; }
+.fp-nav a:hover { color: var(--foreground); }
+.fp-nav a.on { background: var(--muted); color: var(--foreground); font-weight: 500; }
+.fp-main { display: grid; gap: 16px; max-width: 980px; min-width: 0; }
+.fp-main h1 { font-size: 20px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+.fgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 20px; align-items: start; }
+.fgrid .span2 { grid-column: span 2; }
+.fgrid .span3 { grid-column: 1 / -1; }
+.range { display: flex; align-items: center; gap: 8px; }
+.range .ig { flex: 1; }
+.fp-bar { flex: none; border-top: 1px solid var(--border); background: var(--background); padding: 12px 24px; display: flex; align-items: center; gap: 8px; }
+.tgl { display: inline-flex; flex-wrap: wrap; border: 1px solid var(--input); border-radius: var(--radius); overflow: hidden; width: fit-content; }
+.tgl span { height: 30px; padding: 0 12px; display: grid; place-items: center; font-size: 13px; border-left: 1px solid var(--input); cursor: pointer; }
+.tgl span:first-child { border-left: 0; }
+.tgl span.on { background: var(--muted); font-weight: 500; }
+.ph .fp-body { grid-template-columns: 1fr; padding: 12px 16px 16px; gap: 12px; }
+.ph .fgrid { grid-template-columns: 1fr; }
+.ph .fgrid .span2, .ph .fgrid .span3 { grid-column: auto; }
+.ph .fp-bar { padding: 12px 16px; }
+.ph-sec { display: flex; gap: 6px; overflow-x: auto; padding: 10px 16px; border-bottom: 1px solid var(--border); flex: none; scrollbar-width: none; }
+.chip-s { flex: none; height: 28px; padding: 0 10px; border-radius: 999px; border: 1px solid var(--border); background: var(--background); color: var(--foreground); font-size: 12.5px; font-weight: 500; }
+.chip-s.on { background: var(--primary); color: var(--primary-foreground); border-color: var(--primary); }
+.chip.new { box-shadow: inset 0 0 0 1px var(--warning-foreground); }
+.chip.new[aria-pressed="true"] { box-shadow: none; }
+</style>
+
+<div class="rv">
+  <header class="rbar">
+    <div class="rrow">
+      <div class="rtitle">
+        <h1>Domain Aggregator redesign</h1>
+        <span>Mockups v2 for approval · stock shadcn base-nova · sample rows from local D1 (Oct 6 sync)</span>
+      </div>
+      <div class="rctl">
+        <div class="seg" role="group" aria-label="Screen" id="segScreen"></div>
+        <div class="seg" role="group" aria-label="Width" id="segView"></div>
+        <div class="seg" role="group" aria-label="Theme" id="segTheme"></div>
+        <div class="seg" role="group" aria-label="Zoom" id="segFit"></div>
+      </div>
+    </div>
+    <div class="chips" role="group" aria-label="State" id="chips"></div>
+  </header>
+  <section class="stage" id="stage"><div class="fw" id="fw"><div class="device" id="device"></div></div></section>
+  <div class="notes" id="notes"></div>
+</div>
+
+<script>
+const S = { screen: 'auctions', chip: 'results', view: 'desktop', theme: 'viewer', fit: 'fit', collapsed: false, nav: false, sort: { key: 'ends', dir: 'asc' }, detail: 'mzs.com', fsec: 'general', cols: null };
+try { const saved = JSON.parse(localStorage.getItem('adr-mock') || 'null'); if (saved) Object.assign(S, { screen: saved.screen, chip: saved.chip, view: saved.view, theme: saved.theme, fit: saved.fit }); } catch (e) {}
+
+const CHIPS = {
+  auctions: [
+    ['results', 'Results'], ['filtered', 'Filtered'], ['tld', 'TLD filter open'], ['columns', 'Columns menu', true], ['custom', 'Custom columns', true],
+    ['more', 'Filters page', true], ['invalid', 'Filters: invalid range', true],
+    ['details', 'Domain details', true], ['loading', 'Loading'], ['ratings', 'Fetching DR'], ['stale', 'Stale inventory'],
+    ['nomatch', 'No matches'], ['noinv', 'No inventory yet'], ['error', 'Database error']
+  ],
+  sync: [['healthy', 'Healthy'], ['running', 'Sync running'], ['failed', 'Sync failed']]
+};
+
+// Sample rows: domains, prices, bids, ends, ages, appraisals and Majestic/Semrush values come from the
+// local inventory; DR values and a few prices on the low-value rows are illustrative.
+const ROWS = [
+  { d: 'cocktailcab.com', src: 'GoDaddy', type: 'Auction', price: 25, bids: 2, vis: 3, ends: '42m', abs: 'Oct 7, 03:01', m: 42, age: 9, links: null, appr: 410, ren: null, tf: 5, cf: 11, rd: 12, as: 2, dr: 4 },
+  { d: 'cocktailgifts.com', src: 'GoDaddy', type: 'Auction', price: 15, bids: 1, vis: 0, ends: '2h 10m', abs: 'Oct 7, 04:29', m: 130, age: 12, links: null, appr: 880, ren: null, tf: 5, cf: 5, rd: 8, as: 2, dr: 'none' },
+  { d: '8254.com', src: 'GoDaddy', type: 'Auction', price: 4050, bids: 177, vis: 0, ends: '13h 45m', abs: 'Oct 7, 16:04', m: 825, age: 27, links: null, appr: 17800, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 1 },
+  { d: 'brysoncity.com', src: 'GoDaddy', type: 'Auction', price: 1973, bids: 19, vis: 0, ends: '16h 15m', abs: 'Oct 7, 18:34', m: 975, age: 30, links: null, appr: 7649, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 21 },
+  { d: 'gxld.com', src: 'Dynadot', type: 'Expired', price: 2247, bids: 138, vis: null, ends: '1d 12h', abs: 'Oct 8, 15:00', m: 2201, age: 0, links: 43, appr: 142881, ren: 10.88, seo: false, dr: 7 },
+  { d: 'gzgz.com', src: 'Dynadot', type: 'Expired', price: 1576, bids: 59, vis: null, ends: '1d 12h', abs: 'Oct 8, 15:00', m: 2202, age: 0, links: 42, appr: 11101, ren: 10.88, seo: false, dr: 'none' },
+  { d: 'rrss.org', src: 'GoDaddy', type: 'Auction', price: 85, bids: 4, vis: 12, ends: '2d 3h', abs: 'Oct 9, 05:19', m: 3060, age: 19, links: null, appr: 1240, ren: null, tf: 13, cf: 13, rd: 28, as: 2, dr: 22 },
+  { d: 'skillstudio.com', src: 'GoDaddy', type: 'Auction', price: 1580, bids: 42, vis: 0, ends: '3d 13h', abs: 'Oct 10, 16:07', m: 5148, age: 24, links: null, appr: 4779, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 12 },
+  { d: 'slotter.com', src: 'GoDaddy', type: 'Auction', price: 1525, bids: 11, vis: 0, ends: '3d 13h', abs: 'Oct 10, 16:07', m: 5149, age: 26, links: null, appr: 7020, ren: null, tf: 0, cf: 0, rd: 0, as: 5, dr: 9 },
+  { d: 'konza.com', src: 'GoDaddy', type: 'Auction', price: 1469, bids: 23, vis: 0, ends: '5d 16h', abs: 'Oct 12, 19:01', m: 8202, age: 23, links: null, appr: 9397, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 15 },
+  { d: 'flo.co', src: 'GoDaddy', type: 'Auction', price: 3383, bids: 36, vis: 0, ends: '5d 17h', abs: 'Oct 12, 19:59', m: 8260, age: 16, links: null, appr: 10546, ren: null, tf: 0, cf: 0, rd: 0, as: 7, dr: 27 },
+  { d: '7570.com', src: 'GoDaddy', type: 'Auction', price: 4138, bids: 22, vis: 0, ends: '6d 17h', abs: 'Oct 13, 19:36', m: 9677, age: 23, links: null, appr: 17979, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 3 },
+  { d: '6427.com', src: 'GoDaddy', type: 'Auction', price: 2950, bids: 27, vis: 0, ends: '7d 13h', abs: 'Oct 14, 16:10', m: 10911, age: 22, links: null, appr: 19810, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 2 },
+  { d: 'mzs.com', src: 'GoDaddy', type: 'Auction', price: 12750, bids: 31, vis: 0, ends: '7d 14h', abs: 'Oct 14, 16:29', m: 10930, age: 28, links: null, appr: 25000, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 18 },
+  { d: '7121.com', src: 'GoDaddy', type: 'Auction', price: 4150, bids: 29, vis: 0, ends: '7d 14h', abs: 'Oct 14, 17:17', m: 10978, age: 24, links: null, appr: 19062, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 4 },
+  { d: '6364.com', src: 'GoDaddy', type: 'Auction', price: 4594, bids: 29, vis: 0, ends: '7d 15h', abs: 'Oct 14, 18:05', m: 11026, age: 26, links: null, appr: 18636, ren: null, tf: 0, cf: 0, rd: 0, as: 2, dr: 6 },
+  { d: 'onionstreetstudio.com', src: 'GoDaddy', type: 'Auction', price: 12, bids: 1, vis: 0, ends: '8d 4h', abs: 'Oct 15, 06:19', m: 11760, age: 14, links: null, appr: 95, ren: null, tf: 4, cf: 15, rd: 163, as: 4, dr: 'none' },
+  { d: 'mydocuments.io', src: 'GoDaddy', type: 'Buy Now', price: 2499, bids: 0, vis: 41, ends: '9d 1h', abs: 'Oct 16, 03:19', m: 13020, age: 11, links: null, appr: 3100, ren: null, tf: 2, cf: 15, rd: 143, as: 2, dr: 31 },
+  { d: 'matrixmedia.com', src: 'Dynadot', type: 'Expired', price: 1425, bids: 62, vis: null, ends: '10d 12h', abs: 'Oct 17, 15:00', m: 15161, age: 0, links: 17, appr: 9215, ren: 10.88, seo: false, dr: 'none' },
+  { d: 'stopgundeaths.org', src: 'GoDaddy', type: 'Auction', price: 40, bids: 3, vis: 6, ends: '12d 6h', abs: 'Oct 19, 08:19', m: 17640, age: 21, links: null, appr: 620, ren: null, tf: 11, cf: 12, rd: 15, as: 2, dr: 25 }
+];
+const FILTERED = ['brysoncity.com', 'gxld.com', 'gzgz.com', 'skillstudio.com', 'slotter.com', 'konza.com', 'flo.co', 'mzs.com', 'matrixmedia.com'];
+
+const ic = (n, cls = '') => `<i data-lucide="${n}" class="${cls}" aria-hidden="true"></i>`;
+const money = (n) => n == null ? null : '$' + (Number.isInteger(n) ? n.toLocaleString('en-US') : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const dash = (label) => `<span class="muted" title="Not collected" aria-label="${label} not collected">—</span>`;
+const nf = (n) => n.toLocaleString('en-US');
+const urg = (r) => r.m <= 60 ? 'urg-red' : r.m <= 1440 ? 'urg-amber' : '';
+const seo = (r, k) => r.seo === false || r[k] == null ? null : r[k];
+
+/* ---------- column registry (drives table, Columns menu and phone badges) ---------- */
+let X = {};
+const COLS = [
+  { k: 'source', l: 'Source', sort: 'source', def: true, cell: r => `${r.src} <span class="muted">· ${r.type}</span>` },
+  { k: 'price', l: 'Price', sort: 'price', num: true, def: true, cell: r => `<span style="font-weight:500">${money(r.price)}</span>` },
+  { k: 'bids', l: 'Bids', sort: 'bids', num: true, def: true, cell: r => nf(r.bids) },
+  { k: 'ends', l: 'Ends', sort: 'ends', def: true, cell: r => `<time class="${urg(r)}">${r.ends}</time><span class="abs">${r.abs} UTC</span>` },
+  { k: 'age', l: 'Age', sort: 'age', num: true, def: true, cell: r => r.age == null ? dash('Age') : `${r.age} yr${r.age === 1 ? '' : 's'}`, badge: r => r.age == null ? null : `${r.age} yrs` },
+  { k: 'links', l: 'Links', full: 'Inbound links', sort: 'links', num: true, def: true, cell: r => r.links == null ? dash('Inbound links') : nf(r.links), badge: r => r.links == null ? null : `${nf(r.links)} links` },
+  { k: 'appraisal', l: 'Appraisal', sort: 'appraisal', num: true, def: true, cell: r => r.appr == null ? dash('Appraisal') : money(r.appr), badge: r => r.appr == null ? null : `Appr. ${money(r.appr)}` },
+  { k: 'renewal', l: 'Renewal', sort: 'renewal', num: true, def: false, cell: r => r.ren == null ? dash('Renewal') : money(r.ren), badge: r => r.ren == null ? null : `Renews ${money(r.ren)}` },
+  { k: 'visitors', l: 'Visitors', sort: 'visitors', num: true, def: false, cell: r => r.vis == null ? dash('Visitors') : nf(r.vis), badge: r => r.vis == null ? null : `${nf(r.vis)} visitors` },
+  { k: 'length', l: 'Length', sort: 'length', num: true, def: false, cell: r => r.d.length, badge: r => `${r.d.length} chars` },
+  { k: 'tf', l: 'TF', full: 'Trust Flow', grp: 'Majestic', num: true, def: true, cell: r => seo(r, 'tf') ?? dash('Trust Flow'), badge: r => seo(r, 'tf') == null ? null : `TF ${r.tf}` },
+  { k: 'cf', l: 'CF', full: 'Citation Flow', grp: 'Majestic', num: true, def: true, cell: r => seo(r, 'cf') ?? dash('Citation Flow'), badge: r => seo(r, 'cf') == null ? null : `CF ${r.cf}` },
+  { k: 'rd', l: 'Ref. dom.', full: 'Referring domains', grp: 'Majestic', num: true, def: false, cell: r => seo(r, 'rd') == null ? dash('Referring domains') : nf(r.rd), badge: r => seo(r, 'rd') == null ? null : `${nf(r.rd)} ref. domains` },
+  { k: 'as', l: 'AS', full: 'Authority Score', grp: 'Semrush', num: true, def: true, cell: r => seo(r, 'as') ?? dash('Authority Score'), badge: r => seo(r, 'as') == null ? null : `AS ${r.as}` },
+  { k: 'dr', l: 'DR', full: 'Domain Rating', grp: 'Ahrefs', num: true, def: true, cell: r => drCell(r, X), badge: r => X.ratings && r.dr !== 'none' ? `DR <i data-lucide="loader-circle" class="spin i12"></i>` : r.dr === 'none' ? 'DR —' : `DR ${r.dr}` }
+];
+const DEFAULT_COLS = () => new Set(COLS.filter(c => c.def).map(c => c.k));
+const CUSTOM_COLS = () => new Set(['source', 'price', 'bids', 'ends', 'renewal', 'visitors', 'length', 'tf', 'cf', 'rd', 'dr']);
+S.cols = DEFAULT_COLS();
+
+function sorted(rows) {
+  const { key, dir } = S.sort;
+  const get = { domain: r => r.d, source: r => r.src, price: r => r.price, bids: r => r.bids, ends: r => r.m, age: r => r.age ?? -1, links: r => r.links ?? -1, appraisal: r => r.appr ?? -1, renewal: r => r.ren ?? -1, visitors: r => r.vis ?? -1, length: r => r.d.length }[key];
+  return [...rows].sort((a, b) => { const x = get(a), y = get(b); const c = typeof x === 'string' ? x.localeCompare(y) : x - y; return dir === 'asc' ? c : -c; });
+}
+function isDark() {
+  if (S.theme === 'dark') return true;
+  if (S.theme === 'light') return false;
+  const t = document.documentElement.getAttribute('data-theme');
+  if (t) return t === 'dark';
+  return matchMedia('(prefers-color-scheme: dark)').matches;
+}
+
+/* ---------- context per state ---------- */
+function ctx() {
+  const c = S.chip;
+  const filtered = c === 'filtered' || c === 'nomatch';
+  return {
+    filtered,
+    rows: c === 'nomatch' || c === 'noinv' ? [] : sorted(filtered ? ROWS.filter(r => FILTERED.includes(r.d)) : ROWS),
+    total: c === 'nomatch' || c === 'noinv' ? 0 : filtered ? 9 : 857412,
+    pages: filtered ? 1 : 17149,
+    fresh: c === 'stale' ? 'stale' : c === 'noinv' ? 'never' : 'ok',
+    loading: c === 'loading',
+    ratings: c === 'ratings',
+    error: c === 'error'
+  };
+}
+const CHIPSET = {
+  filtered: [['TLD: .com, .co'], ['Bids ≥ 5'], ['No digits']],
+  nomatch: [['TLD: .io'], ['Max bid: $50'], ['Ends within 1 hour'], ['Trust Flow ≥ 20']]
+};
+
+function freshBadge(f) {
+  if (f === 'stale') return `<span class="badge warning" title="Last successful sync Oct 6, 00:25 UTC">${ic('triangle-alert')}Synced 26h ago</span>`;
+  if (f === 'never') return `<span class="badge outline"><span class="dot"></span>Never synced</span>`;
+  return `<span class="badge outline" title="Last successful sync Oct 6, 15:33 UTC"><span class="dot"></span>Synced 11h ago</span>`;
+}
+
+/* ---------- shared pieces ---------- */
+function facet(label, sel, act, open) {
+  const s = sel && sel.length ? `<span class="vsep"></span>${sel.length > 2 ? `<span class="bdg">${sel.length} selected</span>` : sel.map(v => `<span class="bdg">${v}</span>`).join('')}` : '';
+  return `<div class="pa"><button class="btn outline sm dashed" data-act="${act}" aria-expanded="${!!open}">${ic('circle-plus')}${label}${s}</button>${open || ''}</div>`;
+}
+function tldPopover() {
+  const opts = [['.com', true], ['.co', false], ['.coffee', false], ['.college', false], ['.cool', false], ['.coach', false]];
+  return `<div class="pop" role="dialog" aria-label="TLD">
+    <div class="cmd-in">${ic('search')}<span>co</span><span class="kbd" style="margin-left:auto">esc</span></div>
+    ${opts.map(([t, on], i) => `<div class="opt ${i === 0 ? 'hl' : ''}"><span class="check ${on ? 'on' : ''}">${on ? ic('check') : ''}</span><span class="mono">${t}</span></div>`).join('')}
+    <div class="grp-l">478 TLDs in the inventory</div>
+    <div class="foot"><div class="opt" data-act="chip:results">Clear filter</div></div>
+  </div>`;
+}
+function columnsMenu() {
+  const item = (c) => `<div class="mi" role="menuitemcheckbox" aria-checked="${S.cols.has(c.k)}" data-act="col:${c.k}"><span class="ck">${S.cols.has(c.k) ? ic('check') : ''}</span>${c.full ? `${c.full}` : c.l}${c.grp ? `<span class="r">${c.grp}</span>` : c.def ? '' : '<span class="r">Off by default</span>'}</div>`;
+  return `<div class="menu" role="menu" aria-label="Columns">
+    <div class="ml">Listing</div>
+    <div class="mi dis" aria-disabled="true"><span class="ck">${ic('check')}</span>Domain<span class="r">Always shown</span></div>
+    ${COLS.filter(c => !c.grp).map(item).join('')}
+    <div class="msep"></div><div class="ml">SEO metrics</div>
+    ${COLS.filter(c => c.grp).map(item).join('')}
+    <div class="msep"></div>
+    <div class="mi" data-act="colreset"><span class="ck">${ic('rotate-ccw')}</span>Reset to default</div>
+  </div>`;
+}
+function toolbar(x) {
+  const f = x.filtered && S.chip === 'filtered';
+  const nm = S.chip === 'nomatch';
+  return `<div class="tb">
+    <label class="ig" style="width:280px">${ic('search')}<input placeholder="Search domains…" aria-label="Domain contains"><span class="kbd">/</span></label>
+    ${facet('Source', null, 'chip:results')}
+    ${facet('TLD', f ? ['.com', '.co'] : nm ? ['.io'] : S.chip === 'tld' ? ['.com'] : null, 'chip:tld', S.chip === 'tld' ? tldPopover() : '')}
+    ${facet('Max bid', nm ? ['$50'] : null, 'chip:results')}
+    ${facet('Ends', nm ? ['1 hour'] : null, 'chip:results')}
+    <button class="btn outline sm" data-act="chip:more">${ic('list-filter')}All filters${f ? '<span class="bdg">2</span>' : nm ? '<span class="bdg">1</span>' : ''}</button>
+    ${x.filtered ? `<button class="btn ghost sm" data-act="chip:results">Reset${ic('x')}</button>` : ''}
+    <span class="grow"></span>
+    <span class="muted tab" style="font-size:13px">${x.loading ? '<span class="skel" style="display:inline-block;width:110px;vertical-align:middle"></span>' : `<b style="color:var(--foreground);font-weight:500">${nf(x.total)}</b> ${x.total === 1 ? 'listing' : 'listings'}`}</span>
+    <div class="pa"><button class="btn outline sm" data-act="chip:${S.chip === 'columns' ? 'results' : 'columns'}" aria-expanded="${S.chip === 'columns'}">${ic('columns-3')}Columns${S.cols.size !== DEFAULT_COLS().size || [...DEFAULT_COLS()].some(k => !S.cols.has(k)) ? '<span class="bdg">Custom</span>' : ''}</button>${S.chip === 'columns' ? columnsMenu() : ''}</div>
+  </div>`;
+}
+function filterBar() {
+  const chips = CHIPSET[S.chip];
+  if (!chips) return '';
+  return `<div class="fbar"><span class="lbl">Filters</span>${chips.map(([l]) => `<span class="badge outline x" data-act="chip:results" title="Remove ${l}">${l}${ic('x')}</span>`).join('')}<button class="btn ghost sm" data-act="chip:results" style="height:24px">Clear all</button><button class="btn ghost sm" data-act="chip:more" style="height:24px">Edit${ic('arrow-right')}</button></div>`;
+}
+function sortHead(key, label) {
+  const on = S.sort.key === key;
+  const icn = on ? (S.sort.dir === 'asc' ? 'arrow-up' : 'arrow-down') : 'chevrons-up-down';
+  return `<span class="sh ${on ? 'on' : ''}" data-act="sort:${key}" role="button" aria-label="Sort by ${label}">${label}${ic(icn)}</span>`;
+}
+function drCell(r, x) {
+  if (x.ratings && r.dr !== 'none') return `<span title="Fetching from Ahrefs">${ic('loader-circle', 'spin i14')}</span>`;
+  if (r.dr === 'none') return `<span class="muted" title="Ahrefs has no rating for this domain">—</span>`;
+  return r.dr;
+}
+function table(x) {
+  X = x;
+  const sel = S.chip === 'details' ? S.detail : null;
+  const vis = COLS.filter(c => S.cols.has(c.k));
+  const lst = vis.filter(c => !c.grp);
+  const groups = ['Majestic', 'Semrush', 'Ahrefs'].map(g => [g, vis.filter(c => c.grp === g)]).filter(([, a]) => a.length);
+  const ordered = [...lst, ...groups.flatMap(([, a]) => a)];
+  const firstOfGroup = new Set(groups.map(([, a]) => a[0].k));
+  const top = 'color:var(--foreground);font-size:13px;';
+  const glabel = (g) => g === 'Ahrefs' ? `<a class="gattr" href="https://ahrefs.com/" target="_blank" rel="noopener noreferrer">Domain Rating<br>by Ahrefs</a>` : g;
+  const head = `<thead>
+    <tr class="grp">
+      <th class="c0 rs" rowspan="2" style="text-align:left;${top}height:62px;width:220px">${sortHead('domain', 'Domain')}</th>
+      ${lst.map(c => `<th class="rs ${c.num ? 'num' : ''}" rowspan="2" style="${c.num ? '' : 'text-align:left;'}${top}">${sortHead(c.sort, c.l)}</th>`).join('')}
+      ${groups.map(([g, a]) => `<th class="gl" colspan="${a.length}" style="${g === 'Ahrefs' ? 'padding:0 6px' : ''}">${glabel(g)}</th>`).join('')}
+      <th class="rs" rowspan="2" style="width:40px"><span class="sr">Details</span></th>
+    </tr>
+    <tr class="col">${groups.flatMap(([, a]) => a).map(c => `<th class="num ${firstOfGroup.has(c.k) ? 'gl' : ''}" title="${c.grp} ${c.full}">${c.l}</th>`).join('')}</tr>
+  </thead>`;
+  let body;
+  if (x.loading) {
+    body = Array.from({ length: 16 }, (_, i) => `<tr><td class="c0"><div class="skel" style="width:${150 - (i * 7) % 40}px"></div></td>${ordered.map((c, j) => `<td class="${firstOfGroup.has(c.k) ? 'gl' : ''}"><div class="skel" style="width:${(c.k === 'ends' ? 120 : c.k === 'source' ? 90 : c.grp ? 18 : 44) - (i * 7 + j * 5) % 14}px;${c.num ? 'margin-left:auto' : ''}"></div></td>`).join('')}<td></td></tr>`).join('');
+  } else {
+    body = x.rows.map(r => `<tr class="${sel === r.d ? 'rsel' : ''}">
+      <td class="c0"><a class="dn" href="#" title="Open the ${r.src} auction in a new tab">${r.d}${ic('external-link')}</a></td>
+      ${ordered.map(c => `<td class="${c.num ? 'num' : 'tab'} ${firstOfGroup.has(c.k) ? 'gl' : ''}">${c.cell(r)}</td>`).join('')}
+      <td style="padding:0 4px"><button class="btn ghost icon sm rowbtn" data-act="detail:${r.d}" aria-label="Details for ${r.d}">${ic('panel-right-open')}</button></td>
+    </tr>`).join('');
+  }
+  return `<table class="t">${head}<tbody>${body}</tbody></table>`;
+}
+function pagination(x, phone) {
+  if (x.loading) return `<div class="pg"><span class="skel" style="width:160px"></span><span class="skel" style="width:220px"></span></div>`;
+  const first = x.total ? 1 : 0, last = Math.min(50, x.total);
+  const dis = 'disabled style="opacity:.5"';
+  if (phone) return `<div class="pg" style="justify-content:center;gap:8px"><button class="btn outline sm" ${dis}>${ic('chevron-left')}Prev</button><span class="tab muted" style="min-width:110px;text-align:center">Page 1 of ${nf(x.pages)}</span><button class="btn outline sm" ${x.pages === 1 ? dis : ''}>Next${ic('chevron-right')}</button></div>`;
+  return `<div class="pg"><span class="muted tab">Showing ${first}–${last} of ${nf(x.total)}</span>
+    <div class="ctl"><span class="tab" style="margin-right:6px">Page 1 of ${nf(x.pages)}</span>
+      <button class="btn outline icon sm" ${dis} aria-label="First page">${ic('chevrons-left')}</button>
+      <button class="btn outline icon sm" ${dis} aria-label="Previous page">${ic('chevron-left')}</button>
+      <button class="btn outline icon sm" ${x.pages === 1 ? dis : ''} aria-label="Next page">${ic('chevron-right')}</button>
+      <button class="btn outline icon sm" ${x.pages === 1 ? dis : ''} aria-label="Last page">${ic('chevrons-right')}</button></div></div>`;
+}
+function staleAlert(phone) {
+  return `<div class="alert warn" role="status" style="margin:${phone ? '12px 16px 0' : '0 16px 10px'}">${ic('triangle-alert')}<b>The inventory is 26 hours old</b><span class="a-d">Ended auctions are hidden, but prices, bids, and new listings may be out of date until the next sync.</span><button class="btn outline sm a-x" data-act="screen:sync" style="${phone ? 'display:none' : ''}">Sync status</button></div>`;
+}
+function emptyState(kind) {
+  if (kind === 'nomatch') return `<div class="empty"><div class="media">${ic('search-x')}</div><div><h3>No listings match these filters</h3><p>Nothing in the active inventory meets all 4 filters. Remove one, or clear them all to see every listing.</p></div><div class="acts"><button class="btn outline sm" data-act="chip:results">Clear all filters</button><button class="btn ghost sm" data-act="chip:more">Edit filters</button></div></div>`;
+  if (kind === 'noinv') return `<div class="empty"><div class="media">${ic('database')}</div><div><h3>No auctions collected yet</h3><p>Run a sync to load listings into the local database. GoDaddy needs no credentials and takes about 3 minutes.</p></div><div class="acts"><span class="code">corepack pnpm sync godaddy<button class="btn ghost icon sm" aria-label="Copy command">${ic('copy')}</button></span></div><button class="btn ghost sm" data-act="screen:sync">View sync status${ic('arrow-right')}</button></div>`;
+  return `<div class="empty"><div class="media" style="color:var(--destructive)">${ic('circle-alert')}</div><div><h3>The inventory couldn’t be read</h3><p>The local database didn’t respond. Apply migrations, then try again.</p></div><div class="acts"><span class="code">corepack pnpm db:migrate:local<button class="btn ghost icon sm" aria-label="Copy command">${ic('copy')}</button></span></div><button class="btn outline sm" data-act="chip:results">${ic('rotate-cw')}Try again</button></div>`;
+}
+
+/* ---------- details ---------- */
+function detailBody(r, phone) {
+  const lk = (v) => v == null ? '<span class="muted">Not collected</span>' : v;
+  const tile = (k, v, title) => `<div class="mtile" title="${title}"><span class="k">${k}</span><span class="v">${v == null ? '<span class="muted">—</span>' : v}</span></div>`;
+  const drv = r.dr === 'none' ? '<span class="muted" style="font-size:13px">No rating</span>' : r.dr;
+  return `
+    <div style="display:flex;gap:8px"><a class="btn primary ${phone ? 'lg' : ''}" href="#" style="flex:1">Open auction on ${r.src}${ic('external-link')}</a><button class="btn outline icon ${phone ? 'lg' : ''}" style="${phone ? 'width:36px' : ''}" aria-label="Copy domain">${ic('copy')}</button></div>
+    <div class="dsec"><h3>Auction</h3><dl class="kv">
+      <dt>Current price</dt><dd style="font-weight:600">${money(r.price)}</dd>
+      <dt>Bids</dt><dd>${nf(r.bids)}</dd>
+      <dt>Ends</dt><dd><span class="${urg(r)}">in ${r.ends}</span> <span class="muted">· ${r.abs} UTC</span></dd>
+      <dt>Renewal</dt><dd>${r.ren == null ? `<span class="muted">Not published by ${r.src}</span>` : money(r.ren)}</dd>
+      <dt>Appraisal</dt><dd>${money(r.appr)} <span class="muted">· ${r.src}</span></dd>
+    </dl></div>
+    <div class="hr"></div>
+    <div class="dsec"><h3>Domain</h3><dl class="kv">
+      <dt>TLD</dt><dd class="mono">.${r.d.split('.').pop()}</dd>
+      <dt>Length</dt><dd>${r.d.length} characters</dd>
+      <dt>Hyphens · Digits</dt><dd>${/-/.test(r.d) ? 'Yes' : 'No'} · ${/\d/.test(r.d.split('.')[0]) ? 'Yes' : 'No'}</dd>
+      <dt>Age</dt><dd>${r.age} years</dd>
+      <dt>Visitors</dt><dd>${lk(r.vis == null ? null : nf(r.vis))}</dd>
+      <dt>Inbound links</dt><dd>${lk(r.links == null ? null : nf(r.links))}</dd>
+    </dl></div>
+    <div class="hr"></div>
+    <div class="dsec"><h3>SEO metrics</h3>
+      <div class="mtiles">${tile('Trust Flow', seo(r, 'tf'), 'Majestic Trust Flow')}${tile('Citation Flow', seo(r, 'cf'), 'Majestic Citation Flow')}${tile('Authority', seo(r, 'as'), 'Semrush Authority Score')}<div class="mtile"><span class="k">DR</span><span class="v">${drv}</span><a href="https://ahrefs.com/" target="_blank" rel="noopener noreferrer">Domain Rating by Ahrefs</a></div></div>
+      <dl class="kv" style="margin-top:12px">
+        <dt>Majestic referring domains</dt><dd>${lk(seo(r, 'rd') == null ? null : nf(r.rd))}</dd>
+      </dl>
+      <p class="muted" style="font-size:12px;margin:10px 0 0">${r.seo === false ? 'No feed has published Majestic or Semrush metrics for this domain.' : 'Majestic and Semrush values from GoDaddy’s feed, Oct 6 sync.'}</p>
+    </div>`;
+}
+
+/* ---------- Filters page ---------- */
+function filterSections(inv) {
+  const input = (id, ph, val, err, pre) => `<label class="ig ${err ? 'err' : ''}">${pre ? `<span>${pre}</span>` : ''}<input id="${id}" placeholder="${ph}" ${val ? `value="${val}"` : ''} ${err ? 'aria-invalid="true"' : ''}></label>`;
+  const single = (id, label, ph, val, pre, cls = '') => `<div class="field ${cls}"><label for="${id}">${label}</label>${input(id, ph, val, false, pre)}</div>`;
+  const range = (id, label, pre, vals = ['', ''], err) => `<div class="field"><span class="flabel">${label}</span><div class="range">${input(id + 'min', 'Min', vals[0], !!err, pre)}<span class="muted">–</span>${input(id + 'max', 'Max', vals[1], !!err, pre)}</div>${err ? `<span class="err">${err}</span>` : ''}</div>`;
+  const checks = (label, items, cls = '') => `<div class="field ${cls}"><span class="flabel">${label}</span><div class="chkrow">${items.map(([t, on]) => `<span class="chk"><span class="check ${on ? 'on' : ''}">${on ? ic('check') : ''}</span>${t}</span>`).join('')}</div></div>`;
+  const toggle = (label, opts, on, cls = '') => `<div class="field ${cls}"><span class="flabel">${label}</span><div class="tgl">${opts.map(o => `<span class="${o === on ? 'on' : ''}">${o}</span>`).join('')}</div></div>`;
+  return [
+    { id: 'general', t: 'General', d: 'The same filters as the toolbar.', n: 1, f: `
+      ${single('q', 'Domain contains', 'e.g. garden', '', '', 'span2')}
+      ${checks('Source', [['GoDaddy', false], ['Dynadot', false]])}
+      <div class="field span2"><span class="flabel">TLD</span><label class="ig" style="height:auto;min-height:32px;padding:4px 8px;flex-wrap:wrap"><span class="badge secondary">.com ${ic('x')}</span><span class="badge secondary">.co ${ic('x')}</span><input placeholder="Search 478 TLDs…" style="min-width:120px"></label></div>
+      ${single('pmax0', 'Max current bid', 'Any', '', '$')}
+      ${toggle('Ends within', ['Any time', '1 hour', '6 hours', '24 hours', '3 days', '7 days'], 'Any time', 'span3')}` },
+    { id: 'auction', t: 'Auction', d: 'Auction type and price.', n: 0, f: `
+      ${checks('Auction type', [['Auction', false], ['Buy Now', false], ['Expired', false]])}
+      ${range('price', 'Current bid', '$')}
+      ${single('ren', 'Max renewal price', 'Any', '', '$')}` },
+    { id: 'name', t: 'Name', d: 'Shape and age of the domain name. Length counts the whole name, TLD included.', n: inv ? 2 : 1, f: `
+      ${range('len', 'Length (characters)', '', inv ? ['14', '8'] : ['', ''], inv ? 'Minimum length can’t be more than maximum length.' : '')}
+      ${range('age', 'Age (years)', '')}
+      ${checks('Characters', [['No hyphens', false], ['No digits', true]])}` },
+    { id: 'activity', t: 'Activity and value', d: 'Unknown values stay eligible until you set a limit.', n: 1, f: `
+      ${single('bmin', 'Min bids', 'Any', '5')}
+      ${single('vmin', 'Min visitors', 'Any')}
+      ${single('lmin', 'Min inbound links', 'Any')}
+      ${single('amin', 'Min appraisal', 'Any', '', '$')}` },
+    { id: 'seo', t: 'SEO metrics', d: 'Domains without a value are excluded once you set a minimum. Majestic and Semrush values come from GoDaddy’s feed.', n: 0, f: `
+      ${single('tf', 'Min Majestic Trust Flow', '0–100')}
+      ${single('cf', 'Min Majestic Citation Flow', '0–100')}
+      ${single('rd', 'Min Majestic referring domains', 'Any')}
+      ${single('as', 'Min Semrush Authority Score', '0–100')}` }
+  ];
+}
+function filtersPage(phone) {
+  const inv = S.chip === 'invalid';
+  const secs = filterSections(inv);
+  const total = secs.reduce((a, s) => a + s.n, 0);
+  const cards = secs.map(s => `<section class="card" id="fs-${s.id}"><div class="card-h"><span class="card-t">${s.t}${s.n ? ` <span class="badge secondary" style="margin-left:6px">${s.n}</span>` : ''}</span><span class="card-d">${s.d}</span></div><div class="card-c"><div class="fgrid">${s.f}</div></div></section>`).join('');
+  const nav = secs.map(s => `<a href="#" class="${S.fsec === s.id ? 'on' : ''}" data-act="fsec:${s.id}">${s.t}${s.n ? `<span class="badge secondary">${s.n}</span>` : ''}</a>`).join('');
+  const status = inv ? `<span style="color:var(--destructive);font-size:13px;display:inline-flex;gap:6px;align-items:center">${ic('circle-alert')}Fix the length range to apply</span>` : `<span class="muted" style="font-size:13px">${total} filters set</span>`;
+  const apply = `<button class="btn primary ${phone ? 'lg block' : ''}" ${inv ? 'disabled style="opacity:.5"' : 'data-act="chip:filtered"'}>Show results</button>`;
+  if (phone) {
+    return `<div class="fp">
+      <div class="ph-sec">${secs.map(s => `<button class="chip-s ${S.fsec === s.id ? 'on' : ''}" data-act="fsec:${s.id}">${s.t}${s.n ? ` · ${s.n}` : ''}</button>`).join('')}</div>
+      <div class="fp-body" id="fpScroll"><div class="fp-main">${cards}</div></div>
+      <div class="fp-bar" style="flex-direction:column;align-items:stretch;padding-bottom:28px">${inv ? status : ''}${apply}<button class="btn ghost" data-act="chip:results">Reset all</button></div>
+    </div>`;
+  }
+  return `<div class="fp">
+    <div class="fp-body" id="fpScroll">
+      <nav class="fp-nav" aria-label="Filter sections">${nav}</nav>
+      <div class="fp-main"><div><h1>Filters</h1><p class="muted" style="margin:4px 0 0;font-size:13.5px">Filters in different sections all have to match. Several values in Source, Auction type, or TLD match any of them.</p></div>${cards}</div>
+    </div>
+    <div class="fp-bar">${status}<span class="grow"></span><button class="btn ghost" data-act="chip:results">Reset all</button><button class="btn outline" data-act="chip:filtered">Cancel</button>${apply}</div>
+  </div>`;
+}
+
+/* ---------- desktop screens ---------- */
+function shell(main, crumb, fresh, overlay) {
+  const failed = S.screen === 'sync' && S.chip === 'failed';
+  const nav = (scr, icn, label, badge) => `<button class="nav ${S.screen === scr ? 'on' : ''}" data-act="screen:${scr}" title="${label}">${ic(icn)}<span>${label}</span>${badge ? `<span class="nbdg">${badge}</span>` : ''}</button>`;
+  return `<div class="shell ${S.collapsed ? 'collapsed' : ''}">
+    <aside class="sb">
+      <div class="sb-brand"><span class="logo">${ic('globe')}</span><span class="sb-text"><b>Domain Aggregator</b><small>Local inventory</small></span></div>
+      <div><div class="sb-label">Discover</div>${nav('auctions', 'gavel', 'Auctions')}${nav('sync', 'refresh-cw', 'Sync status', failed ? '1' : '')}</div>
+    </aside>
+    <div class="inset">
+      <header class="hd">
+        <button class="btn ghost icon sm" data-act="sidebar" aria-label="Toggle sidebar">${ic('panel-left')}</button>
+        <span class="sep-v"></span>
+        <nav class="crumb" aria-label="Breadcrumb">${crumb}</nav>
+        <div class="hd-r">${fresh}<button class="btn ghost icon sm" data-act="theme" aria-label="Toggle dark mode">${ic(isDark() ? 'sun' : 'moon')}</button></div>
+      </header>
+      ${main}
+    </div>
+    ${overlay || ''}
+  </div>`;
+}
+function auctionsDesktop() {
+  if (S.chip === 'more' || S.chip === 'invalid') return shell(filtersPage(false), `<span class="muted" data-act="chip:filtered" style="cursor:pointer">Auctions</span>${ic('chevron-right', 'i14 muted')}<span>Filters</span>`, freshBadge('ok'), '');
+  const x = ctx();
+  let region;
+  if (x.error) region = `<div class="box" style="display:grid;place-items:center">${emptyState('error')}</div>`;
+  else if (S.chip === 'noinv') region = `<div class="box" style="display:grid;place-items:center">${emptyState('noinv')}</div>`;
+  else if (S.chip === 'nomatch') region = `<div class="box">${table(x).replace(/<tbody>[\s\S]*<\/tbody>/, '<tbody></tbody>')}<div style="display:grid;place-items:center;min-height:420px">${emptyState('nomatch')}</div></div>`;
+  else region = `<div class="box">${table(x)}</div>`;
+  const main = `<div class="page">${toolbar(x)}${filterBar()}${S.chip === 'stale' ? staleAlert() : ''}${region}${x.error || S.chip === 'noinv' ? '<div style="height:16px"></div>' : pagination(x)}</div>`;
+  let overlay = '';
+  if (S.chip === 'columns' || S.chip === 'tld') overlay = `<div class="catch" data-act="chip:results"></div>`;
+  if (S.chip === 'details') { const r = ROWS.find(r => r.d === S.detail) || ROWS[13]; overlay = `<div class="scrim" data-act="chip:results" style="background:transparent;backdrop-filter:none"></div><div class="sheet" role="dialog" aria-label="Domain details"><div class="sh-h"><h2 class="mono" style="font-size:18px">${r.d}</h2><p>${r.src} · ${r.type} · ends in ${r.ends}</p><button class="btn ghost icon sm sh-x" data-act="chip:results" aria-label="Close">${ic('x')}</button></div><div class="sh-b">${detailBody(r)}</div></div>`; }
+  return shell(main, `<span>Auctions</span>`, freshBadge(x.fresh), overlay);
+}
+
+const RUNS = {
+  healthy: [
+    ['GoDaddy', 'ok', 'Oct 6, 15:31', '2m 19s', 587, 586958, 0, 0, null],
+    ['Dynadot', 'ok', 'Oct 6, 15:30', '9m 2s', 433, 432446, 426398, 0, null],
+    ['GoDaddy', 'ok', 'Oct 5, 15:31', '2m 24s', 585, 584101, 3412, 0, null],
+    ['Dynadot', 'ok', 'Oct 5, 15:30', '8m 58s', 427, 426398, 2, 0, null],
+    ['Dynadot', 'fail', 'Jul 13, 10:28', '9m 42s', 0, 0, 0, 0, 'dynadot_sync_interrupted'],
+    ['Dynadot', 'fail', 'Jul 13, 10:23', '2m 25s', 100, 100000, 0, 0, 'dynadot_page_limit_exceeded']
+  ]
+};
+RUNS.running = [['GoDaddy', 'run', 'Oct 7, 02:12', '7m so far', 214, 213000, 0, 0, null], ...RUNS.healthy];
+RUNS.failed = [['Dynadot', 'fail', 'Oct 7, 01:30', '2s', 1, 1000, 0, 0, 'dynadot_sync_failed'], ...RUNS.healthy];
+function statusBadge(s) {
+  if (s === 'ok') return `<span class="badge outline">${ic('circle-check')}Succeeded</span>`;
+  if (s === 'run') return `<span class="badge secondary">${ic('loader-circle', 'spin')}Running</span>`;
+  return `<span class="badge destructive">${ic('circle-x')}Failed</span>`;
+}
+function providerCard(p) {
+  const st = S.chip;
+  const isRun = st === 'running' && p === 'GoDaddy';
+  const isFail = st === 'failed' && p === 'Dynadot';
+  const d = p === 'GoDaddy'
+    ? { kind: 'Daily inventory file', active: 472855, last: 'Oct 6, 15:33 UTC · 11h ago', took: '2m 19s', fetched: '586,958 records · 587 pages', cmd: 'godaddy' }
+    : { kind: 'API · get_open_auctions', active: 384557, last: 'Oct 6, 15:39 UTC · 11h ago', took: '9m 2s', fetched: '432,446 records · 433 pages', cmd: 'dynadot' };
+  const body = isRun
+    ? `<div style="display:grid;gap:8px"><div style="display:flex;justify-content:space-between;font-size:13px"><span>Page 214 · 213,000 records</span><span class="muted">~36%</span></div><div class="progress"><i style="width:36%"></i></div><span class="muted" style="font-size:12.5px">Started Oct 7, 02:12 UTC. The table keeps showing the last successful run until this one finishes.</span></div>`
+    : `<dl class="kv"><dt>${isFail ? 'Last attempt' : 'Last success'}</dt><dd>${isFail ? '<span style="color:var(--destructive)">Oct 7, 01:30 UTC · failed on page 1</span>' : d.last}</dd>${isFail ? `<dt>Last success</dt><dd>${d.last}</dd>` : ''}<dt>Duration</dt><dd>${d.took}</dd><dt>Fetched</dt><dd>${d.fetched}</dd><dt>Next run</dt><dd>Daily at 15:30 UTC</dd></dl>`;
+  return `<div class="card">
+    <div class="card-h"><span class="card-t">${p}</span><span class="card-d">${d.kind}</span><span class="card-a">${statusBadge(isRun ? 'run' : isFail ? 'fail' : 'ok')}</span></div>
+    <div class="card-c" style="display:grid;gap:14px;flex:1;align-content:start"><div><div class="big">${nf(d.active)}</div><div class="muted" style="font-size:13px">active listings</div></div>${body}</div>
+    <div class="card-f"><span class="muted" style="font-size:12.5px">Run locally</span><span class="code" style="height:28px;background:var(--background);border:1px solid var(--border)">corepack pnpm sync ${d.cmd}<button class="btn ghost icon sm" style="width:24px;height:24px" aria-label="Copy command">${ic('copy')}</button></span></div>
+  </div>`;
+}
+function syncMain(phone) {
+  const runs = RUNS[S.chip];
+  const alert = S.chip === 'failed' ? `<div class="alert bad" role="alert">${ic('circle-alert')}<b>Dynadot’s last sync failed</b><span class="a-d" style="color:var(--muted-foreground)">Error <code class="mono">dynadot_sync_failed</code> on page 1. Dynadot listings from the Oct 6 run stay in the table; nothing was marked inactive.</span></div>` : '';
+  const list = phone
+    ? `<div class="card" style="padding-block:12px 0;gap:0"><div class="card-h" style="padding-bottom:10px"><span class="card-t">Recent runs</span></div>${runs.map(r => `<div class="item" style="cursor:default"><span style="font-weight:500">${r[0]}</span><span>${statusBadge(r[1])}</span><span class="d">${r[2]} UTC · ${r[3]}</span><span class="e muted">${nf(r[5])} records</span>${r[8] ? `<span class="d mono" style="grid-column:1/-1;color:var(--destructive)">${r[8]}</span>` : ''}</div>`).join('')}</div>`
+    : `<div class="card" style="padding-bottom:0;gap:8px"><div class="card-h"><span class="card-t">Recent runs</span><span class="card-d">Every Workflow run, newest first. Failed and interrupted runs never mark listings inactive.</span></div>
+      <div style="overflow:auto"><table class="t" style="font-size:13px"><thead><tr>${['Provider', 'Status', 'Started (UTC)', 'Duration', 'Pages', 'Records', 'Marked inactive', 'Rejected', 'Error'].map((h, i) => `<th class="${i > 3 && i < 8 ? 'num' : ''}" style="${i === 0 ? 'padding-left:16px' : ''}">${h}</th>`).join('')}</tr></thead><tbody>
+      ${runs.map(r => `<tr><td style="padding-left:16px;font-weight:500">${r[0]}</td><td>${statusBadge(r[1])}</td><td class="tab">${r[2]}</td><td class="tab">${r[3]}</td><td class="num">${nf(r[4])}</td><td class="num">${nf(r[5])}</td><td class="num">${nf(r[6])}</td><td class="num">${nf(r[7])}</td><td>${r[8] ? `<span class="mono" style="font-size:12px;color:var(--destructive)">${r[8]}</span>` : '<span class="muted">—</span>'}</td></tr>`).join('')}
+      </tbody></table></div></div>`;
+  return `<div class="sync">${alert}<div class="pgrid">${providerCard('GoDaddy')}${providerCard('Dynadot')}</div>${list}</div>`;
+}
+function syncDesktop() {
+  return shell(`<div class="page">${syncMain(false)}</div>`, `<span>Sync status</span>`, freshBadge('ok'), '');
+}
+
+/* ---------- phone screens ---------- */
+function phoneShell(title, fresh, body, overlay, back) {
+  const navSheet = S.nav ? `<div class="scrim" data-act="nav"></div><div class="sheet left" style="padding:52px 8px 8px;background:var(--sidebar)"><div class="sb-brand"><span class="logo">${ic('globe')}</span><span class="sb-text"><b>Domain Aggregator</b><small>Local inventory</small></span></div><div class="sb-label">Discover</div><button class="nav ${S.screen === 'auctions' ? 'on' : ''}" data-act="screen:auctions">${ic('gavel')}<span>Auctions</span></button><button class="nav ${S.screen === 'sync' ? 'on' : ''}" data-act="screen:sync">${ic('refresh-cw')}<span>Sync status</span></button></div>` : '';
+  const lead = back ? `<button class="btn ghost icon" data-act="${back}" aria-label="Back to results">${ic('arrow-left')}</button>` : `<button class="btn ghost icon" data-act="nav" aria-label="Open navigation">${ic('panel-left')}</button>`;
+  return `<div class="ph">
+    <div class="statusbar"><span>9:41</span><span style="display:flex;gap:6px;align-items:center">${ic('signal', 'i14')}${ic('wifi', 'i14')}${ic('battery-full')}</span></div>
+    <header class="hd">${lead}<span class="sep-v"></span><span style="font-weight:500">${title}</span><div class="hd-r">${fresh}</div></header>
+    ${body}
+    ${overlay || ''}${navSheet}
+    <div class="homebar"></div>
+  </div>`;
+}
+function phoneItems(x) {
+  X = x;
+  if (x.loading) return `<div class="items">${Array.from({ length: 8 }, (_, i) => `<div class="item"><span class="skel" style="width:${150 - i * 9}px;height:14px"></span><span class="skel" style="width:56px;height:14px"></span><span class="skel" style="width:170px"></span><span class="skel" style="width:48px"></span><span class="m"><span class="skel" style="width:220px"></span></span></div>`).join('')}</div>`;
+  const badgeCols = COLS.filter(c => c.badge && S.cols.has(c.k));
+  return `<div class="items">${x.rows.map(r => {
+    const tags = badgeCols.map(c => c.badge(r)).filter(Boolean);
+    return `<div class="item" data-act="detail:${r.d}" role="button" aria-label="Details for ${r.d}">
+      <a class="t1" href="#"><span>${r.d}</span>${ic('external-link')}</a><span class="p">${money(r.price)}</span>
+      <span class="d">${r.src} · ${r.type} · ${nf(r.bids)} bid${r.bids === 1 ? '' : 's'}</span><span class="e"><span class="${urg(r)}">${r.ends}</span></span>
+      <span class="m">${tags.map(t => `<span class="badge secondary">${t}</span>`).join('')}</span>
+    </div>`;
+  }).join('')}</div>`;
+}
+function auctionsPhone() {
+  if (['tld', 'more', 'invalid'].includes(S.chip)) return phoneShell('Filters', '', filtersPage(true), '', 'chip:filtered');
+  const x = ctx();
+  const fcount = S.chip === 'filtered' ? 3 : S.chip === 'nomatch' ? 4 : 0;
+  const sortLabel = { ends: 'Ends soonest', price: 'Price', bids: 'Bids', domain: 'Domain', source: 'Source', age: 'Age', links: 'Links', appraisal: 'Appraisal', renewal: 'Renewal', visitors: 'Visitors', length: 'Length' }[S.sort.key];
+  const tb = `<div class="ph-tb">
+    <label class="ig">${ic('search')}<input placeholder="Search domains…" aria-label="Domain contains"></label>
+    <div class="r"><button class="btn outline sm" data-act="chip:more">${ic('list-filter')}Filters${fcount ? `<span class="bdg">${fcount}</span>` : ''}</button><button class="selbtn" style="height:28px;font-size:13px" data-act="sort:${S.sort.key}">${ic('arrow-up-down', 'i14')}${sortLabel}${ic('chevron-down', 'i14')}</button><button class="btn outline icon sm" data-act="chip:columns" aria-label="Fields shown">${ic('columns-3')}</button><span class="grow"></span><span class="muted tab" style="font-size:12.5px">${x.loading ? '' : nf(x.total)}</span></div>
+  </div>`;
+  const chips = CHIPSET[S.chip] ? `<div class="fbar" style="flex-wrap:nowrap;overflow-x:auto;padding-bottom:10px">${CHIPSET[S.chip].map(([l]) => `<span class="badge outline x" data-act="chip:results" style="flex:none">${l}${ic('x')}</span>`).join('')}<button class="btn ghost sm" data-act="chip:results" style="height:24px;flex:none">Clear all</button></div>` : '';
+  let body;
+  if (x.error) body = emptyState('error');
+  else if (S.chip === 'noinv') body = emptyState('noinv');
+  else if (S.chip === 'nomatch') body = `<div class="items">${emptyState('nomatch')}</div>`;
+  else body = `${S.cols.has('dr') ? `<div class="attr-line"><span>DR = <a href="https://ahrefs.com/" target="_blank" rel="noopener noreferrer">Domain Rating by Ahrefs</a></span><span>Tap a row for details</span></div>` : ''}${phoneItems(x)}${pagination(x, true)}<div style="height:24px"></div>`;
+  const scroll = `<div class="ph-scroll">${S.chip === 'stale' ? staleAlert(true) : ''}${tb}${chips}${body}</div>`;
+  let overlay = '';
+  if (S.chip === 'columns') {
+    const row = (c) => `<div class="opt" data-act="col:${c.k}" style="height:40px"><span class="check ${S.cols.has(c.k) ? 'on' : ''}">${S.cols.has(c.k) ? ic('check') : ''}</span>${c.full || c.l}${c.grp ? `<span class="r">${c.grp}</span>` : ''}</div>`;
+    overlay = `<div class="scrim" data-act="chip:results"></div><div class="drawer" role="dialog" aria-label="Fields shown" style="height:78%"><div class="handle"></div><div class="sh-h"><h2>Fields shown</h2><p>Choose the metrics under each listing. Price, source, bids, and end time always show.</p></div><div class="sh-b" style="gap:0"><div class="grp-l">Listing</div>${COLS.filter(c => c.badge && !c.grp).map(row).join('')}<div class="grp-l" style="margin-top:6px">SEO metrics</div>${COLS.filter(c => c.grp).map(row).join('')}</div><div class="sh-f"><button class="btn primary lg block" data-act="chip:results">Done</button><button class="btn ghost block" data-act="colreset">Reset to default</button></div></div>`;
+  }
+  if (S.chip === 'details') { const r = ROWS.find(r => r.d === S.detail) || ROWS[13]; overlay = `<div class="scrim" data-act="chip:results"></div><div class="drawer" role="dialog" aria-label="Domain details"><div class="handle"></div><div class="sh-h"><h2 class="mono" style="font-size:18px">${r.d}</h2><p>${r.src} · ${r.type} · ends in ${r.ends}</p></div><div class="sh-b" style="padding-bottom:32px">${detailBody(r, true)}</div></div>`; }
+  return phoneShell('Auctions', freshBadge(x.fresh).replace('Synced ', '').replace(' ago', ''), scroll, overlay);
+}
+function syncPhone() {
+  return phoneShell('Sync status', freshBadge('ok').replace('Synced ', '').replace(' ago', ''), `<div class="ph-scroll">${syncMain(true)}<div style="height:24px"></div></div>`, '');
+}
+
+/* ---------- notes ---------- */
+const COMMON = {
+  auctions: ['Sidebar shell: stock <code>sidebar-07</code> block (collapses to icons; becomes a Sheet on phones).', 'Toolbar: Input Group + Kbd, faceted filters from Popover + Command (the shadcn tasks example, no TanStack), DropdownMenu checkbox items for Columns.', 'Table: stock Table with grouped metric headers, sticky header and Domain column, Next <code>Link</code> pagination.', 'Filters page: Card, Field, Input Group, Checkbox, Toggle Group, Combobox with chips.', 'Overlays: Sheet (desktop), Drawer (phone), Tooltip, Skeleton, Spinner, Empty, Alert, Sonner.'],
+  sync: ['Cards: stock Card with CardAction for the status Badge, Progress while running.', 'Runs: stock Table on desktop, Item rows on phones.', 'Data: <code>ingestion_runs</code> and the active-listing count per provider, read from D1 only.']
+};
+const NOTES = {
+  results: ['The working view: every active listing, soonest end first.', ['One app shell instead of a marketing header: the page title, lede and eyebrow are gone, so 16 rows fit above the fold at 1440 × 900 instead of about 6.', 'Rows are one 40px line. Renewal, visitors and length become optional columns; flags and referring domains are in the details panel.', 'Majestic TF and CF are two numeric columns; the attribution sits in the DR group header.', 'The domain opens the auction in a new tab. The panel icon at the row end opens details.'], ['Columns change from Interest/Majestic to Bids, TF, CF, AS. Visitors leaves the default set (still filterable, and available as a column).', 'Fixes today’s silent font fallback: the page currently renders in Times because the Geist variable is set on <code>body</code> while <code>font-sans</code> is applied on <code>html</code>.']],
+  filtered: ['Three filters applied from the URL.', ['Faceted buttons show their own selections; every constraint also appears once as a removable chip, with Clear all and Edit (opens the Filters page).', 'The count and pagination follow the filtered total.'], ['Same URL contract as today (<code>?tld=com&tld=co&bidsMin=5&noDigits=1</code>), so links and Back keep working.']],
+  tld: ['Faceted TLD filter with search.', ['Lists every TLD from <code>listing_facets</code> (478 now); typing narrows the list.', 'Selecting applies immediately and returns to page 1. No Apply button for quick filters.', 'Phones have no quick-filter popovers; this state shows the Filters page there.'], ['Behavior change: quick filters apply on change instead of through an Apply button. Text search applies on Enter.']],
+  columns: ['Choose which columns the table shows. Try it: the checkboxes work.', ['Columns menu: DropdownMenu with checkbox items, as in the shadcn data table “View” menu, grouped Listing and SEO metrics. Domain is always shown.', 'Renewal, Visitors, Length, and Majestic referring domains are available and off by default.', 'Saved in a cookie that the server reads, so the table renders the chosen columns with no flash and keeps them across reloads. It is a personal view setting, not part of the shareable URL.', 'On phones the same choice decides which metric badges each listing shows.'], ['New. If the list grows to SpamZilla size it can move into a Dialog without changing the cookie or the column registry.']],
+  custom: ['A customized column set.', ['Age, Links, Appraisal, and Semrush hidden; Renewal, Visitors, Length, and referring domains shown.', 'Group headers shrink or disappear with their columns. The Ahrefs attribution stays whenever DR is visible.', 'The Columns button shows a Custom badge so a trimmed view is never mistaken for missing data.'], ['New sortable headers: Renewal, Visitors, and Length already exist in the URL contract (<code>sort=renewal|visitors|domainLength</code>) but had no header.']],
+  more: ['A full Filters page for every filter.', ['Its own route, <code>/filters/</code>, carrying the current query string. Show results applies and returns to page 1; Cancel returns to the same results unchanged.', 'A sticky section nav with the number of active filters per section, so it can grow to SpamZilla-sized option lists (country TLDs, Majestic categories, languages) without a redesign.', 'Each section is a Card of Fields; ranges are one field with Min and Max.', 'Phones get the same page in one column, section chips on top and a sticky Show results bar.'], ['Replaces today’s More filters panel and the v1 sheet. Quick filters stay in the toolbar for one-click changes.', 'Saved filters (SpamZilla’s Save and Load) would sit in the bottom bar later; out of scope for this redesign.']],
+  invalid: ['Validation on the Filters page.', ['Both inputs of the range show the error, the message sits under the field, and the bottom bar says what to fix while Show results is disabled.'], ['Message copy matches today’s rule: the minimum can’t exceed the maximum.']],
+  details: ['A details panel for one listing.', ['Everything the row drops: renewal, visitors, inbound links, length, flags, referring domains, plus the full end time.', 'Primary action opens the auction; Copy copies the domain and confirms with a Sonner toast.', 'Opens from the row’s panel icon. On phones the whole row opens it.'], ['New behavior; needs a product-spec addition. No new queries: it uses the row the page already loaded.']],
+  loading: ['While a filter, sort or page change is loading.', ['<code>loading.tsx</code> renders Skeleton rows at the real row height for the chosen columns, so nothing jumps when data arrives.'], ['Today the page shows nothing until the server responds.']],
+  ratings: ['Ahrefs DR arriving after the page renders.', ['Rows without a stored DR show a Spinner in the DR column until the enrichment request returns, then the row refreshes.'], ['Same request flow as today (<code>POST /api/enrichment/domain-rating</code>); only the placeholder changes. Hiding the DR column also stops the request.']],
+  stale: ['The last successful sync is over 24 hours old.', ['The header badge turns to warning and a one-line Alert explains the risk, with a link to Sync status.'], ['Today’s banner is twice as tall and has no way to see why the sync is late.']],
+  nomatch: ['Filters that match nothing.', ['Empty sits inside the table frame with Clear all and Edit filters. Chips stay visible so one can be removed instead.']],
+  noinv: ['A fresh database with nothing synced.', ['Empty explains the next step and gives the exact command with a copy button.']],
+  error: ['D1 is unavailable or unmigrated.', ['<code>error.tsx</code> boundary: Empty with the fix and a Try again button that calls <code>reset()</code>.'], ['New: today an unmigrated database shows the Next.js error overlay.']],
+  healthy: ['Sync status: both providers succeeded on schedule.', ['One card per provider with active listings, last success, duration, records and the next cron run.', 'Recent runs from <code>ingestion_runs</code>, including failures and their error codes.'], ['Proposed new screen at <code>/syncs/</code>. It reads D1 only, so it stays inside the request boundary.']],
+  running: ['A Workflow run in progress.', ['Progress from <code>pages_fetched</code> against the previous run’s page count; the table keeps serving the last successful data.'], ['No live push: the page refreshes on navigation. Polling is out of scope.']],
+  failed: ['A run that failed.', ['Destructive Alert names the provider, error code and failing page, and says what still shows in the table.', 'The sidebar item carries a count so the failure is visible from Auctions too.']]
+};
+const NEW_IN_V2 = new Set(['columns', 'custom', 'more', 'invalid']);
+function renderNotes() {
+  const [lede, what, delta] = NOTES[S.chip];
+  const tag = NEW_IN_V2.has(S.chip) ? '<span class="tag">New in v2</span>' : (S.screen === 'sync' || S.chip === 'details') ? '<span class="tag">Proposed</span>' : '';
+  document.getElementById('notes').innerHTML = `
+    <section><h2>This state</h2><p class="lede">${lede}${tag}</p><ul>${what.map(w => `<li>${w}</li>`).join('')}</ul></section>
+    <section><h2>Change from today</h2>${delta ? `<ul>${delta.map(w => `<li>${w}</li>`).join('')}</ul>` : '<p class="muted">No change in behavior.</p>'}</section>
+    <section><h2>Built from</h2><ul>${COMMON[S.screen].map(w => `<li>${w}</li>`).join('')}</ul></section>`;
+}
+
+/* ---------- controls + render ---------- */
+function seg(id, items, key) {
+  document.getElementById(id).innerHTML = items.map(([v, l]) => `<button aria-pressed="${S[key] === v}" data-set="${key}:${v}">${l}</button>`).join('');
+}
+function render() {
+  if (!CHIPS[S.screen].some(c => c[0] === S.chip)) S.chip = CHIPS[S.screen][0][0];
+  seg('segScreen', [['auctions', 'Auctions'], ['sync', 'Sync status']], 'screen');
+  seg('segView', [['desktop', 'Desktop 1440'], ['phone', 'Phone 390']], 'view');
+  seg('segTheme', [['viewer', 'Auto'], ['light', 'Light'], ['dark', 'Dark']], 'theme');
+  seg('segFit', [['fit', 'Fit'], ['actual', '100%']], 'fit');
+  document.getElementById('segFit').hidden = S.view !== 'desktop';
+  document.getElementById('chips').innerHTML = CHIPS[S.screen].map(([v, l, p]) => `<button class="chip ${p ? 'prop' : ''} ${NEW_IN_V2.has(v) ? 'new' : ''}" aria-pressed="${S.chip === v}" data-set="chip:${v}">${l}</button>`).join('');
+  const dev = document.getElementById('device');
+  dev.className = 'device ' + (S.view === 'phone' ? 'phone ' : '') + (S.theme === 'light' ? 'force-light' : S.theme === 'dark' ? 'force-dark' : '');
+  const html = S.screen === 'sync' ? (S.view === 'phone' ? syncPhone() : syncDesktop()) : (S.view === 'phone' ? auctionsPhone() : auctionsDesktop());
+  dev.innerHTML = `<div class="app">${html}</div>`;
+  if (window.lucide) lucide.createIcons();
+  const fp = document.getElementById('fpScroll'), sec = document.getElementById('fs-' + S.fsec);
+  if (fp && sec && S.fsec !== 'general') fp.scrollTop = sec.offsetTop - fp.offsetTop - 16;
+  renderNotes();
+  layout();
+  try { localStorage.setItem('adr-mock', JSON.stringify({ screen: S.screen, chip: S.chip, view: S.view, theme: S.theme, fit: S.fit })); } catch (e) {}
+}
+function layout() {
+  const stage = document.getElementById('stage'), fw = document.getElementById('fw'), dev = document.getElementById('device');
+  const avail = stage.clientWidth - 32;
+  const [w, h] = S.view === 'phone' ? [390, 844] : [1440, 900];
+  const pad = S.view === 'phone' ? 16 : 0;
+  const s = S.view === 'desktop' && S.fit === 'actual' ? 1 : Math.min(1, (avail - pad) / w);
+  dev.style.width = w + 'px'; dev.style.height = h + 'px';
+  dev.style.transform = `translate(${pad / 2}px, ${pad / 2}px) scale(${s})`;
+  fw.style.width = (w * s + pad) + 'px'; fw.style.height = (h * s + pad) + 'px';
+}
+document.addEventListener('click', (e) => {
+  const set = e.target.closest('[data-set]');
+  if (set) {
+    const [k, v] = set.dataset.set.split(':');
+    S[k] = v; S.nav = false;
+    if (k === 'chip' && v === 'custom') S.cols = CUSTOM_COLS();
+    if (k === 'chip' && v !== 'custom' && v !== 'columns') S.cols = DEFAULT_COLS();
+    if (k === 'chip' && (v === 'more' || v === 'invalid')) S.fsec = v === 'invalid' ? 'name' : 'general';
+    render(); return;
+  }
+  const a = e.target.closest('[data-act]');
+  if (e.target.closest('.device a[href="#"]')) e.preventDefault();
+  if (!a) return;
+  if (e.target.closest('a.t1')) return;
+  const [k, v] = a.dataset.act.split(':');
+  if (k === 'chip') S.chip = v;
+  if (k === 'screen') { S.screen = v; S.chip = CHIPS[v][0][0]; S.nav = false; }
+  if (k === 'sidebar') S.collapsed = !S.collapsed;
+  if (k === 'nav') S.nav = !S.nav;
+  if (k === 'theme') S.theme = isDark() ? 'light' : 'dark';
+  if (k === 'detail') { S.detail = v; S.chip = 'details'; }
+  if (k === 'fsec') S.fsec = v;
+  if (k === 'col') { S.cols.has(v) ? S.cols.delete(v) : S.cols.add(v); }
+  if (k === 'colreset') S.cols = DEFAULT_COLS();
+  if (k === 'sort') {
+    if (S.view === 'phone') { const order = ['ends', 'price', 'bids', 'appraisal', 'age', 'domain']; const next = order[(order.indexOf(S.sort.key) + 1) % order.length]; S.sort = { key: next, dir: next === 'ends' || next === 'domain' ? 'asc' : 'desc' }; }
+    else S.sort = S.sort.key === v ? { key: v, dir: S.sort.dir === 'asc' ? 'desc' : 'asc' } : { key: v, dir: ['domain', 'source', 'ends'].includes(v) ? 'asc' : 'desc' };
+  }
+  render();
+});
+new ResizeObserver(layout).observe(document.getElementById('stage'));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', render);
+new MutationObserver(render).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
+render();
+</script>
