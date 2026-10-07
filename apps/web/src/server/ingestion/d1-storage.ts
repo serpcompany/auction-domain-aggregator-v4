@@ -4,7 +4,7 @@ import { refreshListingFacetsQueries } from '../db/listing-facets'
 import { auctionListings, ingestionRunSeenPages, ingestionRuns } from '../db/schema'
 import type { AppDatabase } from '../db/types'
 import type { AuctionProvider, NormalizedListing } from '../providers/types'
-import { type IngestionStorage, type RunState, SyncError } from './sync'
+import { errorMessage, type IngestionStorage, type RunState, SyncError } from './sync'
 
 const DOMAIN_BATCH_SIZE = 100
 const LISTING_BATCH_SIZE = 25
@@ -340,12 +340,11 @@ export function createD1IngestionStorage(
       }
 
       // One atomic batch: inactivate exactly those rows while the run is
-      // still running, mark the run succeeded, then rebuild the facet values
-      // from the reconciled active inventory. The run's seen pages are deleted
-      // after the statement that reads them. The reconciliation runs once:
-      // `changes()` is the count the inactivation just made. On Staging's
-      // 1.1-million-listing Namecheap inventory each pass took about 15
-      // seconds, and counting in a second pass overran D1's request limit.
+      // still running, and mark the run succeeded with that count, which
+      // `changes()` takes from the inactivation. D1 resets a request that runs
+      // too long: on Staging's 1.1-million-listing Namecheap inventory the
+      // reconciliation pass alone takes 12 to 18 seconds, so the batch holds
+      // nothing else.
       const [, completed] = await db.batch([
         db.update(auctionListings).set({ status: 'inactive' }).where(reconciliationFilter),
         db
@@ -362,14 +361,43 @@ export function createD1IngestionStorage(
             failedPage: null
           })
           .where(runFilter)
-          .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
-        deleteSeenPages(db, [run.runId]),
-        ...refreshListingFacetsQueries(db)
+          .returning({ recordsInactivated: ingestionRuns.recordsInactivated })
       ])
       if (!completed[0]) {
         throw new SyncError('sync_stale_continuation')
       }
+      // Then, in their own request, delete the run's seen pages (about 17 MB
+      // of IDs for Namecheap) and rebuild the facet values from the reconciled
+      // active inventory. Both are idempotent and the run has succeeded, so a
+      // failure is only logged: the provider's next run deletes leftover pages
+      // when it starts, and the next successful run rebuilds the facets.
+      await db
+        .batch([deleteSeenPages(db, [run.runId]), ...refreshListingFacetsQueries(db)])
+        .catch((error: unknown) =>
+          console.warn('sync_cleanup_failed', { message: errorMessage(error) })
+        )
       return completed[0].recordsInactivated
+    },
+
+    async loadSucceededRun(runId) {
+      const [run] = await db
+        .select({
+          pagesFetched: ingestionRuns.pagesFetched,
+          recordsFetched: ingestionRuns.recordsFetched,
+          recordsUpserted: ingestionRuns.recordsUpserted,
+          recordsInactivated: ingestionRuns.recordsInactivated,
+          recordsRejected: ingestionRuns.recordsRejected
+        })
+        .from(ingestionRuns)
+        .where(
+          and(
+            eq(ingestionRuns.id, runId),
+            eq(ingestionRuns.provider, provider),
+            eq(ingestionRuns.status, 'succeeded')
+          )
+        )
+        .limit(1)
+      return run ?? null
     },
 
     async updateRunProgress(run) {

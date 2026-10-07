@@ -132,6 +132,12 @@ class MemoryStorage implements IngestionStorage {
     return { ...run }
   }
 
+  readonly succeeded = new Map<number, RunCounters>()
+
+  async loadSucceededRun(runId: number) {
+    return this.succeeded.get(runId) ?? null
+  }
+
   async upsertListings(run: RunState, items: DynadotListing[]) {
     if (!this.running.has(run.runId)) {
       throw new SyncError('sync_stale_continuation')
@@ -167,6 +173,8 @@ class MemoryStorage implements IngestionStorage {
       errorCode: null
     })
     this.running.delete(run.runId)
+    const { completedAt: _, ...counters } = finalization
+    this.succeeded.set(run.runId, { ...counters, recordsInactivated: targets.length })
     return targets.length
   }
 
@@ -272,7 +280,7 @@ describe('syncDynadotWithStorage', () => {
     })
   })
 
-  it('rejects forged and completed run ids without fetching', async () => {
+  it("rejects a forged run id, and returns a succeeded run's result, without fetching", async () => {
     const storage = new MemoryStorage()
     const fetchPage = vi.fn(async () => [])
 
@@ -282,9 +290,7 @@ describe('syncDynadotWithStorage', () => {
 
     const completed = await runSegment(storage, { fetchPage })
     expect(completed.done).toBe(true)
-    await expect(runSegment(storage, { runId: 1, fetchPage })).rejects.toMatchObject({
-      code: 'sync_stale_continuation'
-    })
+    await expect(runSegment(storage, { runId: 1, fetchPage })).resolves.toEqual(completed)
     expect(fetchPage).toHaveBeenCalledOnce()
   })
 
@@ -640,6 +646,41 @@ describe('syncDynadotWithStorage', () => {
         }
       })
     ).rejects.toEqual(new SyncError('dynadot_response_error'))
+  })
+
+  it('returns the stored result when the final segment runs again after its run succeeded', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const storage = new MemoryStorage()
+    const finalize = storage.finalizeSuccessfulRun.bind(storage)
+    // D1 committed the finalization batch but reported an error.
+    storage.finalizeSuccessfulRun = async (run, finalization) => {
+      await finalize(run, finalization)
+      throw new Error('D1 DB storage operation exceeded timeout which caused object to be reset.')
+    }
+    const fetchPage = async () => [listing('a', 'a.example')]
+    await expect(runSegment(storage, { fetchPage })).rejects.toEqual(
+      new SyncError('sync_failed', { transient: true })
+    )
+    await expect(runSegment(storage, { fetchPage, runId: 1 })).resolves.toEqual({
+      done: true,
+      summary: {
+        provider: 'dynadot',
+        status: 'succeeded',
+        pagesFetched: 1,
+        recordsFetched: 1,
+        recordsUpserted: 1,
+        recordsInactivated: 0,
+        recordsRejected: 0
+      }
+    })
+
+    // A run that was interrupted rather than finished is still stale.
+    await storage.startRun(new Date())
+    await storage.startRun(new Date())
+    await expect(runSegment(storage, { fetchPage, runId: 2 })).rejects.toEqual(
+      new SyncError('sync_stale_continuation')
+    )
+    warn.mockRestore()
   })
 
   it('logs why storage failed, whatever was thrown', async () => {

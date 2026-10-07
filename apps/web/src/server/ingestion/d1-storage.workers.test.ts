@@ -1,5 +1,5 @@
-import { and, count, eq, inArray, like } from 'drizzle-orm'
-import { describe, expect, it } from 'vitest'
+import { and, count, eq, inArray, like, sql } from 'drizzle-orm'
+import { describe, expect, it, vi } from 'vitest'
 
 import {
   auctionListings,
@@ -337,6 +337,33 @@ describe('D1 ingestion storage', () => {
       )
     ).toBe('sync_stale_continuation')
     expect((await metricsFor('seo-feed.integration.test'))?.majesticTf).toBe(12)
+  })
+
+  it('loads a succeeded run, which stays succeeded when the cleanup after it fails', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const database = testDatabase()
+    const storage = createD1IngestionStorage(database, 'dynadot')
+    const run = await storage.startRun(STARTED_AT)
+    await storage.upsertListings(run, INITIAL_LISTINGS)
+    expect(await storage.loadSucceededRun(run.runId)).toBeNull()
+
+    // Without its table, the facet rebuild after the finalization batch fails.
+    await database.run(sql`DROP TABLE listing_facets`)
+    await storage.finalizeSuccessfulRun(run, finalization(new Date('2026-07-13T00:20:00.000Z'), 3))
+    expect(warn).toHaveBeenCalledWith('sync_cleanup_failed', {
+      message: expect.stringContaining('listing_facets')
+    })
+    expect(await storage.loadSucceededRun(run.runId)).toEqual({
+      pagesFetched: 1,
+      recordsFetched: 3,
+      recordsUpserted: 3,
+      recordsInactivated: 0,
+      recordsRejected: 0
+    })
+    expect(
+      await createD1IngestionStorage(database, 'godaddy').loadSucceededRun(run.runId)
+    ).toBeNull()
+    warn.mockRestore()
   })
 
   it('treats every write against a run that is no longer running as stale', async () => {

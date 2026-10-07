@@ -120,6 +120,9 @@ function memoryStorage(provider: AuctionProvider) {
       }
       return { ...run }
     },
+    async loadSucceededRun() {
+      return null
+    },
     async upsertListings(_run, page) {
       for (const listing of page) listings.set(listing.externalId, listing)
     },
