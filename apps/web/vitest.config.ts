@@ -13,6 +13,7 @@ export default defineConfig({
       include: [
         'src/components/**/*.{ts,tsx}',
         'src/domain/**/*.{ts,tsx}',
+        'src/lib/**/*.ts',
         'src/server/providers/**/*.ts',
         'src/server/ingestion/sync.ts',
         'src/server/enrichment/ahrefs.ts',

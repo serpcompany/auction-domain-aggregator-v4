@@ -101,7 +101,9 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 
 ## Physical code map
 
-- `apps/web/src/app/` owns Next.js routes, layout, global styles, and the D1 health route.
+- `apps/web/worker.ts` is the Worker entry (Wrangler `main`): it applies the URL trailing-slash rule from `apps/web/src/lib/trailing-slash.ts`, then hands the request to the OpenNext handler.
+- `apps/web/src/app/` owns Next.js routes, the root layout (theme provider, sidebar shell, toaster), global styles, and the D1 health route.
+- `apps/web/src/components/app-shell/` owns the stock `sidebar-07` shell: the app sidebar, the page header (sidebar trigger, breadcrumb, page status, theme toggle), the freshness badge, and the `next-themes` provider.
 - `apps/web/src/components/domain-discovery.tsx` composes the page, `apps/web/src/components/domain-filters.tsx` owns the single URL-backed filter-form island, and `apps/web/src/components/domain-results-table.tsx` owns the server-rendered comparison table. `apps/web/src/components/ui/` contains repository-owned shadcn source.
 - `apps/web/src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `apps/web/src/server/db/` owns the server-only Drizzle schema, client, and database types, and `listing-facets.ts`, the SQL that rebuilds the facet read model.

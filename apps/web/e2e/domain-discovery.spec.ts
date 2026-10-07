@@ -6,6 +6,16 @@ async function expectUrlParameter(page: Page, name: string, expected: string | n
   await expect.poll(() => new URL(page.url()).searchParams.get(name)).toBe(expected)
 }
 
+test('applies the URL trailing-slash rule in the Worker entry', async ({ request }) => {
+  const page = await request.get('/filters?tld=com', { maxRedirects: 0 })
+  expect(page.status()).toBe(308)
+  expect(page.headers().location).toBe('/filters/?tld=com')
+
+  for (const path of ['/api/health', '/api/health/']) {
+    expect((await request.get(path, { maxRedirects: 0 })).status()).toBe(200)
+  }
+})
+
 test('serves the deterministic domain inventory with a healthy database', async ({
   page,
   request

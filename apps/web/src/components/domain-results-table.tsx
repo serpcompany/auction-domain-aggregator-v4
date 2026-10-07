@@ -152,7 +152,7 @@ function DomainCell({ row }: { row: DomainListingRow }) {
         href={row.auctionUrl}
         target="_blank"
         rel="noopener noreferrer"
-        className="inline-flex max-w-full items-center gap-1 rounded-sm font-mono font-semibold text-link underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="inline-flex max-w-full items-center gap-1 rounded-sm font-mono font-semibold underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       >
         <span className="min-w-0 truncate">{row.domainName}</span>
         <ExternalLink className="size-3.5 shrink-0" aria-hidden="true" />
