@@ -3,7 +3,7 @@
   "name": "auction-domain-aggregator-e2e-local",
   "main": "worker.ts",
   "compatibility_date": "2026-07-13",
-  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public", "enable_request_signal"],
   // Bundling with kept names injects __name() into functions that next-themes serializes into
   // its inline script, which then throws in the browser.
   "keep_names": false,

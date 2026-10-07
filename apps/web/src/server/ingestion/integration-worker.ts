@@ -18,6 +18,8 @@ import {
   ingestionRuns
 } from '../db/schema'
 import { enrichDomainRatings } from '../enrichment/domain-rating'
+import { proveDomainRatingLimits } from '../enrichment/domain-rating-proof'
+import { createD1DomainRatingStore } from '../enrichment/domain-rating-store'
 import { GODADDY_FEED_ENTRY } from '../providers/godaddy'
 import type { NormalizedListing, NormalizedSeoMetrics } from '../providers/types'
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query'
@@ -296,12 +298,12 @@ async function proveDomainRatingEnrichment(database: ReturnType<typeof drizzle<t
     'dr-unknown.integration.test',
     'dr-rated.integration.test'
   ]
-  const first = await enrichDomainRatings(
-    database,
-    fetchRatings,
-    requested,
-    new Date('2026-07-16T00:01:00.000Z')
-  )
+  const store = createD1DomainRatingStore(database)
+  const options = {
+    signal: new AbortController().signal,
+    now: () => new Date('2026-07-16T00:01:00.000Z')
+  }
+  const first = await enrichDomainRatings(store, fetchRatings, requested, options)
   assertIntegration(
     first.stored === 2 &&
       calls.length === 1 &&
@@ -309,7 +311,7 @@ async function proveDomainRatingEnrichment(database: ReturnType<typeof drizzle<t
     'dr_enrich_active_only'
   )
 
-  const second = await enrichDomainRatings(database, fetchRatings, requested)
+  const second = await enrichDomainRatings(store, fetchRatings, requested, options)
   assertIntegration(
     second.stored === 0 && second.requested === 0 && calls.length === 1,
     'dr_write_once'
@@ -1594,6 +1596,7 @@ async function runProof(env: IntegrationEnv) {
   await proveGodaddyFeedStorage(database)
   await proveProviderIsolation(database)
   await proveDomainRatingEnrichment(database)
+  await proveDomainRatingLimits(database)
   await proveReconciliationSafety(database, storage)
   await proveCloudFeedSync(env, database)
   await proveCsvFeedSync(env, database)

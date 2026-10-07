@@ -53,11 +53,13 @@ Namecheap publishes its open market sales as one public CSV of about 1.1 million
 
 ### Domain enrichment
 
-Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `apps/web/src/components/auctions/enrich-visible-domain-ratings.tsx` posts the visible domains that lack DR (only while the DR column is shown) to `POST /api/enrichment/domain-rating`.
-- That route is the only request path that calls a provider.
-- It accepts at most 50 domains, and `apps/web/src/server/enrichment/domain-rating.ts` fetches only those with an active listing and no stored rating.
-- Ratings come from Ahrefs' free `domain-rating-free` endpoint (`apps/web/src/server/enrichment/ahrefs.ts`) and are written once to `domain_metrics`. "No rating" is stored too, so it is not requested again.
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `apps/web/src/components/auctions/domain-ratings.tsx` posts the visible domains that lack DR (only while the DR column is shown) to `POST /api/enrichment/domain-rating`.
+- That route is the only request path that calls a provider. It has no access control until #15.
+- It accepts at most 50 domains. `apps/web/src/server/enrichment/domain-rating.ts` claims, in one atomic D1 statement (`domain-rating-store.ts`), those with an active listing and no settled rating, so overlapping requests never ask Ahrefs for the same domain. A request aborted before the call makes none and gives its claims back.
+- Ratings come from Ahrefs' free `domain-rating-free` endpoint (`apps/web/src/server/enrichment/ahrefs.ts`) and are written once to `domain_metrics`. "No rating" is stored too, so it is not requested again. A domain Ahrefs leaves out of its answer is stored as `omitted` and asked for again after a week.
+- Every call is logged in `ahrefs_requests`. After a 429 the log row carries a cool-down, honoring `Retry-After`, during which the route answers 429 without calling Ahrefs.
 - When something is stored, the client refreshes the page, which re-renders from D1.
+- Details are in `docs/technical-design/domain-discovery.md`.
 - Every displayed value sits under the "Domain Rating by Ahrefs" attribution link that the DR licence requires (`docs/references/data-licensing.md`).
 
 Majestic Topic is not planned (#19).
@@ -69,11 +71,12 @@ D1 is the current source of truth. `apps/web/src/server/db/schema.ts` defines:
 - `domains`: normalized domain identity and first-seen time.
 - `auction_listings`: provider/external-ID identity, domain foreign key, outbound URL, mutable auction fields, active state, first/last-seen times, and the generated `tld` and `domain_length` columns.
 - `listing_facets`: the source, auction-type, and TLD values of the active inventory, each with its latest end time; derived data that only a successful sync's finalization (and test fixtures) rewrites.
-- `domain_metrics`: write-once domain enrichment keyed by domain and metric (`ahrefs_dr`), with an `ok`/`not_found` status.
+- `domain_metrics`: domain enrichment keyed by domain and metric (`ahrefs_dr`). `ok` and `not_found` are write-once; `omitted` (no answer from Ahrefs) and `pending` (a claim by an in-flight request) hold the domain until `retry_after`.
+- `ahrefs_requests`: one row per call to Ahrefs with its time, domain count, outcome, and any 429 cool-down.
 - `domain_seo_metrics`: one row per domain of feed-published Majestic and SEMrush metrics in typed, indexed columns, with the publishing source. Every sync that carries metrics overwrites them (latest wins).
 - `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, and a fixed diagnostic code.
 
-Generated migrations are in `apps/web/drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. `0006_listing_tld_length_facets.sql` adds the generated columns, their indexes, and `listing_facets` with a one-time backfill. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
+Generated migrations are in `apps/web/drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. `0006_listing_tld_length_facets.sql` adds the generated columns, their indexes, and `listing_facets` with a one-time backfill. `0008_ahrefs_request_limits.sql` rebuilds `domain_metrics` for its new statuses and `retry_after`, and adds `ahrefs_requests`. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
 
 ### Cloudflare R2 and Workflows
 

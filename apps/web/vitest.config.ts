@@ -17,6 +17,7 @@ export default defineConfig({
         'src/server/providers/**/*.ts',
         'src/server/ingestion/sync.ts',
         'src/server/enrichment/ahrefs.ts',
+        'src/server/enrichment/domain-rating.ts',
         'src/server/enrichment/domain-rating-request.ts',
         'src/server/ingestion/feed-stage.ts',
         'src/server/ingestion/feed-csv.ts',
