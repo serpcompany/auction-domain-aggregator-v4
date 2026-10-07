@@ -11,7 +11,7 @@ import { ResultsList } from '@/components/auctions/results-list'
 import { ResultsPagination } from '@/components/auctions/results-pagination'
 import { ResultsSkeleton } from '@/components/auctions/results-skeleton'
 import { ResultsTable } from '@/components/auctions/results-table'
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { buttonVariants } from '@/components/ui/button'
 import {
   Empty,
@@ -121,6 +121,13 @@ export async function Results({
         </EmptyHeader>
         <EmptyContent>
           <CopyCommand command="corepack pnpm sync godaddy" />
+          <Link
+            prefetch={false}
+            href="/syncs/"
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          >
+            View sync status
+          </Link>
         </EmptyContent>
       </EmptyFrame>
     )
@@ -204,6 +211,15 @@ export function AuctionsPage({
           >
             <TriangleAlertIcon aria-hidden="true" />
             <AlertTitle>The inventory is out of date</AlertTitle>
+            <AlertAction>
+              <Link
+                prefetch={false}
+                href="/syncs/"
+                className={buttonVariants({ variant: 'outline', size: 'sm' })}
+              >
+                Sync status
+              </Link>
+            </AlertAction>
             <AlertDescription className="text-warning-foreground/90">
               {formatSyncRecency(status.latestSuccessfulSync, now)}. Ended auctions are hidden, but
               prices, bids, and new listings may be out of date until the next sync.

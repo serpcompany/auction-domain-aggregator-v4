@@ -22,15 +22,15 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) Published mockups v2 at the same URL with a Columns menu, a Custom columns state, and a full-page Filters screen on desktop and phone.
 - [x] (2026-10-07) Owner settled the open decisions (Sync status in, dark mode in, tooling first) and filed the work: tracking #52; #51 tooling; #59 Milestone 0; #53 Milestone 1; #54 Milestone 2; #55 Milestone 2b; #56 Milestone 3; #57 Milestone 4; #58 Milestone 5.
 - [x] (2026-10-07) #51: moved the app to `apps/web/` and replaced ESLint and Prettier with Biome.
-- [x] (2026-10-07) Milestone 0 (#59): committed the plan and mockups (`docs/plans/active/ui-redesign-mockups.html`), updated the product spec, and recorded the trailing-slash decision. PR open for owner approval.
+- [x] (2026-10-07) Milestone 0 (#59): committed the plan and mockups (`docs/plans/completed/ui-redesign-mockups.html`), updated the product spec, and recorded the trailing-slash decision. PR open for owner approval.
 - [ ] Milestone 0 (#59): owner approves the spec PR.
 - [x] (2026-10-07) Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
 - [x] (2026-10-07) Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
 - [x] (2026-10-07) Milestone 2b (#55), done before Milestone 2 so the toolbar's All filters button has a target: Filters page at `/filters/`.
 - [x] (2026-10-07) Milestone 3 (#56): details panel and the phone layout.
 - [x] (2026-10-07) Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
-- [ ] Milestone 5 (#58): Sync status screen.
-- [ ] Milestone 6 (in #52): documentation, final verification at both widths, plan moved to `completed/`.
+- [x] (2026-10-07) Milestone 5 (#58): Sync status screen.
+- [x] (2026-10-07) Milestone 6 (with #58): documentation, final verification at both widths, plan moved to `completed/`.
 
 ## Surprises & Discoveries
 
@@ -114,7 +114,23 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 
 ## Outcomes & Retrospective
 
-Not started. Update at each milestone.
+Completed 2026-10-07 across #51, #59, #53, #55, #54, #65, #56, #57, and #58, each a squash-merged pull request with `corepack pnpm check` passing.
+
+Achieved:
+- The app runs on stock shadcn `base-nova` components in a `sidebar-07` shell with light and dark themes, from `apps/web/` with Biome, as the SERP web stack expects (one recorded exception: `next dev --webpack`).
+- Auctions: a one-row toolbar with faceted filters, user-selectable columns saved per browser, every column sortable (metric sorts added at the owner's request, #65), a details panel, a phone list, and designed loading, DR-pending, empty, stale, and error states.
+- A full Filters page at `/filters/` and a Sync status page at `/syncs/`, with the SERP trailing-slash rule applied by a Worker entry.
+- Guard rails: a test that fails on literal colors or palette classes, 100% unit coverage, and Playwright journeys on the OpenNext workerd preview that fail on any uncaught page error.
+
+Gaps and follow-ups:
+- Majestic and Semrush sorts take about 1.2 s on the full local inventory; copying the metrics onto `auction_listings` at sync time would make them index-backed (`docs/technical-design/domain-discovery.md`).
+- The Filters page's section nav does not highlight the section in view.
+- The details panel blurs the table behind it (stock Sheet backdrop) where the mockup kept it visible.
+- 62 `noNonNullAssertion` Biome warnings remain (suggested as a separate task).
+
+Lessons:
+- Check OpenNext compatibility early: Next 16's Node `proxy.ts` cannot be built, and Wrangler's `keep_names` broke the `next-themes` script; both surfaced only in the workerd e2e run.
+- `loading.tsx` does not cover search-parameter navigations; a `Suspense` boundary keyed by the URL does.
 
 ## Context and Orientation
 

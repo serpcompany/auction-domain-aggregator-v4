@@ -20,6 +20,10 @@ import { enrichDomainRatings } from '../enrichment/domain-rating'
 import { GODADDY_FEED_ENTRY } from '../providers/godaddy'
 import type { NormalizedListing, NormalizedSeoMetrics } from '../providers/types'
 import { queryDomainListingsWithDatabase } from '../queries/domain-listings-query'
+import {
+  queryFailedSyncCountWithDatabase,
+  querySyncStatusWithDatabase
+} from '../queries/sync-status-query'
 import { createD1IngestionStorage } from './d1-storage'
 import { feedErrorCode, stageZippedFeed } from './feed-stage'
 import { runProviderSync } from './provider-sync-workflow'
@@ -1440,6 +1444,34 @@ async function runProof(env: IntegrationEnv) {
 
   assertIntegration(sortedFirstPage.auctionTypes.join(',') === 'expired', 'auction_type_facets')
   assertIntegration(sortedFirstPage.tlds.join(',') === 'com,net,org,test', 'tld_facets')
+
+  // Sync status reads the same runs the syncs above recorded.
+  const syncStatus = await querySyncStatusWithDatabase(database, QUERY_NOW)
+  const runProviders = [...new Set(syncStatus.recentRuns.map(run => run.provider))]
+  assertIntegration(syncStatus.recentRuns.length > 0, 'sync_status_runs')
+  assertIntegration(
+    syncStatus.recentRuns.every((run, index, runs) => index === 0 || runs[index - 1]!.id > run.id),
+    'sync_status_runs_newest_first'
+  )
+  assertIntegration(
+    runProviders.every(provider => {
+      const summary = syncStatus.providers.find(item => item.provider === provider)
+      const latest = Math.max(
+        ...syncStatus.recentRuns.filter(run => run.provider === provider).map(run => run.id)
+      )
+      return (
+        summary !== undefined &&
+        summary.latestRun?.id === latest &&
+        (summary.latestSuccess === null || summary.latestSuccess.status === 'succeeded')
+      )
+    }),
+    'sync_status_latest_runs'
+  )
+  assertIntegration(
+    (await queryFailedSyncCountWithDatabase(database)) ===
+      syncStatus.providers.filter(item => item.latestRun?.status === 'failed').length,
+    'sync_status_failed_count'
+  )
 
   const fixtureExternalIds = [...rankedExternalIds, ...tieExternalIds, 'unsupported-facet']
   await database

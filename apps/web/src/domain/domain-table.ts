@@ -533,7 +533,7 @@ const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
 
-function compactDuration(milliseconds: number) {
+export function compactDuration(milliseconds: number) {
   const minutes = Math.floor(milliseconds / MINUTE_MS)
   if (minutes < 1) return '<1m'
   if (minutes < 60) return `${minutes}m`

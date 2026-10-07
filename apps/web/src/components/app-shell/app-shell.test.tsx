@@ -21,12 +21,18 @@ beforeAll(() => {
   })
 })
 
-function Shell({ parent }: { parent?: { label: string; href: string } }) {
+function Shell({
+  parent,
+  failedSyncs
+}: {
+  parent?: { label: string; href: string }
+  failedSyncs?: number
+}) {
   return (
     <ThemeProvider attribute="class">
       <TooltipProvider>
         <SidebarProvider>
-          <AppSidebar />
+          <AppSidebar failedSyncs={failedSyncs} />
           <SidebarInset>
             <SiteHeader title={parent ? 'Filters' : 'Auctions'} parent={parent}>
               <span>Synced 2 minutes ago</span>
@@ -51,7 +57,7 @@ describe('app shell', () => {
     expect(auctions).toHaveAttribute('href', '/')
     expect(auctions).toHaveAttribute('data-active')
     expect(sidebar.getByRole('link', { name: /Domain Aggregator/ })).toHaveAttribute('href', '/')
-    expect(sidebar.queryByRole('link', { name: 'Sync status' })).not.toBeInTheDocument()
+    expect(sidebar.getByRole('link', { name: 'Sync status' })).toHaveAttribute('href', '/syncs/')
   })
 
   it('keeps Auctions marked on the Filters page and on no other page', () => {
@@ -64,14 +70,20 @@ describe('app shell', () => {
     expect(link()).toHaveAttribute('data-active')
     unmount()
 
-    pathname = '/syncs/'
-    const other = render(<Shell />)
+    pathname = '/syncs'
+    const other = render(<Shell failedSyncs={2} />)
     expect(
       within(other.container.querySelector('[data-slot="sidebar"]') as HTMLElement).getByRole(
         'link',
         { name: 'Auctions' }
       )
     ).not.toHaveAttribute('data-active')
+    const sync = within(other.container.querySelector('[data-slot="sidebar"]') as HTMLElement)
+    expect(sync.getByRole('link', { name: 'Sync status' })).toHaveAttribute('data-active')
+    expect(sync.getByText('2')).toHaveTextContent('2 failed syncs')
+    other.unmount()
+    render(<Shell failedSyncs={1} />)
+    expect(screen.getByText(/failed sync$/)).toHaveTextContent('failed sync')
     pathname = '/'
   })
 
