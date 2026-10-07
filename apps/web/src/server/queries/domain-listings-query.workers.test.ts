@@ -426,6 +426,7 @@ describe('domain listings read model on D1', () => {
       const expectedAscending: Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]> = {
         domain: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
         source: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
+        type: ['rank-3', 'rank-1', 'rank-0', 'rank-2'],
         price: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
         bids: ['rank-2', 'rank-1', 'rank-3', 'rank-0'],
         endsAt: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
@@ -454,11 +455,18 @@ describe('domain listings read model on D1', () => {
         semrushAs: ['rank-2'],
         domainRating: ['rank-1', 'rank-3']
       }
-      expect(DOMAIN_TABLE_SORTS).toHaveLength(16)
+      // rank-0 and rank-2 are both expired, and a tie keeps domain order both ways.
+      const descendingBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
+        type: ['rank-0', 'rank-2', 'rank-1', 'rank-3']
+      }
+      expect(DOMAIN_TABLE_SORTS).toHaveLength(17)
       for (const sort of DOMAIN_TABLE_SORTS) {
         const ascending = expectedAscending[sort]
         const nulls = nullsBySort[sort] ?? []
-        const descending = [...ascending.filter(id => !nulls.includes(id)).reverse(), ...nulls]
+        const descending = descendingBySort[sort] ?? [
+          ...ascending.filter(id => !nulls.includes(id)).reverse(),
+          ...nulls
+        ]
         expect(ids(await query({ q: 'rank-', sort, direction: 'asc' })), `${sort} asc`).toEqual(
           ascending
         )

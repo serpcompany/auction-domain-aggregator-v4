@@ -8,6 +8,7 @@ export const DOMAIN_TABLE_CATEGORY_VALUE_LIMIT = 64
 export const DOMAIN_TABLE_SORTS = [
   'domain',
   'source',
+  'type',
   'price',
   'bids',
   'endsAt',
@@ -309,7 +310,6 @@ export function countAdvancedDomainTableFilters(filters: DomainTableFilters) {
     filters.ageMin !== undefined || filters.ageMax !== undefined,
     filters.noHyphens,
     filters.noDigits,
-    filters.auctionTypes.length > 0,
     filters.priceMinCents !== undefined,
     filters.renewalMaxCents !== undefined,
     filters.bidsMin !== undefined,

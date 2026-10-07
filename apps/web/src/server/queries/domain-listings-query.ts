@@ -229,6 +229,7 @@ function listingOrder(filters: DomainTableFilters) {
   const columns: Record<DomainTableFilters['sort'], SortableExpression> = {
     domain: auctionListings.domainName,
     source: auctionListings.provider,
+    type: auctionListings.auctionType,
     price: auctionListings.currentBidCents,
     bids: auctionListings.bidCount,
     endsAt: auctionListings.endsAt,

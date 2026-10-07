@@ -13,6 +13,7 @@ describe('table columns', () => {
   it('shows the default set without a cookie', () => {
     expect(parseVisibleColumns(undefined)).toEqual([
       'source',
+      'type',
       'price',
       'bids',
       'ends',

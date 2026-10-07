@@ -432,12 +432,13 @@ describe('domain table filter summaries', () => {
   })
 
   it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(15)
+    expect(countAdvancedDomainTableFilters(active)).toBe(14)
     expect(
       countAdvancedDomainTableFilters(
         parseDomainTableFilters({
           q: 'garden',
           source: 'dynadot',
+          type: 'expired',
           tld: 'com',
           priceMax: '500',
           endingWithin: '24h'

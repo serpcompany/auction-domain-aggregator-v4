@@ -5,6 +5,7 @@ import type { DomainTableSort } from '@/domain/domain-table'
 // not part of it. Every column can be sorted.
 export const TABLE_COLUMNS = [
   { key: 'source', label: 'Source', sort: 'source', defaultVisible: true },
+  { key: 'type', label: 'Type', sort: 'type', defaultVisible: true },
   { key: 'price', label: 'Price', sort: 'price', numeric: true, defaultVisible: true },
   { key: 'bids', label: 'Bids', sort: 'bids', numeric: true, defaultVisible: true },
   { key: 'ends', label: 'Ends', sort: 'endsAt', defaultVisible: true },

@@ -192,6 +192,7 @@ export function AuctionsPage({
         <AuctionsToolbar
           filters={filters}
           sources={status.sources}
+          auctionTypes={status.auctionTypes}
           tlds={status.tlds}
           visibleColumns={visibleColumns}
           count={
