@@ -100,7 +100,7 @@ The ingestion Worker binds `FEED_PAGES` (R2) for transient file-feed pages and `
 
 Every ingestion run records provider, start and completion times, outcome, page position, counts, and a non-secret error code. The D1 adapter predicates progress and finalization on the matching running run so stale continuations cannot mutate it.
 
-D1 statements stay below its 100-bound-parameter limit, and a sync is segmented into Workflow steps so each fits a Worker invocation's CPU limit. Network calls, archive and document sizes, and page bodies have explicit time and size bounds. Indexes follow the implemented table filters and sorts.
+D1 statements stay below its 100-bound-parameter limit, and a sync is segmented into Workflow steps so each fits a Worker invocation's CPU limit. Network calls, archive and document sizes, and page bodies have explicit time and size bounds, and every provider API declares a rate limit that its requests are paced to. Indexes follow the implemented table filters and sorts.
 
 Detailed behavior and verified ingestion evidence are in `docs/technical-design/data-ingestion.md`.
 
@@ -115,7 +115,7 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 - `apps/web/src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `apps/web/src/server/db/` owns the server-only Drizzle schema, client, and database types, and `listing-facets.ts`, the SQL that rebuilds the facet read model.
 - `apps/web/src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
-- `apps/web/src/server/providers/types.ts` defines the normalized listing and adapter contract; `apps/web/src/server/providers/registry.ts` maps implemented providers to their secret names, optional file feed, and adapters; `apps/web/src/server/providers/normalize.ts` holds shared domain, money, and bounded-body parsing; `apps/web/src/server/providers/dynadot/` and `apps/web/src/server/providers/godaddy/` terminate each provider's shapes.
+- `apps/web/src/server/providers/types.ts` defines the normalized listing and adapter contract; `apps/web/src/server/providers/registry.ts` maps implemented providers to their secret names, rate limit or file feed, and adapters; `apps/web/src/server/providers/rate-limit.ts` holds the shared request pacer and `Retry-After` parsing; `apps/web/src/server/providers/normalize.ts` holds shared domain, money, and bounded-body parsing; `apps/web/src/server/providers/dynadot/` and `apps/web/src/server/providers/godaddy/` terminate each provider's shapes.
 - `apps/web/src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the ingestion Worker and Workflow (`sync-worker.ts`, `provider-sync-workflow.ts`), web-stream file-feed staging (`feed-stage.ts`) and its R2 pages (`feed-pages.ts`), and local-runner utilities. `zip-fixture.ts` builds invented archives for tests only.
 - `apps/web/scripts/sync-provider.ts` runs one provider's Workflow in a temporary local `wrangler dev`.
 - `apps/web/e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures.

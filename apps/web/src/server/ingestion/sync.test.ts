@@ -684,6 +684,25 @@ describe('syncDynadotWithStorage', () => {
     })
   })
 
+  it("passes on the provider's requested wait with a transient failure", async () => {
+    for (const [failure, retryAfterMs] of [
+      [
+        new DynadotProviderError('dynadot_rate_limited', { transient: true, retryAfterMs: 60_000 }),
+        60_000
+      ],
+      [new DynadotProviderError('dynadot_network_error', { transient: true }), null],
+      [new Error('D1 batch failed'), null]
+    ] as const) {
+      await expect(
+        runSegment(new MemoryStorage(), {
+          fetchPage: async () => {
+            throw failure
+          }
+        })
+      ).rejects.toMatchObject({ transient: true, retryAfterMs })
+    }
+  })
+
   it('records a run whose retries ran out as failed, with its committed counters', async () => {
     const storage = new MemoryStorage()
     const first = await runSegment(storage, {

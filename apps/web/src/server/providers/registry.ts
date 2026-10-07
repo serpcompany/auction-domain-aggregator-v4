@@ -1,4 +1,4 @@
-import { createDynadotAdapter } from './dynadot'
+import { createDynadotAdapter, DYNADOT_RATE_LIMIT } from './dynadot'
 import {
   createGodaddyAdapter,
   GODADDY_FEED_ENTRY,
@@ -14,6 +14,7 @@ import {
   NAMECHEAP_PAGE_BYTE_LIMIT,
   NAMECHEAP_PAGE_SIZE
 } from './namecheap'
+import type { Pacer, RateLimit } from './rate-limit'
 import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types'
 
 // Every credential an adapter may read from the ingestion worker env.
@@ -34,18 +35,28 @@ export type FileFeed = {
   maxPageBytes: number
 } & ({ format: 'zipped-json'; entry: string; field: string } | { format: 'csv' })
 
-export type AdapterContext = {
-  secrets: ProviderSecrets
-  // Staged pages, for a provider with a file feed.
-  feedPages?: FeedPageSource
-}
-
-type ProviderRegistration = {
+type Registration<Context> = {
   // Names of the secrets the adapter needs, read from the worker env.
   secretNames: readonly ProviderSecretName[]
-  fileFeed?: FileFeed
-  createAdapter(context: AdapterContext): ProviderAdapter
+  createAdapter(context: { secrets: ProviderSecrets } & Context): ProviderAdapter
 }
+
+// A paged API. It must declare its rate limit (`DEFAULT_RATE_LIMIT` when the
+// provider publishes none); the Workflow builds `pacer` from it, and the
+// adapter awaits the pacer before every request.
+export type ApiProviderRegistration = Registration<{ pacer: Pacer }> & {
+  rateLimit: RateLimit
+  fileFeed?: never
+}
+
+// A file feed, downloaded once per run by the stage step. The adapter reads
+// the staged pages and never calls the provider.
+export type FeedProviderRegistration = Registration<{ feedPages?: FeedPageSource }> & {
+  rateLimit: 'one download per run'
+  fileFeed: FileFeed
+}
+
+export type ProviderRegistration = ApiProviderRegistration | FeedProviderRegistration
 
 // Providers with an implemented adapter. Adding a provider means adding an
 // adapter and an entry here; the sync service, storage, and Workflow stay
@@ -53,12 +64,14 @@ type ProviderRegistration = {
 export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistration>> = {
   dynadot: {
     secretNames: ['DYNADOT_API_PRODUCTION_KEY'],
-    createAdapter: ({ secrets }) =>
-      createDynadotAdapter({ apiKey: secrets.DYNADOT_API_PRODUCTION_KEY! })
+    rateLimit: DYNADOT_RATE_LIMIT,
+    createAdapter: ({ secrets, pacer }) =>
+      createDynadotAdapter({ apiKey: secrets.DYNADOT_API_PRODUCTION_KEY!, pacer })
   },
   // GoDaddy's public inventory files need no credentials.
   godaddy: {
     secretNames: [],
+    rateLimit: 'one download per run',
     fileFeed: {
       format: 'zipped-json',
       url: GODADDY_FEED_URL,
@@ -73,6 +86,7 @@ export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistra
   // Namecheap's public market sales CSV needs no credentials either.
   namecheap: {
     secretNames: [],
+    rateLimit: 'one download per run',
     fileFeed: {
       format: 'csv',
       url: NAMECHEAP_FEED_URL,

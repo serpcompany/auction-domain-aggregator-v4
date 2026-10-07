@@ -25,6 +25,8 @@ Confidence labels:
 | Other Ahrefs metrics          | Only through Ahrefs Connect (Enterprise, OAuth)  | Verified   |
 | Linking out to auction pages  | No clause against plain links; affiliate links OK | Inferred   |
 
+Each provider's rate limit, the interval the ingestion enforces, and when it was verified are in one table in [`data-ingestion.md`](../technical-design/data-ingestion.md#provider-rate-limits).
+
 ## 1. Dynadot
 
 The current ingestion uses the api3 `get_open_auctions` command with the owner's API key. The API documentation itself carries no separate API terms; the API is governed by section 13 of the Dynadot Terms of Use.

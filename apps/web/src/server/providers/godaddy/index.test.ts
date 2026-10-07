@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ResponseTooLargeError } from '../normalize'
-import { PROVIDER_REGISTRY } from '../registry'
+import { type FeedProviderRegistration, PROVIDER_REGISTRY } from '../registry'
 import { createGodaddyAdapter, GodaddyProviderError, normalizeGodaddyRecords } from './index'
 
 // Invented record in the shape of GoDaddy's public inventory feed.
@@ -178,7 +178,8 @@ describe('GoDaddy adapter', () => {
   })
 
   it('is built by the registry from the staged page source', async () => {
-    const registration = PROVIDER_REGISTRY.godaddy!
+    const registration = PROVIDER_REGISTRY.godaddy as FeedProviderRegistration
+    expect(registration.rateLimit).toBe('one download per run')
     expect(registration.fileFeed).toMatchObject({
       field: 'data',
       pageSize: 1000

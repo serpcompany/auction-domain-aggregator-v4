@@ -68,15 +68,25 @@ export type FeedPageSource = {
 // provider name, e.g. `dynadot_http_error`. It is persisted on failed runs.
 // `transient` marks a failure the same request may not repeat: a network
 // failure, a rate limit, a server error, or a failed staged-page read. The
-// Workflow retries those instead of failing the run.
+// Workflow retries those instead of failing the run. `retryAfterMs` is how
+// long the provider asked to wait (`Retry-After`, or a hint in the body); the
+// retry waits at least that long.
 export class ProviderError extends Error {
   readonly code: string
   readonly transient: boolean
+  readonly retryAfterMs: number | null
 
-  constructor(code: string, { transient = false }: { transient?: boolean } = {}) {
+  constructor(
+    code: string,
+    {
+      transient = false,
+      retryAfterMs = null
+    }: { transient?: boolean; retryAfterMs?: number | null } = {}
+  ) {
     super(code)
     this.name = 'ProviderError'
     this.code = code
     this.transient = transient
+    this.retryAfterMs = retryAfterMs
   }
 }

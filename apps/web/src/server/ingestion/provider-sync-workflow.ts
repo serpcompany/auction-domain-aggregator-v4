@@ -14,13 +14,15 @@
 // server-owned `next_page` in D1. A transient sync failure (a network error,
 // a rate limit, a failed D1 batch or R2 read) leaves the run running and is
 // retried the same way; when its retries run out, a further step marks the
-// run failed. Any other sync error has already marked the run failed, so it
-// is not retried within the instance.
+// run failed. When the provider said how long to wait, the Workflow sleeps
+// at least that long before the segment runs again. Any other sync error has
+// already marked the run failed, so it is not retried within the instance.
 import { drizzle } from 'drizzle-orm/d1'
 
 import * as schema from '../db/schema'
+import { createPacer } from '../providers/rate-limit'
 import { implementedProvider, PROVIDER_REGISTRY, type ProviderSecrets } from '../providers/registry'
-import type { AuctionProvider } from '../providers/types'
+import type { AuctionProvider, ProviderAdapter } from '../providers/types'
 import { createD1IngestionStorage } from './d1-storage'
 import { stageCsvFeed } from './feed-csv'
 import {
@@ -61,6 +63,7 @@ export type StepConfig = {
 // The subset of Workflows' `step` used here.
 export type StepRunner = {
   do<T>(name: string, config: StepConfig, callback: () => Promise<T>): Promise<T>
+  sleep(name: string, milliseconds: number): Promise<void>
 }
 
 export const STAGE_STEP: StepConfig = {
@@ -73,6 +76,11 @@ export const SYNC_STEP: StepConfig = {
   retries: { limit: 3, delay: '1 minute', backoff: 'exponential' },
   timeout: '15 minutes'
 }
+// SYNC_STEP's retry delays in milliseconds: 1, 2, then 4 minutes.
+const syncRetryDelayMs = (retry: number) => 60_000 * 2 ** (retry - 1)
+// A provider asking for a longer wait than this fails the run instead; the
+// next daily sync tries again.
+export const MAX_PROVIDER_WAIT_MS = 60 * 60_000
 export const CLEANUP_STEP: StepConfig = {
   retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' },
   timeout: '5 minutes'
@@ -93,11 +101,19 @@ const RETRYABLE_FEED_ERRORS = new Set<FeedErrorCode>([
   'feed_page_write_failed'
 ])
 
-type SegmentOutcome = { done: true; summary: SyncSummary } | { done: false; runId: number }
+// `wait` is a transient failure with the provider's requested delay. The step
+// returns it rather than throwing, so the Workflow can sleep before the
+// segment runs again.
+type SegmentOutcome =
+  | { done: true; summary: SyncSummary }
+  | { done: false; runId: number }
+  | { done: false; runId: number; wait: { code: string; milliseconds: number } }
 
 export type ProviderSyncDependencies = {
   fetchImpl?: typeof fetch
   createStorage?: (database: D1Database, provider: AuctionProvider) => IngestionStorage
+  // Replaces the pacer's timer, so tests do not wait in real time.
+  wait?: (milliseconds: number) => Promise<void>
 }
 
 export async function runProviderSync({
@@ -127,12 +143,21 @@ export async function runProviderSync({
   }
   const { fileFeed } = registration
   const bucket: FeedPageBucket = env.FEED_PAGES
-  const prefix = fileFeed ? feedPagesPrefix(provider, runKey) : null
-
-  const adapter = registration.createAdapter({
-    secrets: env,
-    feedPages: prefix ? createR2PageSource(bucket, prefix) : undefined
-  })
+  let prefix: string | null = null
+  let adapter: ProviderAdapter
+  if (registration.fileFeed) {
+    prefix = feedPagesPrefix(provider, runKey)
+    adapter = registration.createAdapter({
+      secrets: env,
+      feedPages: createR2PageSource(bucket, prefix)
+    })
+  } else {
+    // Every request of an API provider waits for its declared rate limit.
+    adapter = registration.createAdapter({
+      secrets: env,
+      pacer: createPacer(registration.rateLimit.intervalMs, { wait: dependencies.wait })
+    })
+  }
   /* v8 ignore next 3 -- default wiring is exercised by the D1/R2 proof and local run */
   const storage = dependencies.createStorage
     ? dependencies.createStorage(env.DB, provider)
@@ -179,11 +204,23 @@ export async function runProviderSync({
         throw new Error('sync_failed')
       }
     })
-    for (let segment = 1; ; segment += 1) {
+    const recordFailedRun = async (code: string) => {
+      const failedRunId = runId
+      // Best effort: if this fails too, the next sync interrupts the run.
+      await step
+        .do('record failed run', SYNC_STEP, async () => ({
+          recorded: await failSyncRun(storage, failedRunId, code)
+        }))
+        .catch(() => undefined)
+    }
+    // `waits` counts the provider-requested waits within the current segment.
+    for (let segment = 1, waits = 0; ; ) {
       let outcome: SegmentOutcome
       try {
         outcome = await step.do(
-          `sync pages, segment ${segment}`,
+          waits === 0
+            ? `sync pages, segment ${segment}`
+            : `sync pages, segment ${segment}, retry ${waits}`,
           SYNC_STEP,
           async (): Promise<SegmentOutcome> => {
             try {
@@ -196,11 +233,19 @@ export async function runProviderSync({
                 : { done: false, runId: result.run.runId }
             } catch (error) {
               // A transient SyncError left the run running, so it is
-              // retried. Any other SyncError is final: the run is already
+              // retried, after the provider's requested wait when it gave
+              // one. Any other SyncError is final: the run is already
               // marked failed with its code, or is no longer running. Any
               // other error came from loading the run before a page was
               // read, so it is retried too.
               if (error instanceof SyncError) {
+                if (error.transient && error.retryAfterMs !== null) {
+                  return {
+                    done: false,
+                    runId,
+                    wait: { code: error.code, milliseconds: error.retryAfterMs }
+                  }
+                }
                 throw error.transient ? new Error(error.code) : nonRetryable(error.code)
               }
               throw new Error('sync_failed')
@@ -208,20 +253,28 @@ export async function runProviderSync({
           }
         )
       } catch (error) {
-        if (!isNonRetryableFailure(error)) {
-          const code = fixedErrorCode(error)
-          const failedRunId = runId
-          // Best effort: if this fails too, the next sync interrupts the run.
-          await step
-            .do('record failed run', SYNC_STEP, async () => ({
-              recorded: await failSyncRun(storage, failedRunId, code)
-            }))
-            .catch(() => undefined)
-        }
+        if (!isNonRetryableFailure(error)) await recordFailedRun(fixedErrorCode(error))
         throw error
       }
       if (outcome.done) return outcome.summary
+      if ('wait' in outcome) {
+        // As many waits as the step has retries, each at least as long as
+        // the provider asked and as the step's own backoff.
+        const { code, milliseconds } = outcome.wait
+        if (waits === SYNC_STEP.retries.limit || milliseconds > MAX_PROVIDER_WAIT_MS) {
+          await recordFailedRun(code)
+          throw new Error(code)
+        }
+        waits += 1
+        await step.sleep(
+          `wait before segment ${segment}, retry ${waits}`,
+          Math.max(milliseconds, syncRetryDelayMs(waits))
+        )
+        continue
+      }
       runId = outcome.runId
+      segment += 1
+      waits = 0
     }
   }
 
