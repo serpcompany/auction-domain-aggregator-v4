@@ -1,6 +1,6 @@
 # Data ingestion and persistence
 
-Status: Implemented and verified locally (Wrangler) for Dynadot and GoDaddy; not deployed. Future-provider sections are design constraints
+Status: Implemented for Dynadot, GoDaddy, and Namecheap, verified locally (Wrangler), and deployed as the production sync ([Production sync](production-sync.md)). Future-provider sections are design constraints
 
 Last updated: 2026-10-07
 
@@ -201,17 +201,9 @@ The future schema must enforce domain/metric-provider identity. A later listing 
 
 Additional auction adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`) and register their secret names, rate limit (see Provider rate limits) or file feed, and factory in `apps/web/src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
 
-## Deploying (not done; needs owner authorization)
+## Deployed production sync
 
-Nothing remote exists. Per `serp` environment configuration, the top level of `apps/web/wrangler.ingestion.jsonc` stays local-only; a deploy adds a named environment (for example `env.production`) and always passes `--env`. It needs:
-
-- D1: the production database's real `database_name` and `database_id` for binding `DB` (shared with the web application's environment), with migrations applied by `wrangler d1 migrations apply DB --remote --env <env>` before the Worker deploys.
-- R2: a bucket for binding `FEED_PAGES` (for example `auction-domain-aggregator-feed-pages-<env>`), ideally with a lifecycle rule expiring objects under `feed-pages/` after a day or two, so pages left by a failed cleanup step cannot accumulate.
-- Workflow: binding `PROVIDER_SYNC`, `name` `provider-sync`, `class_name` `ProviderSyncWorkflow` (created on deploy, not a separate resource).
-- Cron Trigger: `triggers.crons` (`30 15 * * *`) in that environment.
-- Secret: `DYNADOT_API_PRODUCTION_KEY` via `wrangler secret put --env <env>`.
-- Workers Paid, for `limits.cpu_ms` above 30,000 and the Workflow step limits used here.
-- A Worker `name` per environment.
+The production Worker, its D1, R2, Workflow, secret, and CI deploy are in [Production sync](production-sync.md).
 
 ## Recovery and routine verification
 

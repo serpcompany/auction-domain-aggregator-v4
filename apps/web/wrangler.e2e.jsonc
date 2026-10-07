@@ -11,9 +11,6 @@
     "binding": "ASSETS",
     "directory": ".open-next/assets"
   },
-  "images": {
-    "binding": "IMAGES"
-  },
   "d1_databases": [
     {
       "binding": "DB",

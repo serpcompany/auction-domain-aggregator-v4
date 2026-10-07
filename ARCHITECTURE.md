@@ -2,7 +2,7 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Nothing is deployed and no remote Cloudflare resources exist; other auction providers are not implemented.
+This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 (`docs/technical-design/production-sync.md`). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
 
 ## System purpose
 

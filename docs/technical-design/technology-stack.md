@@ -24,7 +24,7 @@ Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package
 
 Build the website with Next.js 16 and TypeScript. OpenNext for Cloudflare builds the application as a Cloudflare Worker; Wrangler runs that output locally under workerd. `next dev` remains the fast Node.js development path, so both it and the workerd preview must stay healthy.
 
-The local adapter and runtime path are verified. `pnpm upload` and `pnpm deploy` are external mutations, not validation commands. Remote deployment, production bindings, and Cloudflare resource creation have not been verified and remain deferred until explicitly authorized.
+The local adapter and runtime path are verified. The website is not deployed: it waits for accounts and payments (#27), and `pnpm run deploy:web` refuses until then. Only the ingestion Worker is deployed, by CI (`docs/technical-design/data-ingestion.md`).
 
 ### Hosting and compute: Cloudflare
 
