@@ -34,30 +34,100 @@
       "service": "auction-domain-aggregator-v4"
     }
   ],
-  // Local only. Every deployed environment sets its own; only production sets "production".
+  // Local only: no Access check and no host redirect (src/lib/deployment.ts). Each deployed
+  // environment below sets its own vars; only production sets APP_ENV "production".
   "vars": {
     "APP_ENV": "local"
   },
   "observability": {
     "enabled": true
   },
-  "upload_source_maps": true
+  "upload_source_maps": true,
   /**
-   * Smart Placement
-   * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
+   * Deployed environments (docs/technical-design/deployment.md). Only CI deploys them, always with
+   * `--env`; the top level above is local-only and never deployed. Named environments inherit no
+   * bindings, vars, or services, so each one declares all of them.
+   *
+   * Until accounts and billing exist (#27), both sit behind Cloudflare Access: one owner-created
+   * application, "auctions", covers both hosts, so they share its team domain and AUD tag (neither
+   * is secret). The Worker verifies the Access token on every request (src/lib/access.ts) and
+   * answers 503 if ACCESS_TEAM_DOMAIN (`<team>.cloudflareaccess.com`) or ACCESS_AUD (64 hex) is
+   * missing or malformed; CI does not deploy the website then.
+   *
+   * `workers_dev` stays on so CI can smoke-test through `*.workers.dev` with the
+   * `x-auction-domain-aggregator-smoke-test` header; without it, that host returns 308 to
+   * CANONICAL_HOST. Preview URLs are off.
    */
-  // "placement": {  "mode": "smart" }
-  /**
-   * Bindings
-   * Bindings allow your Worker to interact with resources on the Cloudflare Developer Platform, including
-   * databases, object storage, AI inference, real-time communication and more.
-   * https://developers.cloudflare.com/workers/runtime-apis/bindings/
-   */
-  /**
-   * Environment Variables
-   * https://developers.cloudflare.com/workers/wrangler/configuration/#environment-variables
-   * Note: Use secrets to store sensitive data.
-   * https://developers.cloudflare.com/workers/configuration/secrets/
-   */
-  // "vars": {  "MY_VARIABLE": "production_value" }
+  "env": {
+    "staging": {
+      "name": "auction-domain-aggregator-web-staging",
+      "routes": [{ "pattern": "staging-auctions.serp.co", "custom_domain": true }],
+      "workers_dev": true,
+      "preview_urls": false,
+      "assets": {
+        "binding": "ASSETS",
+        "directory": ".open-next/assets"
+      },
+      // Shared with the staging sync Worker (wrangler.ingestion.jsonc), whose deploy migrates it.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "auction-domain-aggregator-staging",
+          "database_id": "3098593e-a81d-4e62-a4d7-f4cb9a750217",
+          "migrations_dir": "drizzle",
+          "migrations_table": "d1_migrations"
+        }
+      ],
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "auction-domain-aggregator-web-staging"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "staging",
+        "CANONICAL_HOST": "staging-auctions.serp.co",
+        "ACCESS_TEAM_DOMAIN": "serpcompany.cloudflareaccess.com",
+        "ACCESS_AUD": "2f037e169be96253359803b70ae3dd3e87395486cbd1b873bcab49592073d8bb"
+      },
+      "observability": {
+        "enabled": true
+      }
+    },
+    "production": {
+      "name": "auction-domain-aggregator-web-production",
+      "routes": [{ "pattern": "auctions.serp.co", "custom_domain": true }],
+      "workers_dev": true,
+      "preview_urls": false,
+      "assets": {
+        "binding": "ASSETS",
+        "directory": ".open-next/assets"
+      },
+      // Shared with the production sync Worker (wrangler.ingestion.jsonc), whose deploy migrates it.
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "auction-domain-aggregator-production",
+          "database_id": "b6bbc65a-d376-4191-b9ae-a8f4290ac3dc",
+          "migrations_dir": "drizzle",
+          "migrations_table": "d1_migrations"
+        }
+      ],
+      "services": [
+        {
+          "binding": "WORKER_SELF_REFERENCE",
+          "service": "auction-domain-aggregator-web-production"
+        }
+      ],
+      "vars": {
+        "APP_ENV": "production",
+        "CANONICAL_HOST": "auctions.serp.co",
+        "ACCESS_TEAM_DOMAIN": "serpcompany.cloudflareaccess.com",
+        "ACCESS_AUD": "2f037e169be96253359803b70ae3dd3e87395486cbd1b873bcab49592073d8bb"
+      },
+      "observability": {
+        "enabled": true
+      }
+    }
+  }
 }

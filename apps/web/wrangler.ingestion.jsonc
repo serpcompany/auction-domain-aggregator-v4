@@ -1,10 +1,11 @@
 // Ingestion Worker: a daily Cron Trigger starts one `provider-sync` Workflow
 // instance per provider (src/server/ingestion/sync-worker.ts). The top level
 // is local-only: every binding stays in Wrangler's local simulation and the
-// IDs are placeholders. `env.production` is the deployed Worker; named
-// environments inherit no bindings, so it declares every one, and every
-// remote command passes `--env production`. CI deploys it (.github/workflows/
-// ci.yml); see docs/technical-design/production-sync.md.
+// IDs are placeholders. `env.staging` and `env.production` are the deployed
+// Workers; named environments inherit no bindings, so each declares every
+// one, and every remote command passes `--env`. CI deploys staging from the
+// `staging` branch and production from `main` (.github/workflows/ci.yml); see
+// docs/technical-design/deployment.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "auction-domain-aggregator-ingestion-local",
@@ -45,6 +46,46 @@
     }
   ],
   "env": {
+    // Staging: the same Worker and Workflow on Staging's own D1 and R2, with a
+    // weekly (Monday) cron to keep provider calls down.
+    "staging": {
+      "name": "auction-domain-aggregator-ingestion-staging",
+      // No HTTP routes: no workers.dev URL and no preview URLs.
+      "workers_dev": false,
+      "preview_urls": false,
+      "limits": {
+        "cpu_ms": 60000
+      },
+      "triggers": {
+        "crons": ["30 15 * * 1"]
+      },
+      "observability": {
+        "enabled": true
+      },
+      "d1_databases": [
+        {
+          "binding": "DB",
+          "database_name": "auction-domain-aggregator-staging",
+          "database_id": "3098593e-a81d-4e62-a4d7-f4cb9a750217",
+          "migrations_dir": "drizzle",
+          "migrations_table": "d1_migrations"
+        }
+      ],
+      // The same 2-day `expire-staged-feed-pages` lifecycle rule as production.
+      "r2_buckets": [
+        {
+          "binding": "FEED_PAGES",
+          "bucket_name": "auction-domain-aggregator-feed-pages-staging"
+        }
+      ],
+      "workflows": [
+        {
+          "name": "auction-domain-aggregator-provider-sync-staging",
+          "binding": "PROVIDER_SYNC",
+          "class_name": "ProviderSyncWorkflow"
+        }
+      ]
+    },
     "production": {
       "name": "auction-domain-aggregator-ingestion-production",
       // No HTTP routes: no workers.dev URL and no preview URLs.

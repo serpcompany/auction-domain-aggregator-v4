@@ -2,10 +2,10 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [staging, main]
   pull_request:
 
-# Cancel superseded PR runs, but check every main commit (SERP verification cadence).
+# Cancel superseded PR runs, but check every staging and main commit (SERP verification cadence).
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -73,16 +73,20 @@ jobs:
           retention-days: 7
           if-no-files-found: ignore
 
-  # The sync (ingestion Worker) is the only deployed target; the website waits for #27.
-  # It waits for the check, deploys only the branch tip, and keeps build, migrate, deploy and
-  # verification in one job (SERP ci-workflows).
-  deploy-sync-production:
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  # Deploys follow the branches (SERP git-workflow, ci-workflows): a push to `staging` deploys
+  # Staging, and a push to `main` (a promotion) deploys Production. One job per environment
+  # builds, checks it is the branch tip, migrates the D1 that the sync and the website share (it is
+  # the only job that migrates it), deploys both Workers, and smoke-tests the website. It waits for
+  # the check, and an environment's deploys queue rather than cancel each other.
+  # See docs/technical-design/deployment.md.
+  deploy:
+    name: deploy-${{ github.ref_name == 'main' && 'production' || 'staging' }}
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/staging' || github.ref == 'refs/heads/main')
     needs: check
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     concurrency:
-      group: deploy-sync-production
+      group: deploy-${{ github.ref_name == 'main' && 'production' || 'staging' }}
       cancel-in-progress: false
     defaults:
       run:
@@ -90,6 +94,7 @@ jobs:
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
+      TARGET: ${{ github.ref_name == 'main' && 'production' || 'staging' }}
     steps:
       - name: Check out repository
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
@@ -98,7 +103,7 @@ jobs:
         id: credentials
         run: |
           if [ -z "$CLOUDFLARE_API_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
-            echo "::warning::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; the sync was not deployed."
+            echo "::warning::CLOUDFLARE_API_TOKEN or CLOUDFLARE_ACCOUNT_ID is not set; $TARGET was not deployed."
             echo "ready=false" >> "$GITHUB_OUTPUT"
           else
             echo "ready=true" >> "$GITHUB_OUTPUT"
@@ -117,33 +122,63 @@ jobs:
           corepack enable
           pnpm install --frozen-lockfile
 
+      # The website deploys only once the owner has set the Access team domain and AUD tag in
+      # wrangler.jsonc; until then it warns and the sync still deploys. The Worker would answer
+      # 503 without them anyway.
+      - name: Check the website's Access configuration
+        id: web
+        if: steps.credentials.outputs.ready == 'true'
+        run: pnpm web:access-ready "$TARGET"
+
       - name: Build the sync Worker
         if: steps.credentials.outputs.ready == 'true'
-        run: pnpm exec wrangler deploy --config wrangler.ingestion.jsonc --env production --env-file /dev/null --dry-run --outdir "$RUNNER_TEMP/sync-worker"
+        run: pnpm exec wrangler deploy --config wrangler.ingestion.jsonc --env "$TARGET" --env-file /dev/null --dry-run --outdir "$RUNNER_TEMP/sync-worker"
+
+      - name: Build the website
+        if: steps.web.outputs.ready == 'true'
+        run: pnpm build:web
 
       - name: Deploy only the branch tip
         id: tip
         if: steps.credentials.outputs.ready == 'true'
         run: |
-          tip=$(git ls-remote origin refs/heads/main | cut -f1)
+          tip=$(git ls-remote origin "refs/heads/$GITHUB_REF_NAME" | cut -f1)
           if [ "$tip" = "$GITHUB_SHA" ]; then
             echo "current=true" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::main moved to $tip; this older commit is not deployed."
+            echo "::notice::$GITHUB_REF_NAME moved to $tip; this older commit is not deployed."
             echo "current=false" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Apply D1 migrations
         if: steps.tip.outputs.current == 'true'
-        run: pnpm db:migrate:production
+        run: pnpm "db:migrate:$TARGET"
 
       - name: Deploy the sync Worker
         if: steps.tip.outputs.current == 'true'
-        run: pnpm deploy:sync:production
+        run: pnpm "deploy:sync:$TARGET"
+
+      - name: Deploy the website
+        if: steps.tip.outputs.current == 'true' && steps.web.outputs.ready == 'true'
+        run: pnpm exec opennextjs-cloudflare deploy --env "$TARGET" --env-file /dev/null
+
+      # Through the workers.dev host with the smoke-test header (SERP environment-configuration):
+      # no data without an Access token, the environment's indexing policy, and a 308 from the
+      # platform host. The account's workers.dev subdomain comes from a read-only API call.
+      - name: Smoke-test the website
+        if: steps.tip.outputs.current == 'true' && steps.web.outputs.ready == 'true'
+        run: |
+          subdomain=$(curl -fsS -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/subdomain" \
+            | jq -r '.result.subdomain')
+          pnpm smoke:web "$TARGET" "$subdomain"
 
       - name: Verify the deployment
         if: steps.tip.outputs.current == 'true'
         run: |
-          pnpm db:migrations:list:production | tee migrations.txt
+          pnpm "db:migrations:list:$TARGET" | tee migrations.txt
           grep -q "No migrations to apply" migrations.txt
-          pnpm exec wrangler deployments status --config wrangler.ingestion.jsonc --env production --env-file /dev/null
+          pnpm exec wrangler deployments status --config wrangler.ingestion.jsonc --env "$TARGET" --env-file /dev/null
+          if [ "${{ steps.web.outputs.ready }}" = "true" ]; then
+            pnpm exec wrangler deployments status --env "$TARGET" --env-file /dev/null
+          fi

@@ -4,13 +4,13 @@ This ExecPlan follows `docs/plans/README.md`. It covers GitHub issue #27 and the
 
 ## Purpose / Big Picture
 
-Today the discovery table runs only on the owner's machine; production runs only the daily sync (`docs/technical-design/production-sync.md`). After this plan, a visitor to the site's domain sees a public landing and pricing page, signs in with a one-time code sent by email, pays $27/month through Stripe Checkout, and then uses the Auctions, Filters, and Sync status pages against the production database. Without an active subscription, every app page and app API answers with the pricing page or 402, never data. The owner can observe it end to end on Staging with Stripe test mode before Production takes a real card.
+Today the discovery table runs only on the owner's machine; before #92, production ran only the daily sync (`docs/technical-design/deployment.md` now covers both environments). After this plan, a visitor to the site's domain sees a public landing and pricing page, signs in with a one-time code sent by email, pays $27/month through Stripe Checkout, and then uses the Auctions, Filters, and Sync status pages against the production database. Without an active subscription, every app page and app API answers with the pricing page or 402, never data. The owner can observe it end to end on Staging with Stripe test mode before Production takes a real card.
 
 ## Progress
 
 - [x] (2026-10-07) Read #27, its decisions comment, and SERP's `better-auth.md`, `payments.md`, `transactional-email.md`, `environment-configuration.md`, and `git-workflow.md`; drafted this plan.
 - [x] (2026-10-07) Owner decisions answered (#91) and recorded in the Decision Log.
-- [ ] Milestone 1: Staging environment and website deploy, gated.
+- [ ] Milestone 1: Staging environment and website deploy, gated. (2026-10-07) Built in #92: `env.staging` for both Workers, `env.staging`/`env.production` for the website, the Access gate in the Worker entry, and the `deploy` CI job; waiting for the first Staging deploy and the owner's Access sign-in.
 - [ ] Milestone 2: sign-in with an emailed one-time code.
 - [ ] Milestone 3: subscriptions, Stripe adapter, webhook, and the access gate.
 - [ ] Milestone 4: public pages and account page.
@@ -28,6 +28,9 @@ None yet.
 - 2026-10-07, owner (#91): domain `auctions.serp.co` (Staging `staging-auctions.serp.co`, one level under serp.co so Universal SSL covers it), temporary until a bought domain; add Staging; licensing: subscribers see every implemented provider (the owner chose this over showing only cleared providers, accepting that Dynadot's terms §13.1 and GoDaddy's internal-use licence prohibit it and either may revoke access); Stripe account `acct_1Ro79HCt1irzGjqB`; stay `Stage: explore` until #97 switches to `ship` before the first real signup or payment.
 - 2026-10-07, Claude: email sends from `noreply@mail.serp.co` through useSend, with no Reply-To. Rationale: serp.co's root MX is on Gmail, so SERP `transactional-email.md`'s serp.co-subdomain exception applies.
 - 2026-10-07, Claude: follow SERP `payments.md` (orders ledger, `billing_events`, `BillingProvider` interface) adapted to a subscription: the entitlement is a `subscriptions` row, and each paid invoice is an `orders` row. Rationale: the standard's shape is what the Lago move expects.
+
+- 2026-10-07, owner (#92): Staging's host is `staging-auctions.serp.co`, not `staging.auctions.serp.co`, because Universal SSL covers only one level under `serp.co`. One Access application, "auctions" (policy "Allow Farley and Devin"), covers both hosts, so both environments share its team domain and AUD tag. Staging's sync runs weekly (`30 15 * * 1`).
+- 2026-10-07, Claude (#92): the Worker verifies the Access token itself (RS256 against the team JWKS, `aud`, `iss`, `exp`/`nbf`) and fails closed: 503 without configuration, 403 without a valid token. Rationale: Access guards only the canonical hosts, and CI reaches `*.workers.dev` with the smoke-test header, which must not reveal data. CI smoke-tests 403, noindex, and the 308 there; the Access 302 on the canonical host is the owner's check, because Bot Fight Mode blocks CI runners.
 
 ## Decisions needed (owner)
 

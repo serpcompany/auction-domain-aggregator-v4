@@ -1,6 +1,6 @@
 # Data ingestion and persistence
 
-Status: Implemented for Dynadot, GoDaddy, Namecheap, and NameSilo; the first three verified locally (Wrangler) and deployed as the production sync ([Production sync](production-sync.md))
+Status: Implemented for Dynadot, GoDaddy, Namecheap, and NameSilo, verified locally (Wrangler), and deployed to Staging and Production ([Deployment](deployment.md))
 
 Last updated: 2026-10-07
 
@@ -13,7 +13,7 @@ Related leaves:
 - [Dynadot](dynadot-sync.md), [GoDaddy](godaddy-sync.md), [Namecheap](namecheap-sync.md), and [NameSilo](namesilo-sync.md) synchronization: each provider's source, adapter, record mapping, error codes, and evidence.
 - [Provider rate limits](provider-rate-limits.md): what each provider allows and what the sync enforces.
 - [Local sync runs](local-sync-runs.md): `corepack pnpm sync <provider>` and its credential handling.
-- [Production sync](production-sync.md): the deployed Worker, its resources, and the CI deploy.
+- [Deployment](deployment.md): the deployed Workers, their resources, and the CI deploy.
 
 ## Ingestion Worker and Workflow
 

@@ -24,7 +24,7 @@ Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package
 
 Build the website with Next.js 16 and TypeScript. OpenNext for Cloudflare builds the application as a Cloudflare Worker; Wrangler runs that output locally under workerd. `next dev` remains the fast Node.js development path, so both it and the workerd preview must stay healthy.
 
-The local adapter and runtime path are verified. The website is not deployed: it waits for accounts and payments (#27), and `pnpm run deploy:web` refuses until then. Only the ingestion Worker is deployed, by CI ([Production sync](production-sync.md)).
+The website deploys with `opennextjs-cloudflare deploy --env <env>` (not `wrangler deploy`, which leaves out what OpenNext uploads) after `pnpm build:web`, the OpenNext build and the bundled-env check. CI deploys it to Staging and Production, owner-only behind Cloudflare Access until accounts and payments (#27) ([Deployment](deployment.md)).
 
 ### Hosting and compute: Cloudflare
 
@@ -34,7 +34,7 @@ Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps
 
 ### Object storage: Cloudflare R2
 
-Use R2 for transient ingestion files: a file feed's page files live under a per-Workflow-instance prefix in the `FEED_PAGES` bucket only for the duration of one run and are deleted by its last step. Nothing user-facing reads R2. The top-level binding is local-only; the production sync has its own bucket, whose lifecycle rule expires pages a failed cleanup leaves behind ([Production sync](production-sync.md)).
+Use R2 for transient ingestion files: a file feed's page files live under a per-Workflow-instance prefix in the `FEED_PAGES` bucket only for the duration of one run and are deleted by its last step. Nothing user-facing reads R2. The top-level binding is local-only; each deployed sync has its own bucket, whose lifecycle rule expires pages a failed cleanup leaves behind ([Deployment](deployment.md)).
 
 ### Database: Cloudflare D1
 
@@ -42,7 +42,7 @@ Use Cloudflare D1 as the relational database and source of truth for normalized 
 
 External provider responses are untrusted input. Parse them into the application's own data types at the provider boundary before storing or acting on them.
 
-The top-level `DB` binding of both Wrangler configurations is deliberately local-only. The health route proves D1 access in both the Node development server and the workerd preview. The only remote database is the production sync's D1, which CI migrates on each push to `main` ([Production sync](production-sync.md)); the website has none until it is deployed (#27).
+The top-level `DB` binding of both Wrangler configurations is deliberately local-only. The health route proves D1 access in both the Node development server and the workerd preview. The remote databases are Staging's and Production's, each shared by that environment's sync and website and migrated by CI on each push to `staging` or `main` ([Deployment](deployment.md)).
 
 ### Database access and migrations: Drizzle ORM
 
@@ -64,15 +64,14 @@ Add components only as they are needed. The current set includes Alert, Badge, B
 
 ### Validation and continuous integration
 
-Use Zod 4 for runtime validation of provider responses. File feeds are split by a small dependency-free byte scanner (`apps/web/src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Biome for formatting and linting (`apps/web/biome.json`, the SERP standard settings), with stock `apps/web/src/components/ui/` exempt from the few rules that conflict with upstream shadcn. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
+Use Zod 4 for runtime validation of provider responses. Use `jose` to verify Cloudflare Access tokens in the Worker entry, as SERP's other Access-gated sites do; it runs on WebCrypto in workerd and Node. File feeds are split by a small dependency-free byte scanner (`apps/web/src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Biome for formatting and linting (`apps/web/biome.json`, the SERP standard settings), with stock `apps/web/src/components/ui/` exempt from the few rules that conflict with upstream shadcn. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
-`pnpm check:quick` is the push-level check. `pnpm check` adds browser tests against an isolated, deterministically seeded OpenNext workerd preview ([Isolated verification](isolated-verification.md)). It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded PR runs but checks every `main` commit, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. Its `check` job installs the frozen lockfile and Chromium before running that gate; it loads no provider credentials, does not mutate the developer's local D1 inventory, and accesses no remote resources. On a push to `main`, a separate `deploy-sync-production` job deploys the ingestion Worker after `check` passes ([Production sync](production-sync.md)).
+`pnpm check:quick` is the push-level check. `pnpm check` adds browser tests against an isolated, deterministically seeded OpenNext workerd preview ([Isolated verification](isolated-verification.md)). It is the CI gate. CI runs for pushes to `staging` and `main` and for pull requests, cancels superseded PR runs but checks every `staging` and `main` commit, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. Its `check` job installs the frozen lockfile and Chromium before running that gate; it loads no provider credentials, does not mutate the developer's local D1 inventory, and accesses no remote resources. On a push to `staging` or `main`, a separate `deploy` job migrates, deploys, and smoke-tests that environment after `check` passes ([Deployment](deployment.md)).
 
 ## Decisions not yet made
 
 The following choices require more information and are intentionally unresolved:
 
-- The exact supported method for deploying this Next.js application to Cloudflare.
 - Whether ingestion volume or provider behavior requires Cloudflare Queues.
 
 Resolve these decisions through the smallest working proof that exercises the relevant constraint. Once accepted, update this document with the decision and its rationale.
