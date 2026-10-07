@@ -57,7 +57,7 @@
         "cpu_ms": 60000
       },
       "triggers": {
-        "crons": ["30 15 * * 1"]
+        "crons": ["30 17 * * *"]
       },
       "observability": {
         "enabled": true

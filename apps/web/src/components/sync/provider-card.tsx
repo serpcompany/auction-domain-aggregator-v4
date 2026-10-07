@@ -17,7 +17,8 @@ import {
   formatRunDuration,
   nextScheduledSync,
   providerFeed,
-  SYNC_SCHEDULE_LABEL
+  type SyncSchedule,
+  syncSchedule
 } from '@/domain/sync-schedule'
 import type { ProviderSyncSummary } from '@/server/queries/sync-status'
 
@@ -30,7 +31,15 @@ function Fact({ label, children }: { label: string; children: React.ReactNode })
   )
 }
 
-export function ProviderCard({ summary, now }: { summary: ProviderSyncSummary; now: Date }) {
+export function ProviderCard({
+  summary,
+  now,
+  schedule = syncSchedule()
+}: {
+  summary: ProviderSyncSummary
+  now: Date
+  schedule?: SyncSchedule
+}) {
   const { provider, latestRun, latestSuccess } = summary
   const running = latestRun?.status === 'running'
   const failed = latestRun?.status === 'failed'
@@ -113,10 +122,10 @@ export function ProviderCard({ summary, now }: { summary: ProviderSyncSummary; n
               </>
             ) : null}
             <Fact label="Next run">
-              {SYNC_SCHEDULE_LABEL}
+              {schedule.label}
               <span className="text-muted-foreground">
                 {' '}
-                · {formatIn(nextScheduledSync(now), now)}
+                · {formatIn(nextScheduledSync(now, schedule), now)}
               </span>
             </Fact>
           </dl>

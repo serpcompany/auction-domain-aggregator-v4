@@ -14,9 +14,18 @@ import {
   EmptyTitle
 } from '@/components/ui/empty'
 import { formatDateTime, formatProvider } from '@/domain/domain-table'
+import type { SyncSchedule } from '@/domain/sync-schedule'
 import type { SyncStatus } from '@/server/queries/sync-status'
 
-export function SyncStatusPage({ status, now }: { status: SyncStatus; now: Date }) {
+export function SyncStatusPage({
+  status,
+  now,
+  schedule
+}: {
+  status: SyncStatus
+  now: Date
+  schedule?: SyncSchedule
+}) {
   const failed = status.providers.flatMap(({ provider, latestRun, latestSuccess }) =>
     latestRun?.status === 'failed' ? [{ provider, latestRun, latestSuccess }] : []
   )
@@ -61,7 +70,12 @@ export function SyncStatusPage({ status, now }: { status: SyncStatus; now: Date 
         <>
           <div className="grid gap-4 md:grid-cols-2">
             {status.providers.map(summary => (
-              <ProviderCard key={summary.provider} summary={summary} now={now} />
+              <ProviderCard
+                key={summary.provider}
+                summary={summary}
+                now={now}
+                schedule={schedule}
+              />
             ))}
           </div>
           <Card className="gap-2 pb-0">

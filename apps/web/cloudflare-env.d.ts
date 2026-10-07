@@ -5,6 +5,7 @@ interface __BaseEnv_CloudflareEnv {
 	DB: D1Database;
 	ASSETS: Fetcher;
 	APP_ENV: string;
+	SYNC_TIME_UTC: string;
 	CANONICAL_HOST?: string;
 	ACCESS_TEAM_DOMAIN?: string;
 	ACCESS_AUD?: string;
@@ -18,6 +19,7 @@ declare namespace Cloudflare {
 		DB: D1Database;
 		ASSETS: Fetcher;
 		APP_ENV: string;
+	SYNC_TIME_UTC: string;
 		CANONICAL_HOST: string;
 		ACCESS_TEAM_DOMAIN: string;
 		ACCESS_AUD: string;
@@ -27,6 +29,7 @@ declare namespace Cloudflare {
 		DB: D1Database;
 		ASSETS: Fetcher;
 		APP_ENV: string;
+	SYNC_TIME_UTC: string;
 		CANONICAL_HOST: string;
 		ACCESS_TEAM_DOMAIN: string;
 		ACCESS_AUD: string;
@@ -39,7 +42,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_ENV" | "CANONICAL_HOST" | "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "APP_ENV" | "SYNC_TIME_UTC" | "CANONICAL_HOST" | "ACCESS_TEAM_DOMAIN" | "ACCESS_AUD">> {}
 }
 
 // Begin runtime types
