@@ -30,15 +30,12 @@ import {
   InputGroupInput,
   InputGroupText
 } from '@/components/ui/input-group'
+import { centsToDollarsText } from '@/domain/domain-table'
 
 export type Option = { value: string; label: string }
 
 const MAX_INTEGER = String(Number.MAX_SAFE_INTEGER)
 const MAX_MONEY = '9999999999999.99'
-
-function majorMoney(cents: number) {
-  return (cents / 100).toFixed(2).replace(/\.00$/, '')
-}
 
 type NumberInputProps = {
   id: string
@@ -74,7 +71,11 @@ function NumberInput({
     'aria-invalid': invalid || undefined,
     'aria-label': props['aria-label'],
     defaultValue:
-      defaultValue === undefined ? undefined : money ? majorMoney(defaultValue) : defaultValue
+      defaultValue === undefined
+        ? undefined
+        : money
+          ? centsToDollarsText(defaultValue)
+          : defaultValue
   }
   if (!money) return <Input {...inputProps} />
   return (

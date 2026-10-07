@@ -114,7 +114,7 @@ describe('AuctionsToolbar', () => {
     expect(trigger).toHaveTextContent('$50')
 
     fireEvent.click(trigger)
-    const input = await screen.findByRole('spinbutton', { name: 'Maximum current bid' })
+    const input = await screen.findByRole('spinbutton', { name: 'Max bid' })
     expect(input).toHaveValue(50)
     fireEvent.change(input, { target: { value: '120.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
@@ -128,7 +128,7 @@ describe('AuctionsToolbar', () => {
   it('opens an empty maximum bid without Clear', async () => {
     renderToolbar()
     fireEvent.click(screen.getByRole('button', { name: /^Max bid/ }))
-    expect(await screen.findByRole('spinbutton', { name: 'Maximum current bid' })).toHaveValue(null)
+    expect(await screen.findByRole('spinbutton', { name: 'Max bid' })).toHaveValue(null)
     expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
   })
 
@@ -142,9 +142,7 @@ describe('AuctionsToolbar', () => {
     expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
     fireEvent.click(screen.getByRole('button', { name: /^Ends/ }))
     expect(
-      within(await screen.findByRole('option', { name: /Within 6 hours/ })).getByLabelText(
-        'Selected'
-      )
+      within(await screen.findByRole('option', { name: /Within 6 hours/ })).getByText('(selected)')
     ).toBeInTheDocument()
   })
 

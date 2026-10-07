@@ -126,7 +126,7 @@ function MaxBidFilter({
               step="0.01"
               inputMode="decimal"
               autoComplete="off"
-              aria-label="Maximum current bid"
+              aria-label="Max bid"
               placeholder="Any"
               defaultValue={current === undefined ? undefined : current / 100}
             />
@@ -187,7 +187,10 @@ function EndsFilter({
                 >
                   {label}
                   {option === value ? (
-                    <CheckIcon className="ml-auto" aria-label="Selected" />
+                    <>
+                      <CheckIcon className="ml-auto" aria-hidden="true" />
+                      <span className="sr-only">(selected)</span>
+                    </>
                   ) : null}
                 </CommandItem>
               ))}
