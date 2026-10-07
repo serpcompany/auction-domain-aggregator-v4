@@ -20,7 +20,7 @@ Confidence labels:
 | Dynadot API                   | No, not without written permission               | Verified   |
 | DropCatch API                 | Not addressed; ask first                         | Inferred   |
 | GoDaddy API and inventory     | Not granted; content licensed for internal use   | Verified   |
-| Namecheap market sales CSV    | Not addressed; ask first                         | Inferred   |
+| Namecheap market sales CSV    | Yes, by the owner's decision (2026-10-07)        | Inferred   |
 | Ahrefs Domain Rating (DR API) | Yes, with attribution and link                   | Verified   |
 | Other Ahrefs metrics          | Only through Ahrefs Connect (Enterprise, OAuth)  | Verified   |
 | Linking out to auction pages  | No clause against plain links; affiliate links OK | Inferred   |
@@ -81,6 +81,8 @@ Researched 2026-10-07 for issue #71. Namecheap runs its own expired-domain aucti
 
 **Current use (2026-10-07, issue #71):** `pnpm sync namecheap` downloads the CSV once per run into the owner's local D1 for the owner's own use, and every row links back to its Namecheap sale page. That includes the file's Majestic, Semrush, and Estibot values. Its Ahrefs Domain Rating column is not stored.
 
+**Owner decision (2026-10-07):** the owner approved showing Namecheap listings to paying customers, each row linking back to its Namecheap sale page. This is the owner's call on the terms' silence, not written permission from Namecheap. Revisit it if Namecheap publishes terms for the file or objects.
+
 ## 5. Ahrefs
 
 ### Domain Rating
@@ -118,6 +120,8 @@ Competitors operating openly is evidence of tolerance, not of permission. None p
 
 ### Safe to build now
 
+- Namecheap listings from the public market sales CSV, linked back to each sale (owner decision, 2026-10-07; see section 4).
+
 - Keep the current single-owner, local use. Every source above permits the owner's own use of their own account and API.
 - Show Ahrefs DR from the free `domain-rating-free` endpoint with "Domain Rating by Ahrefs" adjacent to each value (or the column header, if Ahrefs confirms that counts as adjacent) and linked to `https://ahrefs.com/`.
 - Keep the provider-neutral ingestion work; it does not depend on licensing.
@@ -128,7 +132,6 @@ Competitors operating openly is evidence of tolerance, not of permission. None p
 - Dynadot listings: the terms prohibit it. Get written permission first.
 - GoDaddy listings: content is licensed for internal use. Get written permission first.
 - DropCatch listings: no terms either way, and programmatic systems need approval. Get written permission first.
-- Namecheap listings: no terms either way. Ask Namecheap whether the public market sales CSV may be shown to subscribers with links back.
 - Ahrefs metrics other than DR: requires Ahrefs Connect admission (Enterprise plan, existing user base). Do not accept pasted customer keys.
 
 ### Emails to send
