@@ -58,7 +58,9 @@ Follow the SERP web UI rules (serp.co `docs/agents/web.md`, "Rules for UI work")
 
 Do not treat the default appearance of generated components as the product's finished UI design. The first domain-discovery table establishes the current dense, server-rendered application pattern; later UI changes should preserve its accessible table and URL-backed filtering behavior unless a product decision replaces them.
 
-Add components only as they are needed. The current set includes Alert, Badge, Button, Card, Checkbox, Combobox, Empty, Field, Input, Input Group, Pagination (container parts only, see below), Select, Sheet, and Table. Page links are Next links styled with `buttonVariants`, because the stock `PaginationLink` renders through a client `Button` that causes a hydration mismatch when used from a server component, and announces page links as buttons.
+The app shell is the stock `sidebar-07` block (collapsible to icons, a Sheet on phones). Light and dark themes come from `next-themes` (`attribute="class"`, following the system by default) with a header toggle. `apps/web/src/design-tokens.test.ts` fails on literal colors or Tailwind palette classes anywhere in `apps/web/src/` outside `globals.css` and the stock `ui/` files.
+
+Add components only as they are needed. The current set includes Alert, Badge, Breadcrumb, Button, Card, Checkbox, Combobox, Command, Drawer, Dropdown Menu, Empty, Field, Input, Input Group, Item, Kbd, Pagination (container parts only, see below), Popover, Progress, Select, Sheet, Sidebar, Skeleton, Sonner, Spinner, Table, Toggle Group, and Tooltip, plus the dependencies they install. Refresh them with `shadcn add --overwrite` followed by `biome check --write`; the result must match the committed files. Page links are Next links styled with `buttonVariants`, because the stock `PaginationLink` renders through a client `Button` that causes a hydration mismatch when used from a server component, and announces page links as buttons.
 
 ### Validation and continuous integration
 

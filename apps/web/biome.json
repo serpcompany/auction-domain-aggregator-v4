@@ -68,11 +68,16 @@
             "useSemanticElements": "off",
             "noRedundantRoles": "off",
             "noLabelWithoutControl": "off",
-            "useKeyWithClickEvents": "off"
+            "useKeyWithClickEvents": "off",
+            "useFocusableInteractive": "off"
           },
           "suspicious": {
             "noDoubleEquals": "off",
-            "noArrayIndexKey": "off"
+            "noArrayIndexKey": "off",
+            "noDocumentCookie": "off"
+          },
+          "correctness": {
+            "useExhaustiveDependencies": "off"
           }
         }
       }

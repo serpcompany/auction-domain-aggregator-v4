@@ -159,7 +159,6 @@ describe('DomainDiscovery', () => {
       'href',
       '/?source=dynadot&sort=endsAt&direction=asc&page=1'
     )
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('Synced 2 minutes ago')
     expect(screen.queryByText(/inventory is out of date/i)).not.toBeInTheDocument()
 
     const table = screen.getByRole('table')
@@ -270,7 +269,6 @@ describe('DomainDiscovery', () => {
     )
 
     expect(screen.getByRole('region', { name: '1 active listing' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('No successful sync yet')
     expect(screen.getByRole('columnheader', { name: 'Domain' })).toHaveAttribute(
       'aria-sort',
       'descending'
@@ -297,7 +295,6 @@ describe('DomainDiscovery', () => {
     )
 
     expect(screen.getByRole('status')).toHaveTextContent(/inventory is out of date/i)
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('Synced 2 days ago')
   })
 
   it('opens every outbound link in a new tab', () => {

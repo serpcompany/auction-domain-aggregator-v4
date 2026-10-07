@@ -17,7 +17,6 @@ import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/p
 import {
   buildDomainTableHref,
   type DomainTableFilters,
-  formatSyncRecency,
   getDomainTableFilterChips,
   hasActiveDomainTableFilters,
   isInventoryStale
@@ -85,11 +84,7 @@ export function DomainDiscovery({
   const hasActiveFilters = hasActiveDomainTableFilters(filters)
 
   return (
-    <main
-      id="main-content"
-      tabIndex={-1}
-      className="min-h-screen bg-background px-4 py-8 sm:px-6 lg:px-8"
-    >
+    <div className="px-4 py-8 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1600px] space-y-6">
         <header className="flex flex-col gap-3 border-b pb-5 sm:flex-row sm:items-end sm:justify-between">
           <div>
@@ -101,10 +96,6 @@ export function DomainDiscovery({
               Search and compare active domain auctions from the local inventory.
             </p>
           </div>
-          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move. */}
-          <p className="text-sm text-muted-foreground" aria-label="Data freshness">
-            {formatSyncRecency(result.latestSuccessfulSync, now)}
-          </p>
         </header>
 
         {isInventoryStale(result.latestSuccessfulSync, now) ? (
@@ -242,6 +233,6 @@ export function DomainDiscovery({
           </footer>
         </Card>
       </div>
-    </main>
+    </div>
   )
 }

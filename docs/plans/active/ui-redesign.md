@@ -24,7 +24,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) #51: moved the app to `apps/web/` and replaced ESLint and Prettier with Biome.
 - [x] (2026-10-07) Milestone 0 (#59): committed the plan and mockups (`docs/plans/active/ui-redesign-mockups.html`), updated the product spec, and recorded the trailing-slash decision. PR open for owner approval.
 - [ ] Milestone 0 (#59): owner approves the spec PR.
-- [ ] Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
+- [x] (2026-10-07) Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
 - [ ] Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
 - [ ] Milestone 2b (#55): Filters page at `/filters/`.
 - [ ] Milestone 3 (#56): details panel and the phone layout.
@@ -33,6 +33,12 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [ ] Milestone 6 (in #52): documentation, final verification at both widths, plan moved to `completed/`.
 
 ## Surprises & Discoveries
+
+- Observation: Next 16's `proxy.ts` (the renamed middleware) runs only on the Node runtime, and OpenNext for Cloudflare refuses to build it: "Node.js middleware is not currently supported".
+  Evidence: `corepack pnpm test:e2e` failed with `e2e_build_failed` after adding `apps/web/src/proxy.ts` (#53). A `next.config.ts` redirect loops instead, because Next matches each redirect source with or without its trailing slash. The trailing-slash rule moved to a Worker entry, as best.serp.co does.
+
+- Observation: Stock shadcn files conflict with a few Biome recommended rules.
+  Evidence: after `shadcn add --overwrite`, Biome flags `breadcrumb.tsx` (useFocusableInteractive), `sidebar.tsx` (useExhaustiveDependencies, noDocumentCookie), and others. `apps/web/biome.json` turns these rules off for `src/components/ui/**` only, so the files stay byte-for-byte what `shadcn add` plus `biome check --write` produce.
 
 - Observation: The whole app renders in the browser's default serif font.
   Evidence: `getComputedStyle(document.body).fontFamily` is `"Times"` on `http://127.0.0.1:30001/`. `apps/web/src/app/layout.tsx` puts the Geist variables on `<body>`, but `globals.css` applies `font-sans` (which reads `--font-geist-sans`) on `<html>`, where the variable is undefined.
@@ -79,7 +85,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
   Rationale: Owner request (2026-10-07): a panel will be too small once the filter set grows toward SpamZilla's. This does not add any SpamZilla filter now; `docs/references/spamzilla/` stays reference material only.
   Date/Author: 2026-10-07, owner request, Claude design.
 
-- Decision: New pages follow the SERP trailing-slash standard: `/filters/` and `/syncs/` are canonical, the slashless form redirects with a 308, and `/api/*` is served exactly as requested, never redirected. Next's `trailingSlash: true` alone would also redirect API routes, so #53 enables it with `skipTrailingSlashRedirect: true` and a `apps/web/src/proxy.ts` that adds the slash only for page paths outside `/api`. All internal links use the slashed form. The homepage stays `/`.
+- Decision: New pages follow the SERP trailing-slash standard: `/filters/` and `/syncs/` are canonical, the slashless form redirects with a 308, and `/api/*` is served exactly as requested, never redirected. Next's `trailingSlash: true` alone would also redirect API routes, so #53 enables it with `skipTrailingSlashRedirect: true`, and the Worker entry (`apps/web/worker.ts`, rule in `apps/web/src/lib/trailing-slash.ts`) adds the slash to page paths and removes it from file paths, leaving `/api`, `/_next`, and `/.well-known` alone. `next dev` serves both forms. All internal links use the slashed form. The homepage stays `/`.
   Rationale: The standard (`serp/docs/engineering/standards/url-trailing-slash.md`) exempts `/api` because redirects break callers; the DR enrichment POST must not hop. This also settles the trailing-slash item in #36 for this app.
   Date/Author: 2026-10-07, Claude, recorded in #59 for owner approval.
 
@@ -142,7 +148,7 @@ Nothing is built until the owner approves the mockups at https://claude.ai/artif
 
 Make the app shell and design base correct before any page work, so later milestones only compose stock parts.
 
-Refresh every installed component with `shadcn add --overwrite` and review the diff; `sheet.tsx` returns to stock and any call site that relied on its edit gets a `className`. Reset `globals.css` to the stock base-nova neutral tokens plus the warning pair. Move the Geist font variables to `<html>`, which fixes the Times fallback. Add the components later milestones need (list under Interfaces). Apply the trailing-slash decision (`trailingSlash: true`, `skipTrailingSlashRedirect: true`, and `apps/web/src/proxy.ts` exempting `/api`). Install the `sidebar-07` block, delete its demo route and placeholder content (team switcher, projects, user menu), and keep its structure: `SidebarProvider`, `AppSidebar` with the brand and one "Discover" group, `SidebarInset` with a header holding `SidebarTrigger`, a `Breadcrumb`, the freshness `Badge`, and the theme toggle. The existing page renders inside the inset unchanged for now.
+Refresh every installed component with `shadcn add --overwrite` and review the diff; `sheet.tsx` returns to stock and any call site that relied on its edit gets a `className`. Reset `globals.css` to the stock base-nova neutral tokens plus the warning pair. Move the Geist font variables to `<html>`, which fixes the Times fallback. Add the components later milestones need (list under Interfaces). Apply the trailing-slash decision (`trailingSlash: true`, `skipTrailingSlashRedirect: true`, and the Worker entry `apps/web/worker.ts`). Install the `sidebar-07` block, delete its demo route and placeholder content (team switcher, projects, user menu), and keep its structure: `SidebarProvider`, `AppSidebar` with the brand and one "Discover" group, `SidebarInset` with a header holding `SidebarTrigger`, a `Breadcrumb`, the freshness `Badge`, and the theme toggle. The existing page renders inside the inset unchanged for now.
 
 Add a Vitest guard, `apps/web/src/design-tokens.test.ts`, that fails when any file under `apps/web/src/` other than `apps/web/src/app/globals.css` contains a hex, `rgb(`, `hsl(`, or `oklch(` color, or a Tailwind palette class such as `text-gray-500` or `bg-white`. The SERP standard asks for this check to be encoded rather than left to review.
 
