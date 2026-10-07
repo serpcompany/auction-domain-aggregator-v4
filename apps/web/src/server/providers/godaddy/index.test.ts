@@ -229,7 +229,7 @@ describe('GoDaddy adapter', () => {
     for (const [outcome, code] of cases) {
       const { adapter } = adapterFor({ 1: outcome })
       await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
-        new GodaddyProviderError(code as never)
+        new GodaddyProviderError(code as never, { transient: code === 'godaddy_page_read_error' })
       )
     }
   })

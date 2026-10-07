@@ -262,17 +262,74 @@ describe('provider sync workflow', () => {
   it('runs an API provider without staging and reports its failure code', async () => {
     vi.stubGlobal(
       'fetch',
-      vi.fn(async () => {
-        throw new Error('offline')
-      })
+      vi.fn(async () => new Response('forbidden', { status: 403 }))
     )
     const { run, steps, stores, nonRetryable } = setup({
       env: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' }
     })
-    await expect(run('dynadot')).rejects.toThrow('dynadot_network_error')
+    await expect(run('dynadot')).rejects.toThrow('dynadot_http_error')
     expect(steps.names()).toEqual(['start run', 'sync pages, segment 1'])
-    expect(nonRetryable).toHaveBeenCalledWith('dynadot_network_error')
-    expect(stores.get('dynadot')!.failures).toEqual(['dynadot_network_error'])
+    expect(nonRetryable).toHaveBeenCalledWith('dynadot_http_error')
+    expect(stores.get('dynadot')!.failures).toEqual(['dynadot_http_error'])
+  })
+
+  it('retries a transient failure mid-segment and completes with exact counters', async () => {
+    const records = Array.from({ length: 2_500 }, (_, index) => godaddyRecord(index))
+    const bucket = memoryBucket()
+    const get = bucket.bucket.get
+    let failures = 2
+    bucket.bucket.get = async key => {
+      if (key.endsWith('page-2.json') && failures-- > 0) throw new Error('R2 timeout')
+      return get(key)
+    }
+    const { run, steps, stores } = setup({ zip: await feedZip(records), bucket })
+    await expect(run('godaddy')).resolves.toMatchObject({
+      pagesFetched: 3,
+      recordsFetched: 2_500,
+      recordsUpserted: 2_500
+    })
+    expect(steps.names().filter(name => name === 'sync pages, segment 1')).toHaveLength(3)
+    expect(stores.get('godaddy')?.failures).toEqual([])
+  })
+
+  it('marks the run failed with its code when the retries run out', async () => {
+    const bucket = memoryBucket()
+    const get = bucket.bucket.get
+    bucket.bucket.get = async key => {
+      if (key.endsWith('page-1.json')) throw new Error('R2 down')
+      return get(key)
+    }
+    const { run, steps, stores, nonRetryable } = setup({
+      zip: await feedZip([godaddyRecord(1)]),
+      bucket
+    })
+    await expect(run('godaddy')).rejects.toThrow('godaddy_page_read_error')
+    expect(steps.names().filter(name => name === 'sync pages, segment 1')).toHaveLength(
+      SYNC_STEP.retries.limit + 1
+    )
+    expect(steps.names().slice(-2)).toEqual(['record failed run', 'delete staged pages'])
+    expect(nonRetryable).not.toHaveBeenCalledWith('godaddy_page_read_error')
+    expect(stores.get('godaddy')?.failures).toEqual(['godaddy_page_read_error'])
+    expect(bucket.objects.size).toBe(0)
+  })
+
+  it('still reports the step failure when recording the failed run fails too', async () => {
+    const bucket = memoryBucket()
+    bucket.bucket.get = async () => {
+      throw new Error('R2 down')
+    }
+    const { run, stores } = setup({
+      zip: await feedZip([godaddyRecord(1)]),
+      bucket,
+      wrapStorage: storage => ({
+        ...storage,
+        completeRun: async () => {
+          throw new Error('D1 down')
+        }
+      })
+    })
+    await expect(run('godaddy')).rejects.toThrow('godaddy_page_read_error')
+    expect(stores.get('godaddy')?.failures).toEqual([])
   })
 
   it('retries download and page-write failures but not malformed feeds, and still cleans up', async () => {

@@ -17,13 +17,17 @@ export type SyncErrorCode =
 // provider-prefixed adapter code such as `dynadot_http_error`.
 export type RunErrorCode = Exclude<SyncErrorCode, 'sync_interrupted'> | string
 
+// `transient` marks a segment that failed in a way a retry may not repeat.
+// Its run is left running, so the retry resumes it.
 export class SyncError extends Error {
   readonly code: RunErrorCode
+  readonly transient: boolean
 
-  constructor(code: RunErrorCode) {
+  constructor(code: RunErrorCode, { transient = false }: { transient?: boolean } = {}) {
     super(code)
     this.name = 'SyncError'
     this.code = code
+    this.transient = transient
   }
 }
 
@@ -123,6 +127,14 @@ function runErrorCode(error: unknown): RunErrorCode {
   return 'sync_failed'
 }
 
+// A provider failure marked transient, or an unexpected error (a D1 batch
+// failing, typically) may succeed when the segment runs again. A SyncError is
+// a deliberate verdict: the guard, the page limit, or an invalid request.
+function isTransient(error: unknown) {
+  if (error instanceof ProviderError) return error.transient
+  return !(error instanceof SyncError)
+}
+
 // Starts a run of `storage`'s provider, interrupting any run of that provider
 // still marked running, and returns its ID for `runSyncSegment`. Kept apart
 // from the first segment so a segment that is run again resumes this run
@@ -196,6 +208,11 @@ export async function runSyncSegment(
       throw error
     }
     const errorCode = runErrorCode(error)
+    // Nothing is recorded, and the run stays running. A retry loads it again
+    // with the page and counters committed at the last segment boundary, so
+    // it fetches and upserts this segment's pages again (upserts are
+    // idempotent) and the counters stay exact.
+    if (isTransient(error)) throw new SyncError(errorCode, { transient: true })
     try {
       await storage.completeRun(run, {
         pagesFetched: run.pagesFetched,
@@ -213,4 +230,36 @@ export async function runSyncSegment(
     }
     throw new SyncError(errorCode)
   }
+}
+
+// Marks a run failed after its segment kept failing transiently until the
+// retries ran out, so it does not stay running until the next sync interrupts
+// it. Its counters are those committed at the last segment boundary; the
+// failing page within the segment is not known. A run that is no longer
+// running was completed or interrupted already and is left alone.
+export async function failSyncRun(
+  storage: IngestionStorage,
+  runId: number,
+  errorCode: RunErrorCode,
+  clock: () => Date = () => new Date()
+) {
+  let run: RunState
+  try {
+    run = await storage.loadRunningRun(runId)
+  } catch (error) {
+    if (error instanceof SyncError && error.code === 'sync_stale_continuation') return false
+    throw error
+  }
+  await storage.completeRun(run, {
+    pagesFetched: run.pagesFetched,
+    recordsFetched: run.recordsFetched,
+    recordsUpserted: run.recordsUpserted,
+    recordsInactivated: run.recordsInactivated,
+    recordsRejected: run.recordsRejected,
+    status: 'failed',
+    completedAt: clock(),
+    errorCode,
+    failedPage: null
+  })
+  return true
 }

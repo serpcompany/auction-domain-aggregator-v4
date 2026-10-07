@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { parseDomain, parseMoneyCents } from '../normalize'
-import { normalizeStagedRecords, readStagedPage } from '../staged-feed'
+import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
   type NormalizedListing,
@@ -66,8 +66,8 @@ export type NamecheapProviderErrorCode =
 export class NamecheapProviderError extends ProviderError {
   declare readonly code: NamecheapProviderErrorCode
 
-  constructor(code: NamecheapProviderErrorCode) {
-    super(code)
+  constructor(code: NamecheapProviderErrorCode, options?: { transient?: boolean }) {
+    super(code, options)
     this.name = 'NamecheapProviderError'
   }
 }
@@ -174,7 +174,10 @@ export function createNamecheapAdapter({
           maxPages: NAMECHEAP_MAX_PAGES,
           maxPageBytes: NAMECHEAP_PAGE_BYTE_LIMIT
         },
-        code => new NamecheapProviderError(`namecheap_${code}`)
+        code =>
+          new NamecheapProviderError(`namecheap_${code}`, {
+            transient: isTransientStagedPageError(code)
+          })
       )
       return { ...normalizeNamecheapRecords(page.records), isLastPage: page.isLastPage }
     }

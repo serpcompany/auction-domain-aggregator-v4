@@ -15,6 +15,12 @@ export type StagedPageErrorCode =
   | 'response_too_large'
   | 'response_error'
 
+// An R2 read that failed may succeed when retried; every other failure
+// describes the staged page itself.
+export function isTransientStagedPageError(code: StagedPageErrorCode) {
+  return code === 'page_read_error'
+}
+
 export type StagedPageLimits = {
   pageSize: number
   maxPages: number

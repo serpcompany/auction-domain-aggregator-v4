@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type DynadotListing, DynadotProviderError } from '../providers/dynadot'
 import type { NormalizedListing, ProviderAdapter, ProviderPage } from '../providers/types'
 import {
+  failSyncRun,
   type IngestionStorage,
   type RunCompletion,
   type RunCounters,
@@ -256,11 +257,11 @@ describe('syncDynadotWithStorage', () => {
         segmentPages: 1,
         runId: run.runId,
         fetchPage: async () => {
-          throw new Error('provider internals')
+          throw new DynadotProviderError('dynadot_response_error')
         },
         clock: clock('2026-07-13T00:01:00.000Z')
       })
-    ).rejects.toEqual(new SyncError('sync_failed'))
+    ).rejects.toEqual(new SyncError('dynadot_response_error'))
 
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
@@ -341,7 +342,7 @@ describe('syncDynadotWithStorage', () => {
     ).rejects.toMatchObject({ code: 'sync_stale_continuation' })
   })
 
-  it('keeps listings active and marks the run failed when atomic finalization fails', async () => {
+  it('keeps listings active and the run running when atomic finalization fails', async () => {
     const storage = new MemoryStorage()
     const old = listing('old', 'old.example')
     storage.listings.set('old', {
@@ -364,15 +365,11 @@ describe('syncDynadotWithStorage', () => {
           '2026-07-13T00:02:00.000Z'
         )
       })
-    ).rejects.toEqual(new SyncError('sync_failed'))
+    ).rejects.toEqual(new SyncError('sync_failed', { transient: true }))
 
+    // A failed D1 batch may succeed when the segment is retried.
     expect(storage.listings.get('old')?.status).toBe('active')
-    expect(storage.completions.at(-1)).toMatchObject({
-      status: 'failed',
-      errorCode: 'sync_failed',
-      recordsInactivated: 0,
-      recordsRejected: 0
-    })
+    expect(storage.completions).toEqual([])
   })
 
   it('uses the received count, not the valid count, to find the final page', async () => {
@@ -506,16 +503,16 @@ describe('syncDynadotWithStorage', () => {
         pageSize: 1,
         fetchPage: async ({ pageIndex }) => {
           if (pageIndex === 1) return [first]
-          throw new Error('raw provider details')
+          throw new DynadotProviderError('dynadot_response_error')
         },
         clock: clock('2026-07-13T01:00:00.000Z', '2026-07-13T01:01:00.000Z')
       })
-    ).rejects.toEqual(new SyncError('sync_failed'))
+    ).rejects.toEqual(new SyncError('dynadot_response_error'))
 
     expect(storage.listings.get('second')?.status).toBe('active')
     expect(storage.completions.at(-1)).toMatchObject({
       status: 'failed',
-      errorCode: 'sync_failed',
+      errorCode: 'dynadot_response_error',
       pagesFetched: 1,
       recordsFetched: 1,
       recordsUpserted: 1,
@@ -636,9 +633,86 @@ describe('syncDynadotWithStorage', () => {
     await expect(
       syncWithStorage(storage, {
         fetchPage: async () => {
-          throw new Error('provider internals')
+          throw new DynadotProviderError('dynadot_response_error')
         }
       })
-    ).rejects.toEqual(new SyncError('sync_failed'))
+    ).rejects.toEqual(new SyncError('dynadot_response_error'))
+  })
+
+  it('leaves the run running on a transient failure, so a retry resumes it exactly', async () => {
+    const storage = new MemoryStorage()
+    const pages = (pageIndex: number) => [listing(`page-${pageIndex}`, `page-${pageIndex}.example`)]
+    const first = await runSegment(storage, {
+      pageSize: 1,
+      segmentPages: 2,
+      fetchPage: async ({ pageIndex }) => pages(pageIndex)
+    })
+    const { runId } = (first as { done: false; run: RunState }).run
+
+    for (const failure of [
+      new DynadotProviderError('dynadot_rate_limited', { transient: true }),
+      new Error('D1 batch failed')
+    ]) {
+      await expect(
+        runSegment(storage, {
+          pageSize: 1,
+          segmentPages: 2,
+          runId,
+          fetchPage: async ({ pageIndex }) => {
+            if (pageIndex === 4) throw failure
+            return pages(pageIndex)
+          }
+        })
+      ).rejects.toMatchObject({ transient: true })
+    }
+    expect(storage.completions).toEqual([])
+
+    // The retry resumes after the committed pages 1 and 2. Page 3 was
+    // fetched three times and page 4 twice; each is counted once.
+    const resumed = await runSegment(storage, {
+      pageSize: 1,
+      segmentPages: 10,
+      runId,
+      fetchPage: async ({ pageIndex }) => {
+        if (pageIndex <= 2) throw new Error('committed page fetched again')
+        return pageIndex <= 4 ? pages(pageIndex) : []
+      }
+    })
+    expect(resumed).toMatchObject({
+      done: true,
+      summary: { pagesFetched: 5, recordsFetched: 4, recordsUpserted: 4 }
+    })
+  })
+
+  it('records a run whose retries ran out as failed, with its committed counters', async () => {
+    const storage = new MemoryStorage()
+    const first = await runSegment(storage, {
+      pageSize: 1,
+      segmentPages: 1,
+      fetchPage: async () => [listing('one', 'one.example')]
+    })
+    const { runId } = (first as { done: false; run: RunState }).run
+
+    await expect(
+      failSyncRun(storage, runId, 'dynadot_rate_limited', clock('2026-07-13T03:00:00.000Z'))
+    ).resolves.toBe(true)
+    expect(storage.completions).toEqual([
+      expect.objectContaining({
+        status: 'failed',
+        errorCode: 'dynadot_rate_limited',
+        failedPage: null,
+        pagesFetched: 1,
+        recordsUpserted: 1,
+        completedAt: new Date('2026-07-13T03:00:00.000Z')
+      })
+    ])
+    // Already completed: left alone.
+    await expect(failSyncRun(storage, runId, 'dynadot_rate_limited')).resolves.toBe(false)
+    expect(storage.completions).toHaveLength(1)
+
+    storage.loadRunningRun = async () => {
+      throw new Error('D1 unavailable')
+    }
+    await expect(failSyncRun(storage, runId, 'sync_failed')).rejects.toThrow('D1 unavailable')
   })
 })
