@@ -72,6 +72,9 @@ type StepOutcome =
   | { kind: 'rated'; cursor: string; requested: number; stored: number }
   // `called` when this step's own call was rate-limited.
   | { kind: 'wait'; milliseconds: number; called: boolean }
+  // Ahrefs refused the key. Thrown outside the step, so the instance error
+  // is the bare code (as `provider-sync-workflow.ts` does).
+  | { kind: 'rejected'; code: string }
 
 export async function runDomainRatingBackfill({
   step,
@@ -130,12 +133,13 @@ export async function runDomainRatingBackfill({
             return { kind: 'wait', milliseconds: 0, called: true }
           }
           if (error instanceof AhrefsError && error.code === 'ahrefs_unauthorized') {
-            throw nonRetryable(error.code)
+            return { kind: 'rejected', code: error.code }
           }
           throw error
         }
       }
     )
+    if (outcome.kind === 'rejected') throw nonRetryable(outcome.code)
     if (outcome.kind === 'done') {
       summary.complete = true
       break
