@@ -32,8 +32,10 @@ const READY_REQUEST_TIMEOUT_MS = 2_000
 const REQUEST_TIMEOUT_MS = 60_000
 const CREATE_TIMEOUT_MS = 15 * 60_000
 const POLL_INTERVAL_MS = 2_000
-// GoDaddy takes a few minutes end to end; Dynadot about as long.
-const RUN_TIMEOUT_MS = 30 * 60_000
+// GoDaddy and Namecheap take a few minutes end to end and Dynadot about 9.
+// NameSilo's roughly 450 requests, paced 2 seconds apart and about 2.5
+// seconds each, take 20 to 30 minutes.
+const RUN_TIMEOUT_MS = 60 * 60_000
 
 type SafeSummary = {
   provider: string

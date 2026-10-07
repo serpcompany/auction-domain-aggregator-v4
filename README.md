@@ -2,7 +2,7 @@
 
 This repository is a personal auction and expired-domain discovery tool. Its goal is to replace the part of SpamZilla the repository owner uses: browse a domain inventory, narrow and sort it, compare useful signals, and open the authoritative auction page.
 
-The first slice is implemented for Dynadot, GoDaddy, and Namecheap. A Cloudflare Workflow per provider, started daily by a Cron Trigger or manually with `pnpm sync`, synchronizes normalized auction listings into Cloudflare D1, and Next.js serves a URL-backed, server-filtered comparison table from it. Quick and advanced filters cover stored auction data, the Majestic and SEMrush metrics GoDaddy and Namecheap publish per domain, and domain properties derived from the name. Ahrefs Domain Rating is fetched for the rows being viewed. Only the daily sync is deployed, by CI; the website runs locally until accounts and payments (#27).
+The first slice is implemented for Dynadot, GoDaddy, Namecheap, and NameSilo. A Cloudflare Workflow per provider, started daily by a Cron Trigger or manually with `pnpm sync`, synchronizes normalized auction listings into Cloudflare D1, and Next.js serves a URL-backed, server-filtered comparison table from it. Quick and advanced filters cover stored auction data, the Majestic and SEMrush metrics GoDaddy and Namecheap publish per domain, and domain properties derived from the name. Ahrefs Domain Rating is fetched for the rows being viewed. Only the daily sync is deployed, by CI; the website runs locally until accounts and payments (#27).
 
 ## Where things are
 
@@ -21,4 +21,4 @@ After installing the pinned dependencies and applying local migrations, run:
 corepack pnpm dev --webpack --hostname 127.0.0.1 --port 30001
 ```
 
-Open `http://127.0.0.1:30001`. A populated table requires a manual sync (`corepack pnpm sync godaddy` and `corepack pnpm sync namecheap` need no credentials; Dynadot needs its key); routine checks use invented, provider-free temporary fixtures and do not need credentials.
+Open `http://127.0.0.1:30001`. A populated table requires a manual sync (`corepack pnpm sync godaddy` and `corepack pnpm sync namecheap` need no credentials; Dynadot and NameSilo need their keys); routine checks use invented, provider-free temporary fixtures and do not need credentials.

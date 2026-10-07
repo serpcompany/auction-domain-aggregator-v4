@@ -1,6 +1,6 @@
 # Data licensing for a paid product
 
-Researched 2026-10-06 for #28; Namecheap added 2026-10-07 for #71.
+Researched 2026-10-06 for #28; Namecheap added 2026-10-07 for #71, NameSilo for #83.
 
 **This is research, not legal advice.** It records what each provider's published terms say about showing their listing data to paying customers. Terms change; re-read the linked documents before relying on them, and get written permission or legal review before a paid launch.
 
@@ -23,6 +23,7 @@ Each source's leaf holds the clauses, affiliate programs, the email to send, and
 | [DropCatch API](dropcatch.md) | Not addressed; ask first | Inferred |
 | [GoDaddy API and inventory](godaddy.md) | Not granted; content licensed for internal use | Verified |
 | [Namecheap market sales CSV](namecheap.md) | Yes, by the owner's decision (2026-10-07) | Inferred |
+| [NameSilo API](namesilo.md) | Not addressed; ask first. Batch policy met by `/public/apibatch/` | Inferred |
 | [Ahrefs Domain Rating (DR API)](ahrefs.md) | Yes, with attribution and link | Verified |
 | [Other Ahrefs metrics](ahrefs.md#other-ahrefs-metrics-and-bring-your-own-key) | Only through Ahrefs Connect (Enterprise, OAuth) | Verified |
 | Linking out to auction pages | No clause against plain links; affiliate links OK | Inferred |
@@ -44,6 +45,7 @@ Each source's leaf holds the clauses, affiliate programs, the email to send, and
 - Dynadot listings: the terms prohibit it. Get written permission first.
 - GoDaddy listings: content is licensed for internal use. Get written permission first.
 - DropCatch listings: no terms either way, and programmatic systems need approval. Get written permission first.
+- NameSilo listings: the terms are silent on showing API data to others. Ask support first.
 - Ahrefs metrics other than DR: requires Ahrefs Connect admission (Enterprise plan, existing user base). Do not accept pasted customer keys.
 
 ### Replies

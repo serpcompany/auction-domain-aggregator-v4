@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
-import { countRejection, ResponseTooLargeError } from './normalize'
-import type { FeedPageSource, NormalizedListing, ProviderPage, RejectionReasons } from './types'
+import { ResponseTooLargeError } from './normalize'
+import type { FeedPageSource } from './types'
 
 // Reading back the page files the ingestion Workflow stages from a provider's
 // file feed (`src/server/ingestion/feed-stage.ts`). Each adapter supplies its
@@ -26,10 +26,6 @@ export type StagedPageLimits = {
   maxPages: number
   maxPageBytes: number
 }
-
-// A page where more than this share of records is invalid indicates a format
-// change rather than a few bad records.
-const MAX_REJECTED_RATIO = 0.1
 
 // The page envelope written by the stage step. Records are validated one at
 // a time so a single malformed listing is skipped, not the whole page.
@@ -72,25 +68,4 @@ export async function readStagedPage(
     throw fail('response_error')
   }
   return parsed.data
-}
-
-// Normalizes each record, counting one that `normalize` throws on as
-// rejected, and fails the page with the reasons when too many are.
-export function normalizeStagedRecords(
-  records: unknown[],
-  normalize: (record: unknown) => NormalizedListing,
-  fail: (rejections: RejectionReasons) => Error
-): Omit<ProviderPage, 'isLastPage'> {
-  const listings: NormalizedListing[] = []
-  const rejections: RejectionReasons = {}
-  for (const record of records) {
-    try {
-      listings.push(normalize(record))
-    } catch (error) {
-      countRejection(rejections, error)
-    }
-  }
-  const rejected = records.length - listings.length
-  if (rejected > records.length * MAX_REJECTED_RATIO) throw fail(rejections)
-  return { listings, received: records.length, rejected }
 }

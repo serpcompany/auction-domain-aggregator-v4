@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import type { RejectionReasons } from './types'
+import type { NormalizedListing, ProviderPage, RejectionReasons } from './types'
 
 // Normalization shared by provider adapters. Every helper throws a plain
 // Error on invalid input; adapters count the record as rejected or map the
@@ -130,4 +130,42 @@ export function countRejection(reasons: RejectionReasons, error: unknown) {
     reason = error.message
   }
   reasons[reason] = (reasons[reason] ?? 0) + 1
+}
+
+// A page where more than this share of records is invalid indicates a
+// response-format change rather than a few bad records.
+const MAX_REJECTED_RATIO = 0.1
+
+// Normalizes each record of one provider page, counting one that `normalize`
+// throws on as rejected, and fails the page with the reasons when too many
+// are.
+export function normalizeRecords(
+  records: unknown[],
+  normalize: (record: unknown) => NormalizedListing,
+  fail: (rejections: RejectionReasons) => Error
+): Omit<ProviderPage, 'isLastPage'> {
+  const listings: NormalizedListing[] = []
+  const rejections: RejectionReasons = {}
+  for (const record of records) {
+    try {
+      listings.push(normalize(record))
+    } catch (error) {
+      countRejection(rejections, error)
+    }
+  }
+  const rejected = records.length - listings.length
+  if (rejected > records.length * MAX_REJECTED_RATIO) throw fail(rejections)
+  return { listings, received: records.length, rejected }
+}
+
+// Whole years from `from` to `to`, such as a domain's registration to its
+// auction, so the value does not depend on when the provider is read. Null
+// when either date is missing or `from` is after `to`.
+export function wholeYearsBetween(from: Date | null, to: Date | null) {
+  if (!from || !to) return null
+  let years = to.getUTCFullYear() - from.getUTCFullYear()
+  const anniversary = new Date(from)
+  anniversary.setUTCFullYear(to.getUTCFullYear())
+  if (anniversary > to) years -= 1
+  return years >= 0 ? years : null
 }
