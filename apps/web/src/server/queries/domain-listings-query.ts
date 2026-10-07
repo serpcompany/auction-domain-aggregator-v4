@@ -275,7 +275,7 @@ export async function queryDomainListingsWithDatabase(
   // Keep these reads sequential. Concurrent statements against Wrangler's
   // local SQLite-backed D1 can race snapshots and fail with SQLITE_BUSY.
   const totalRows = await database.select({ value: count() }).from(auctionListings).where(where)
-  const total = totalRows[0]?.value ?? 0
+  const [{ value: total }] = totalRows
   const lastPage = Math.max(1, Math.ceil(total / filters.pageSize))
   const page = Math.min(filters.page, lastPage)
 
@@ -329,13 +329,14 @@ export async function queryDomainListingsWithDatabase(
           )
   // A domain Ahrefs left out of its answer shows as having no rating until it
   // may be asked again. A domain being asked about now counts as not fetched.
+  // The schema gives every omission a retry time.
   const ratings = new Map(
     ratingRows
       .filter(
         ({ status, retryAfter }) =>
           status === 'ok' ||
           status === 'not_found' ||
-          (status === 'omitted' && retryAfter !== null && retryAfter > now)
+          (status === 'omitted' && Number(retryAfter) > now.getTime())
       )
       .map(({ domainName, value }) => [domainName, { value }])
   )

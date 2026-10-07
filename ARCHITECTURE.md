@@ -107,8 +107,8 @@ All application code is under `apps/web/`.
 - `src/server/enrichment/`: Ahrefs DR fetching, claims, and storage.
 - `src/server/providers/`: the normalized listing and adapter contract, the registry, the shared pacer and normalization helpers, the staged-page reader, and one directory per provider that terminates its shapes.
 - `src/server/ingestion/`: the provider-neutral sync, provider-bound D1 storage, the ingestion Worker and Workflow, file-feed staging to R2, and local-runner utilities.
-- `scripts/`: the local sync runner, the filter benchmark, and the isolated integration and e2e harnesses.
+- `scripts/`: the local sync runner, the filter benchmark, and the e2e server.
 - `e2e/`: Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures, built and served from `tmp/e2e/` by `scripts/e2e-server.ts` so the developer's `.open-next` stays in place.
-- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define the application and ingestion Workers; `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations that never use the owner's local inventory.
+- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define the application and ingestion Workers; `wrangler.e2e.jsonc` is the browser-test configuration. The `workers` Vitest project (`vitest.config.mts`) runs `*.workers.test.ts` in workerd with the ingestion configuration's bindings, held in memory. Neither uses the owner's local inventory.
 
 Browser components must not import `apps/web/src/server/`. Provider-specific shapes must not escape their adapter. Only ingestion code may cross both the provider-network and database boundaries; it runs only in the ingestion Worker, never in the web application's request path.

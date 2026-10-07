@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createJsonArrayScanner,
   createPageWriter,
+  downloadFeed,
   FEED_USER_AGENT,
   FeedError,
   feedErrorCode,
@@ -624,6 +625,24 @@ describe('zipped feed staging', () => {
       await expect(
         stageZippedFeed({ ...options, sink, fetchImpl: fetchImpl as never })
       ).rejects.toThrow(new FeedError(code as never))
+    }
+  })
+})
+
+describe('downloadFeed', () => {
+  it('uses the global fetch by default', async () => {
+    const fetchMock = vi.fn(async () => new Response('feed'))
+    vi.stubGlobal('fetch', fetchMock)
+    try {
+      const body = await downloadFeed({
+        url: 'https://feed.invalid/x',
+        maxBytes: 10,
+        timeoutMs: 1_000
+      })
+      expect(await readText(body)).toBe('feed')
+      expect(fetchMock).toHaveBeenCalledOnce()
+    } finally {
+      vi.unstubAllGlobals()
     }
   })
 })
