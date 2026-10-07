@@ -299,15 +299,7 @@ export async function queryDomainListingsWithDatabase(
           .where(inArray(domainSeoMetrics.domainName, pageDomains))
   const seoMetrics = new Map(seoRows.map(({ domainName, ...metrics }) => [domainName, metrics]))
 
-  // Facets do not depend on the filters. They are rebuilt when a sync
-  // succeeds; a value stays offered while one of its auctions can be open.
-  const facetRows = await database
-    .select({ facet: listingFacets.facet, value: listingFacets.value })
-    .from(listingFacets)
-    .where(gt(listingFacets.latestEndsAt, now))
-    .orderBy(asc(listingFacets.facet), asc(listingFacets.value))
-  const facetValues = (facet: (typeof facetRows)[number]['facet']) =>
-    facetRows.filter(row => row.facet === facet).map(({ value }) => value)
+  const facets = await queryListingFacetsWithDatabase(database, now)
 
   const latestSyncRows = await database
     .select({ value: max(ingestionRuns.completedAt) })
@@ -328,13 +320,38 @@ export async function queryDomainListingsWithDatabase(
     }),
     total,
     page,
+    ...facets,
+    latestSuccessfulSync: latestSyncRows[0]?.value ?? null
+  }
+}
+
+export interface ListingFacets {
+  sources: AuctionSource[]
+  auctionTypes: AuctionType[]
+  tlds: string[]
+}
+
+// Facets do not depend on the filters. They are rebuilt when a sync
+// succeeds; a value stays offered while one of its auctions can be open.
+export async function queryListingFacetsWithDatabase(
+  database: AppDatabase,
+  now = new Date()
+): Promise<ListingFacets> {
+  const facetRows = await database
+    .select({ facet: listingFacets.facet, value: listingFacets.value })
+    .from(listingFacets)
+    .where(gt(listingFacets.latestEndsAt, now))
+    .orderBy(asc(listingFacets.facet), asc(listingFacets.value))
+  const facetValues = (facet: (typeof facetRows)[number]['facet']) =>
+    facetRows.filter(row => row.facet === facet).map(({ value }) => value)
+
+  return {
     sources: facetValues('source').filter((value): value is AuctionSource =>
       DOMAIN_TABLE_AUCTION_SOURCES.includes(value as AuctionSource)
     ),
     auctionTypes: facetValues('auction_type').filter((value): value is AuctionType =>
       DOMAIN_TABLE_AUCTION_TYPES.includes(value as AuctionType)
     ),
-    tlds: facetValues('tld'),
-    latestSuccessfulSync: latestSyncRows[0]?.value ?? null
+    tlds: facetValues('tld')
   }
 }
