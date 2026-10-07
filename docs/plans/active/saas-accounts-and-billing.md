@@ -25,7 +25,7 @@ None yet.
 
 - 2026-10-06, owner: one plan at $27/month, no free trial; Better Auth on the existing D1; Stripe first, moving later to SERP's Lago fork with Easy Pay Direct, so billing stays behind a swappable module and the app gates on its own D1 subscription record (#27 comment).
 - 2026-10-07, owner: production is the sync only until this plan ships the website; the domain is still to be chosen (#15).
-- 2026-10-07, owner (#91): domain `auctions.serp.co` (Staging `staging.auctions.serp.co`), temporary until a bought domain; add Staging; licensing option (a), subscribers see only cleared providers (Namecheap today); Stripe account `acct_1Ro79HCt1irzGjqB`; stay `Stage: explore` until #97 switches to `ship` before the first real signup or payment.
+- 2026-10-07, owner (#91): domain `auctions.serp.co` (Staging `staging-auctions.serp.co`, one level under serp.co so Universal SSL covers it), temporary until a bought domain; add Staging; licensing: subscribers see every implemented provider (the owner chose this over showing only cleared providers, accepting that Dynadot's terms §13.1 and GoDaddy's internal-use licence prohibit it and either may revoke access); Stripe account `acct_1Ro79HCt1irzGjqB`; stay `Stage: explore` until #97 switches to `ship` before the first real signup or payment.
 - 2026-10-07, Claude: email sends from `noreply@mail.serp.co` through useSend, with no Reply-To. Rationale: serp.co's root MX is on Gmail, so SERP `transactional-email.md`'s serp.co-subdomain exception applies.
 - 2026-10-07, Claude: follow SERP `payments.md` (orders ledger, `billing_events`, `BillingProvider` interface) adapted to a subscription: the entitlement is a `subscriptions` row, and each paid invoice is an `orders` row. Rationale: the standard's shape is what the Lago move expects.
 
@@ -77,4 +77,4 @@ None yet.
 
 New packages: `better-auth`, `stripe`. New Worker secrets per environment (owner sets): `BETTER_AUTH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `AHREFS_API_KEY`. New vars: `BETTER_AUTH_URL`, `EMAIL_FROM`, `APP_ENV`, `STRIPE_PRICE_ID`, staging `SIGNUP_ALLOWLIST`. Email goes through useSend (key as a Worker secret, set by the owner). Stable interface: `BillingProvider { createCheckout, verifyWebhook, refund }`; pages and the gate read only D1.
 
-Revision notes, 2026-10-07: first draft from #27 and the SERP standards; then the owner's #91 answers (domain, Staging, licensing (a), Stripe account, Stage timing) and the useSend sender that follows from the serp.co domain.
+Revision notes, 2026-10-07: first draft from #27 and the SERP standards; then the owner's #91 answers (domain, Staging, licensing, Stripe account, Stage timing) and the useSend sender that follows from the serp.co domain; then licensing widened to every implemented provider and the Staging host became `staging-auctions.serp.co`.
