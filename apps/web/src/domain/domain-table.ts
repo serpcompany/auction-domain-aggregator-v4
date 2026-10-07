@@ -16,7 +16,12 @@ export const DOMAIN_TABLE_SORTS = [
   'visitors',
   'appraisal',
   'renewal',
-  'domainLength'
+  'domainLength',
+  'majesticTf',
+  'majesticCf',
+  'majesticRefDomains',
+  'semrushAs',
+  'domainRating'
 ] as const
 
 export const DOMAIN_TABLE_ENDING_WINDOWS = ['1h', '6h', '24h', '3d', '7d'] as const
@@ -441,11 +446,20 @@ export function getDomainTableFilterChips(filters: DomainTableFilters): DomainTa
   return chips
 }
 
+// Quality metrics are read best-first, so a new metric sort starts high.
+const DESCENDING_FIRST_SORTS: ReadonlyArray<DomainTableSort> = [
+  'majesticTf',
+  'majesticCf',
+  'majesticRefDomains',
+  'semrushAs',
+  'domainRating'
+]
+
 export function nextSortDirection(
   filters: DomainTableFilters,
   sort: DomainTableSort
 ): SortDirection {
-  if (filters.sort !== sort) return 'asc'
+  if (filters.sort !== sort) return DESCENDING_FIRST_SORTS.includes(sort) ? 'desc' : 'asc'
   return filters.direction === 'asc' ? 'desc' : 'asc'
 }
 

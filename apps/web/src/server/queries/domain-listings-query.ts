@@ -202,6 +202,29 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
 
 type SortableExpression = AnyColumn | SQL<number>
 
+// Metric sorts read the per-domain metric tables through their primary keys.
+function seoMetric(column: AnyColumn) {
+  return sql<number>`(select ${column} from ${domainSeoMetrics} where ${domainSeoMetrics.domainName} = ${auctionListings.domainName})`
+}
+
+// Ahrefs DR exists only for domains someone has viewed; the rest sort last.
+const domainRating = sql<number>`(select ${domainMetrics.value} from ${domainMetrics} where ${domainMetrics.domainName} = ${auctionListings.domainName} and ${domainMetrics.metric} = 'ahrefs_dr')`
+
+const NULL_BEARING_SORTS: ReadonlyArray<DomainTableFilters['sort']> = [
+  'age',
+  'links',
+  'visitors',
+  'appraisal',
+  'renewal'
+]
+const METRIC_SORTS: ReadonlyArray<DomainTableFilters['sort']> = [
+  'majesticTf',
+  'majesticCf',
+  'majesticRefDomains',
+  'semrushAs',
+  'domainRating'
+]
+
 function listingOrder(filters: DomainTableFilters) {
   const columns: Record<DomainTableFilters['sort'], SortableExpression> = {
     domain: auctionListings.domainName,
@@ -214,15 +237,28 @@ function listingOrder(filters: DomainTableFilters) {
     visitors: auctionListings.visitors,
     appraisal: auctionListings.appraisalCents,
     renewal: auctionListings.renewalPriceCents,
-    domainLength: auctionListings.domainLength
+    domainLength: auctionListings.domainLength,
+    majesticTf: seoMetric(domainSeoMetrics.majesticTf),
+    majesticCf: seoMetric(domainSeoMetrics.majesticCf),
+    majesticRefDomains: seoMetric(domainSeoMetrics.majesticRefDomains),
+    semrushAs: seoMetric(domainSeoMetrics.semrushAs),
+    domainRating
   }
   const column = columns[filters.sort]
   const order = filters.direction === 'desc' ? desc : asc
-  const nullBearing = ['age', 'links', 'visitors', 'appraisal', 'renewal'].includes(filters.sort)
+  const nullBearing = NULL_BEARING_SORTS.includes(filters.sort)
+  // A metric is a subquery per row, so it is evaluated once: SQLite already
+  // puts nulls last when descending, and ascending replaces them with the
+  // largest integer.
+  const metricOrder = METRIC_SORTS.includes(filters.sort)
+    ? filters.direction === 'desc'
+      ? desc(column)
+      : asc(sql`ifnull(${column}, 9223372036854775807)`)
+    : undefined
 
   return [
     ...(nullBearing ? [asc(sql`${column} is null`)] : []),
-    order(column),
+    metricOrder ?? order(column),
     asc(auctionListings.domainName),
     asc(auctionListings.provider),
     asc(auctionListings.externalId)

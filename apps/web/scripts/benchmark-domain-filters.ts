@@ -47,7 +47,15 @@ const shapes: Array<{ name: string; searchParams: DomainTableSearchParams }> = [
     searchParams: { q: 'a', priceMax: '500', noHyphens: '1' }
   },
   { name: 'semrush_as_min', searchParams: { semrushAsMin: '20' } },
-  { name: 'deep_page_links', searchParams: { sort: 'links', page: '2000' } }
+  { name: 'deep_page_links', searchParams: { sort: 'links', page: '2000' } },
+  { name: 'sort_price', searchParams: { sort: 'price', direction: 'desc' } },
+  { name: 'sort_majestic_tf', searchParams: { sort: 'majesticTf', direction: 'desc' } },
+  { name: 'sort_semrush_as', searchParams: { sort: 'semrushAs', direction: 'desc' } },
+  { name: 'sort_domain_rating', searchParams: { sort: 'domainRating', direction: 'desc' } },
+  {
+    name: 'sort_domain_rating_tld_com',
+    searchParams: { tld: 'com', sort: 'domainRating', direction: 'desc' }
+  }
 ]
 
 type StatementTiming = {

@@ -73,11 +73,14 @@ Before, every request spent about 1,450 ms in the three facet statements (about 
 
 What remains is the count and the sorted page. For most shapes both still read every open listing through `auction_listings_status_provider_idx`, and the page sorts them in a temporary B-tree: about 110 to 290 ms for each statement, and 1.2 seconds for a deep links-sorted page. That is #6.
 
+Metric sorts (#65) read `domain_seo_metrics` and `domain_metrics` through a correlated scalar subquery per listing, by primary key, then sort in a temporary B-tree. The subquery is evaluated once per row: descending relies on SQLite placing nulls last, and ascending replaces a null with the largest integer. Measured with `corepack pnpm benchmark:filters` against 901,512 open listings on 2026-10-07, median whole-request times were 1.19 s for a Trust Flow sort, 1.29 s for Semrush Authority, 0.43 s for Ahrefs DR (a small table), and 0.24 s for DR within `.com`, against 0.28 s for a price sort. Evaluating the subquery twice (the `is null` pattern of the other nullable sorts) cost about 0.5 s more. If metric sorts need to be faster, copy the metrics onto `auction_listings` at sync time and index them.
+
 ## UI boundary
 
-The filter controls are one client island inside a semantic GET form. Quick controls remain on the page; `More filters` is a near-full-page stock shadcn `Sheet` of `Field` groups. Source, TLD, and auction type are stock shadcn `Combobox` chips; Base UI submits one hidden input per selected value, so the GET form receives repeated parameters. The TLD list holds every facet value (478 open locally) in the stock popup, which scrolls inside its fixed height and narrows as the user types. The ending window is a stock `Select` that submits nothing for "Any time". Local control changes never query D1 until Apply. The server renders result counts, summaries, pagination, and the table.
+The toolbar is one client island (`apps/web/src/components/auctions/auctions-toolbar.tsx`): search, faceted Source and TLD filters, Max bid, and Ends each push a canonical URL from `buildDomainTableHref` on page 1. Every other filter lives on the Filters page (`/filters/`), a client form that reads its draft into the same parser and pushes the same canonical URL. Applied constraints render as server-side removable links.
 
-The table is a semantic ten-column comparison surface with eight URL-backed sortable headers. Relative end time and absolute UTC are computed on the server from one request reference time. A contained scroll region, sticky header, and sticky Domain column preserve the table at narrow widths without changing it into cards.
+The table is a server-rendered stock `Table` whose columns come from one registry (`apps/web/src/domain/table-columns.ts`) and a per-browser `columns` cookie the page reads. Every column is a URL-backed sort. Relative end time and absolute UTC are computed on the server from one request reference time. A contained scroll region, sticky headers, and a sticky Domain column keep the table usable at narrow widths.
+
 
 ## Provider-free verification
 

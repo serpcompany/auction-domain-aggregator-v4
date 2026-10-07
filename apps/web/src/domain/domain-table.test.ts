@@ -281,6 +281,14 @@ describe('domain table links and sort direction', () => {
     expect(nextSortDirection({ ...filters, direction: 'desc' }, 'domain')).toBe('asc')
     expect(nextSortDirection(filters, 'age')).toBe('asc')
   })
+
+  it('starts a metric sort with the highest values', () => {
+    expect(nextSortDirection(filters, 'domainRating')).toBe('desc')
+    expect(nextSortDirection(filters, 'majesticTf')).toBe('desc')
+    expect(
+      nextSortDirection({ ...filters, sort: 'domainRating', direction: 'desc' }, 'domainRating')
+    ).toBe('asc')
+  })
 })
 
 describe('domain table formatting', () => {
