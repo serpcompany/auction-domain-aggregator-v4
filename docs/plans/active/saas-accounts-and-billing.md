@@ -9,7 +9,7 @@ Today the discovery table runs only on the owner's machine; production runs only
 ## Progress
 
 - [x] (2026-10-07) Read #27, its decisions comment, and SERP's `better-auth.md`, `payments.md`, `transactional-email.md`, `environment-configuration.md`, and `git-workflow.md`; drafted this plan.
-- [ ] Owner decisions in "Decisions needed" answered and recorded in the Decision Log.
+- [x] (2026-10-07) Owner decisions answered (#91) and recorded in the Decision Log.
 - [ ] Milestone 1: Staging environment and website deploy, gated.
 - [ ] Milestone 2: sign-in with an emailed one-time code.
 - [ ] Milestone 3: subscriptions, Stripe adapter, webhook, and the access gate.
@@ -25,15 +25,13 @@ None yet.
 
 - 2026-10-06, owner: one plan at $27/month, no free trial; Better Auth on the existing D1; Stripe first, moving later to SERP's Lago fork with Easy Pay Direct, so billing stays behind a swappable module and the app gates on its own D1 subscription record (#27 comment).
 - 2026-10-07, owner: production is the sync only until this plan ships the website; the domain is still to be chosen (#15).
+- 2026-10-07, owner (#91): domain `auctions.serp.co` (Staging `staging.auctions.serp.co`), temporary until a bought domain; add Staging; licensing option (a), subscribers see only cleared providers (Namecheap today); Stripe account `acct_1Ro79HCt1irzGjqB`; stay `Stage: explore` until #97 switches to `ship` before the first real signup or payment.
+- 2026-10-07, Claude: email sends from `noreply@mail.serp.co` through useSend, with no Reply-To. Rationale: serp.co's root MX is on Gmail, so SERP `transactional-email.md`'s serp.co-subdomain exception applies.
 - 2026-10-07, Claude: follow SERP `payments.md` (orders ledger, `billing_events`, `BillingProvider` interface) adapted to a subscription: the entitlement is a `subscriptions` row, and each paid invoice is an `orders` row. Rationale: the standard's shape is what the Lago move expects.
 
 ## Decisions needed (owner)
 
-1. **Domain.** Better Auth needs a canonical origin (`BETTER_AUTH_URL`), Stripe needs a webhook URL, and email sends from `support@{domain}`. Must be a zone on the SERP Cloudflare account.
-2. **Staging.** SERP standards require a Stripe test-mode purchase and refund on Staging before Production. Adding Staging makes `staging` the base branch and `main` Production by promotion (`git-workflow.md`). Recommended: yes.
-3. **Licensing (#28).** Dynadot's terms forbid showing its API data to third parties; GoDaddy licenses its feed for internal use; Namecheap is approved by the owner; DropCatch and NameSilo are unaddressed. Launch options: (a) show only approved providers to subscribers, (b) get written permission first, (c) accept the risk. The gate in Milestone 3 can filter providers per audience either way.
-4. **Stripe account.** The owner creates the product and the $27/month price in test and live mode and sets the keys as Worker secrets; agents never create Stripe objects or handle keys.
-5. **Stage.** Move `AGENTS.md` to `Stage: ship` before the first real user, payment, or public release (`verification-cadence.md`); only the owner edits that line.
+All answered on 2026-10-07 (#91); see the Decision Log. The milestones are issues #92 to #97, tracked in #27.
 
 ## Outcomes & Retrospective
 
@@ -49,7 +47,7 @@ Terms: an *entitlement* is the app's own record that a user may use the app now.
 
 **Milestone 1: Staging and a gated website deploy.** Add `env.staging` to both Wrangler configs with its own D1, R2, Workflow, Worker names, and `APP_ENV`; add `env.production` to `wrangler.jsonc` for the website. Add `db:migrate:staging` and deploy scripts, and CI jobs per `ci-workflows.md` (staging deploys from `staging`, production from `main`). Until Milestone 3, Staging and Production websites sit behind Cloudflare Access (owner-created, owner-only) so no data is public. Proof: CI deploys Staging; the site answers 302 to Access without a session.
 
-**Milestone 2: sign-in.** Add Better Auth with `drizzleAdapter` and the `emailOTP` plugin; generate its tables into the Drizzle schema; one route handler at `/api/auth/*` that serves only the endpoints used (send code, verify code, get session, sign out) and 404s the rest, tested by walking Better Auth's router; D1-backed rate limits; no response reveals whether an email has an account. Email through Cloudflare Email Service with a `send_email` binding and a local dev mailbox, from `support@{domain}`. Staging limits sign-up to an allowlist var. Proof: sign in on Staging with a code; `GET /api/auth/get-session` 200; bad input 4xx.
+**Milestone 2: sign-in.** Add Better Auth with `drizzleAdapter` and the `emailOTP` plugin; generate its tables into the Drizzle schema; one route handler at `/api/auth/*` that serves only the endpoints used (send code, verify code, get session, sign out) and 404s the rest, tested by walking Better Auth's router; D1-backed rate limits; no response reveals whether an email has an account. Email from `noreply@mail.serp.co` through useSend, with a local dev mailbox (serp.co-subdomain exception in `transactional-email.md`). Staging limits sign-up to an allowlist var. Proof: sign in on Staging with a code; `GET /api/auth/get-session` 200; bad input 4xx.
 
 **Milestone 3: billing and the gate.** Add `subscriptions` (user, status, current period end, provider, provider customer and subscription IDs), `orders`, and `billing_events` (unique provider event ID). Define `BillingProvider` with `createCheckout`, `verifyWebhook`, and `refund`, and a Stripe adapter using `Stripe.createFetchHttpClient()` and `constructEventAsync`. Webhook at `/api/webhooks/stripe`: verify, insert the event idempotently, update `subscriptions` and `orders`, return 2xx fast. Gate: a server guard on every app page and app API reads the user's `subscriptions` row from D1 per request; no Stripe call at request time. Proof: Stripe test-mode checkout on Staging activates access; cancel and failed-payment events remove it; duplicate events are no-ops.
 
@@ -77,6 +75,6 @@ None yet.
 
 ## Interfaces and Dependencies
 
-New packages: `better-auth`, `stripe`. New Worker secrets per environment (owner sets): `BETTER_AUTH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `AHREFS_API_KEY`. New vars: `BETTER_AUTH_URL`, `EMAIL_FROM`, `APP_ENV`, `STRIPE_PRICE_ID`, staging `SIGNUP_ALLOWLIST`. New bindings: `send_email` `EMAIL`. Stable interface: `BillingProvider { createCheckout, verifyWebhook, refund }`; pages and the gate read only D1.
+New packages: `better-auth`, `stripe`. New Worker secrets per environment (owner sets): `BETTER_AUTH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `AHREFS_API_KEY`. New vars: `BETTER_AUTH_URL`, `EMAIL_FROM`, `APP_ENV`, `STRIPE_PRICE_ID`, staging `SIGNUP_ALLOWLIST`. Email goes through useSend (key as a Worker secret, set by the owner). Stable interface: `BillingProvider { createCheckout, verifyWebhook, refund }`; pages and the gate read only D1.
 
-Revision note, 2026-10-07: first draft from #27 and the SERP standards, before the owner's answers to "Decisions needed".
+Revision notes, 2026-10-07: first draft from #27 and the SERP standards; then the owner's #91 answers (domain, Staging, licensing (a), Stripe account, Stage timing) and the useSend sender that follows from the serp.co domain.
