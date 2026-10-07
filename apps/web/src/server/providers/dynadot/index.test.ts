@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
-import { PROVIDER_REGISTRY } from '../registry'
+import { createPacer } from '../rate-limit'
+import { type ApiProviderRegistration, PROVIDER_REGISTRY } from '../registry'
 import {
   createDynadotAdapter,
-  DYNADOT_REQUEST_INTERVAL_MS,
+  DYNADOT_RATE_LIMIT,
   DynadotProviderError,
   fetchDynadotPage
 } from './index'
@@ -546,8 +547,13 @@ describe('Dynadot adapter', () => {
     )
     vi.stubGlobal('fetch', fetchImpl)
     try {
-      const adapter = PROVIDER_REGISTRY.dynadot!.createAdapter({
-        secrets: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' }
+      const registration = PROVIDER_REGISTRY.dynadot as ApiProviderRegistration
+      expect(registration.rateLimit).toEqual(DYNADOT_RATE_LIMIT)
+      expect(DYNADOT_RATE_LIMIT.intervalMs).toBe(1_100)
+      const pacer = vi.fn(async () => undefined)
+      const adapter = registration.createAdapter({
+        secrets: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' },
+        pacer
       })
       expect(adapter.provider).toBe('dynadot')
       await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
@@ -555,6 +561,7 @@ describe('Dynadot adapter', () => {
         rejected: 0,
         isLastPage: true
       })
+      expect(pacer).toHaveBeenCalledTimes(1)
       expect(fetchImpl).toHaveBeenCalledTimes(1)
     } finally {
       vi.unstubAllGlobals()
@@ -570,18 +577,20 @@ describe('Dynadot adapter', () => {
     const adapter = createDynadotAdapter({
       apiKey: 'invented-test-key',
       fetchImpl,
-      now: () => clock,
-      wait: async milliseconds => {
-        waits.push(milliseconds)
-        clock += milliseconds
-      }
+      pacer: createPacer(DYNADOT_RATE_LIMIT.intervalMs, {
+        now: () => clock,
+        wait: async milliseconds => {
+          waits.push(milliseconds)
+          clock += milliseconds
+        }
+      })
     })
     await adapter.fetchPage({ pageIndex: 1 })
     clock += 300
     await adapter.fetchPage({ pageIndex: 2 })
     clock += 5_000
     await adapter.fetchPage({ pageIndex: 3 })
-    expect(waits).toEqual([DYNADOT_REQUEST_INTERVAL_MS - 300])
+    expect(waits).toEqual([DYNADOT_RATE_LIMIT.intervalMs - 300])
     expect(fetchImpl).toHaveBeenCalledTimes(3)
   })
 })
@@ -608,47 +617,24 @@ describe('Dynadot missing values', () => {
   })
 })
 
-describe('Dynadot request pacing', () => {
-  it('waits on a real timer by default', async () => {
-    vi.useFakeTimers()
-    try {
-      const fetchImpl = vi.fn<typeof fetch>(async () =>
-        jsonResponse({ status: 'success', auction_list: [validItem] })
-      )
-      const adapter = createDynadotAdapter({ apiKey: 'invented-test-key', fetchImpl })
-      await adapter.fetchPage({ pageIndex: 1 })
-      const second = adapter.fetchPage({ pageIndex: 2 })
-      await vi.advanceTimersByTimeAsync(DYNADOT_REQUEST_INTERVAL_MS - 1)
-      expect(fetchImpl).toHaveBeenCalledTimes(1)
-      await vi.advanceTimersByTimeAsync(1)
-      await second
-      expect(fetchImpl).toHaveBeenCalledTimes(2)
-    } finally {
-      vi.useRealTimers()
-    }
-  })
-})
-
 describe('Dynadot transient failures', () => {
-  const fetchWith = (response: () => Response | Promise<Response>) =>
+  const fetchWith = (response: () => Response | Promise<Response>, pageIndex = 1) =>
     fetchDynadotPage({
       apiKey: 'invented-key',
-      pageIndex: 1,
+      pageIndex,
       pageSize: 1000,
       fetchImpl: vi.fn<typeof fetch>(async () => response())
+    })
+  const errorBody = (error?: string) =>
+    jsonResponse({
+      Response: { ResponseCode: '-1', ...(error === undefined ? {} : { Error: error }) }
     })
 
   it('marks the rate-limit answer, server errors, and network failures transient', async () => {
     const cases: [() => Response | Promise<Response>, DynadotProviderError][] = [
       [
-        () =>
-          jsonResponse({
-            Response: {
-              ResponseCode: '-1',
-              Error: 'Too many requests. Please try again in 1 minute after.'
-            }
-          }),
-        new DynadotProviderError('dynadot_rate_limited', { transient: true })
+        () => errorBody('Too many requests. Please try again in 1 minute after.'),
+        new DynadotProviderError('dynadot_rate_limited', { transient: true, retryAfterMs: 60_000 })
       ],
       [
         () => new Response('busy', { status: 429 }),
@@ -662,14 +648,59 @@ describe('Dynadot transient failures', () => {
         () => Promise.reject(new Error('reset')),
         new DynadotProviderError('dynadot_network_error', { transient: true })
       ],
-      [() => new Response('gone', { status: 404 }), new DynadotProviderError('dynadot_http_error')],
-      [
-        () => jsonResponse({ Response: { ResponseCode: '-1', Error: 'Invalid key' } }),
-        new DynadotProviderError('dynadot_response_error')
-      ]
+      [() => new Response('gone', { status: 404 }), new DynadotProviderError('dynadot_http_error')]
     ]
     for (const [response, expected] of cases) {
       await expect(fetchWith(response)).rejects.toEqual(expected)
     }
+  })
+
+  it('carries the wait the provider asked for', async () => {
+    const cases: [() => Response, number | null][] = [
+      [() => errorBody('Too many requests. Please try again in 1 minute after.'), 60_000],
+      [() => errorBody('Rate limited, try again in 30 Seconds'), 30_000],
+      [() => errorBody('Too many requests. Try again in 2 hours.'), 7_200_000],
+      [() => errorBody('Too many requests.'), null],
+      [() => new Response('busy', { status: 429, headers: { 'retry-after': '120' } }), 120_000],
+      [() => new Response('down', { status: 503, headers: { 'retry-after': '5' } }), 5_000],
+      [() => new Response('busy', { status: 429, headers: { 'retry-after': 'soon' } }), null],
+      [() => new Response('busy', { status: 429 }), null],
+      // Only 429 and 503 define Retry-After.
+      [() => new Response('error', { status: 500, headers: { 'retry-after': '120' } }), null]
+    ]
+    for (const [response, retryAfterMs] of cases) {
+      await expect(fetchWith(response)).rejects.toMatchObject({ transient: true, retryAfterMs })
+    }
+  })
+
+  it('recognizes a reworded rate limit on any page', async () => {
+    for (const message of ['Rate limit exceeded', 'Request throttled', 'Please try again later']) {
+      await expect(fetchWith(() => errorBody(message))).rejects.toMatchObject({
+        code: 'dynadot_rate_limited',
+        transient: true
+      })
+    }
+  })
+
+  it('fails an invalid key on page 1, and retries an unrecognized error after page 1', async () => {
+    for (const message of ['Invalid key', 'Invalid key, please check it and try again']) {
+      await expect(fetchWith(() => errorBody(message))).rejects.toEqual(
+        new DynadotProviderError('dynadot_api_error')
+      )
+    }
+    await expect(fetchWith(() => errorBody())).rejects.toMatchObject({
+      code: 'dynadot_api_error',
+      transient: false
+    })
+    // The key worked for page 1, so a later error, even without a message,
+    // is most likely a limit.
+    await expect(fetchWith(() => errorBody(), 2)).rejects.toMatchObject({
+      code: 'dynadot_api_error',
+      transient: true,
+      retryAfterMs: null
+    })
+    await expect(
+      fetchWith(() => jsonResponse({ Response: { ResponseCode: -1, Error: 'Unknown' } }), 40)
+    ).rejects.toMatchObject({ code: 'dynadot_api_error', transient: true })
   })
 })

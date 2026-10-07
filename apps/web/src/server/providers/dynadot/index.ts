@@ -7,6 +7,7 @@ import {
   ResponseTooLargeError,
   readBoundedBody
 } from '../normalize'
+import { type Pacer, parseRetryAfter, type RateLimit } from '../rate-limit'
 import {
   type NormalizedListing,
   type ProviderAdapter,
@@ -45,12 +46,44 @@ const dynadotResponseSchema = z
   })
   .passthrough()
 
-// Dynadot answers an over-limit request with HTTP 200 and
-// `{"Response":{"ResponseCode":"-1","Error":"Too many requests. Please try
-// again in 1 minute after."}}`.
-const rateLimitedSchema = z.object({
-  Response: z.object({ Error: z.string().regex(/too many requests/i) })
+// Dynadot answers a failed command with HTTP 200 and a `Response` object,
+// for example an over-limit request with `{"Response":{"ResponseCode":"-1",
+// "Error":"Too many requests. Please try again in 1 minute after."}}`.
+const errorResponseSchema = z.object({
+  Response: z.object({
+    ResponseCode: stringOrNumber(16),
+    Error: z.string().max(1024).optional()
+  })
 })
+
+// Wording that means "slow down", matched broadly so a reworded message is
+// still retried. A bare "try again" is not enough: an invalid key's message
+// could say that too.
+const RATE_LIMITED_TEXT = /too many|rate.?limit|throttl|try again (?:in|later)/i
+const RETRY_HINT = /try again in (\d+) (second|minute|hour)/i
+const HINT_UNIT_MS = { second: 1_000, minute: 60_000, hour: 3_600_000 }
+
+// The wait an error message asks for ("try again in 1 minute"), if any.
+function retryHintMs(message: string) {
+  const match = RETRY_HINT.exec(message)
+  if (!match) return null
+  const [, amount, unit] = match
+  return Number(amount) * HINT_UNIT_MS[unit.toLowerCase() as keyof typeof HINT_UNIT_MS]
+}
+
+// An error answer is a rate limit when its wording says so. Any other error
+// on page 1 is permanent: an invalid key or command fails the first request.
+// After page 1 the key and command have worked, so an unrecognized error is
+// most likely a limit worded differently, and is retried.
+function errorResponse(message: string, pageIndex: number) {
+  if (RATE_LIMITED_TEXT.test(message)) {
+    return new DynadotProviderError('dynadot_rate_limited', {
+      transient: true,
+      retryAfterMs: retryHintMs(message)
+    })
+  }
+  return new DynadotProviderError('dynadot_api_error', { transient: pageIndex > 1 })
+}
 
 // A page where more than this share of auctions is invalid indicates a
 // response-format change rather than a few bad records.
@@ -68,11 +101,15 @@ export type DynadotProviderErrorCode =
   | 'dynadot_response_too_large'
   | 'dynadot_response_error'
   | 'dynadot_rate_limited'
+  | 'dynadot_api_error'
 
 export class DynadotProviderError extends ProviderError {
   declare readonly code: DynadotProviderErrorCode
 
-  constructor(code: DynadotProviderErrorCode, options?: { transient?: boolean }) {
+  constructor(
+    code: DynadotProviderErrorCode,
+    options?: { transient?: boolean; retryAfterMs?: number | null }
+  ) {
     super(code, options)
     this.name = 'DynadotProviderError'
   }
@@ -209,8 +246,13 @@ export async function fetchDynadotPage({
 
     if (!response.ok) {
       // A rate limit or a server error may clear; other statuses will not.
+      const { status } = response
       throw new DynadotProviderError('dynadot_http_error', {
-        transient: response.status === 429 || response.status >= 500
+        transient: status === 429 || status >= 500,
+        retryAfterMs:
+          status === 429 || status === 503
+            ? parseRetryAfter(response.headers.get('retry-after'))
+            : null
       })
     }
 
@@ -233,8 +275,9 @@ export async function fetchDynadotPage({
     } catch {
       throw new DynadotProviderError('dynadot_parse_error')
     }
-    if (rateLimitedSchema.safeParse(body).success) {
-      throw new DynadotProviderError('dynadot_rate_limited', { transient: true })
+    const failed = errorResponseSchema.safeParse(body)
+    if (failed.success) {
+      throw errorResponse(failed.data.Response.Error ?? '', pageIndex)
     }
 
     try {
@@ -254,31 +297,26 @@ export async function fetchDynadotPage({
 const DYNADOT_PAGE_SIZE = 1000
 // A regular Dynadot account may make 60 requests a minute. Back-to-back page
 // requests reached about 120 and were rate-limited partway through a sync,
-// so pages are requested at most once per this interval.
-export const DYNADOT_REQUEST_INTERVAL_MS = 1_100
-
-function sleep(milliseconds: number) {
-  return new Promise<void>(resolve => setTimeout(resolve, milliseconds))
+// so pages are requested at most once per 1.1 seconds.
+export const DYNADOT_RATE_LIMIT: RateLimit = {
+  intervalMs: 1_100,
+  source: 'Dynadot API commands page: regular accounts 60 requests a minute'
 }
 
 export function createDynadotAdapter({
   apiKey,
-  fetchImpl,
-  now = Date.now,
-  wait = sleep
+  pacer,
+  fetchImpl
 }: {
   apiKey: string
+  // Enforces DYNADOT_RATE_LIMIT; awaited before every request.
+  pacer: Pacer
   fetchImpl?: typeof fetch
-  now?: () => number
-  wait?: (milliseconds: number) => Promise<void>
 }): ProviderAdapter {
-  let lastRequestAt = Number.NEGATIVE_INFINITY
   return {
     provider: 'dynadot',
     async fetchPage({ pageIndex }) {
-      const delay = lastRequestAt + DYNADOT_REQUEST_INTERVAL_MS - now()
-      if (delay > 0) await wait(delay)
-      lastRequestAt = now()
+      await pacer()
       const page = await fetchDynadotPage({
         apiKey,
         pageIndex,

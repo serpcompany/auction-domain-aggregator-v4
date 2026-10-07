@@ -2,7 +2,7 @@
 
 Status: Implemented and verified locally (Wrangler) for Dynadot and GoDaddy; not deployed. Future-provider sections are design constraints
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ## Purpose
 
@@ -26,8 +26,9 @@ A daily Cron Trigger (`30 15 * * *`, after GoDaddy publishes its file around 14:
 2. `stage feed` (file feeds only, described below): download and split the feed into R2 pages. Retried twice for `feed_download_failed`, `feed_extract_failed` (a truncated or corrupt download), and `feed_page_write_failed`; re-staging rewrites the same page keys. Other feed errors describe the feed itself and are not retried.
 3. `start run`: `startSyncRun` marks any running run of the provider interrupted and creates a new running row, returning its ID. A D1 error is retried as `sync_failed`.
 4. `sync pages, segment N`: one `runSyncSegment` call of up to 20 provider pages for that run ID, returning only `{ done, runId }` or the final summary. Continuation state (`next_page`, counters, run start) stays server-owned in D1, so a segment that runs again, after an interruption or a retry, resumes from the last committed page.
-   - A **transient** failure leaves the run running and is retried. Transient means a provider error marked transient (`dynadot_network_error`, `dynadot_rate_limited`, `dynadot_http_error` for 429 and 5xx, `godaddy_page_read_error`, `namecheap_page_read_error`), or any error that is neither a provider error nor a sync error (a D1 batch failing during an upsert, a progress update, or finalization). The retry refetches and re-upserts the segment's pages, which is idempotent, and the counters stay exact because they are committed only at segment boundaries. Retries wait 1, 2, then 4 minutes, since Dynadot's rate limit asks for a minute.
-   - When the retries run out, a `record failed run` step marks the run failed with that code (`failSyncRun`), using the counters of the last committed segment and no failing page. If that step fails too, the next sync interrupts the run.
+   - A **transient** failure leaves the run running and is retried. Transient means a provider error marked transient (`dynadot_network_error`, `dynadot_rate_limited`, `dynadot_http_error` for 429 and 5xx, `dynadot_api_error` after page 1, `godaddy_page_read_error`, `namecheap_page_read_error`), or any error that is neither a provider error nor a sync error (a D1 batch failing during an upsert, a progress update, or finalization). The retry refetches and re-upserts the segment's pages, which is idempotent, and the counters stay exact because they are committed only at segment boundaries. Retries wait 1, 2, then 4 minutes, since Dynadot's rate limit asks for a minute.
+   - When the provider said how long to wait (a `Retry-After` header on a 429 or 503, in seconds or as an HTTP date, or Dynadot's "try again in N minutes"), the error carries the delay. The step then returns it instead of throwing, the Workflow sleeps (`step.sleep`, step `wait before segment N, retry K`) for the longer of that delay and the step's own 1, 2, or 4 minute backoff, and runs the segment again as `sync pages, segment N, retry K`. A segment gets as many waits as the step has retries. After that, or when a provider asks for more than an hour, the run is recorded failed as below. An unparseable `Retry-After` falls back to the ordinary retries.
+   - When the retries or waits run out, a `record failed run` step marks the run failed with that code (`failSyncRun`), using the counters of the last committed segment and no failing page. If that step fails too, the next sync interrupts the run.
    - Any other sync error has already marked the run failed with its code (or the run is no longer running, `sync_stale_continuation`), so it is thrown as non-retryable: the reconciliation guard, the page limit, validation and format errors.
    - An error loading the run before a page is read is retried as `sync_failed`.
 5. `delete staged pages` (file feeds only): runs after success and after failure. A cleanup failure fails an otherwise successful instance with its code; after a sync failure the sync's code is kept.
@@ -38,11 +39,34 @@ The instance output is the sync summary. A failed instance's error message is a 
 
 The ingestion Worker's per-invocation CPU limit applies to each step separately; `limits.cpu_ms` is 60,000. Local workerd does not enforce it.
 
+## Provider rate limits
+
+Every provider in `apps/web/src/server/providers/registry.ts` declares its rate limit, and the type rejects a paged-API provider without one:
+
+- A paged API declares `rateLimit: { intervalMs, source }`, the minimum time between the starts of two requests and where that number comes from. The Workflow builds a pacer from it (`createPacer` in `apps/web/src/server/providers/rate-limit.ts`), and the adapter awaits the pacer before every request. The pacer does not delay the first request, spaces later ones at least `intervalMs` apart, and makes concurrent callers take turns.
+- A provider without a published limit uses `DEFAULT_RATE_LIMIT`, one request every 2 seconds, until it confirms a real number.
+- A file feed declares `rateLimit: 'one download per run'`: the stage step downloads it once, and the adapter reads only the staged pages.
+
+`parseRetryAfter` in the same module reads a `Retry-After` header in either form. The Workflow's handling of a provider's requested wait is described in step 4 above.
+
+| Provider | Access | Published limit | Enforced | Source | Verified |
+| --- | --- | --- | --- | --- | --- |
+| Dynadot | `get_open_auctions` API | 60 requests a minute for a regular account ("60/min (1/sec)"); bulk 600, super bulk 6,000 | 1 request every 1.1 s | [Dynadot API commands](https://www.dynadot.com/domain/api-commands) | 2026-10-07, a full paced sync with no rate limit |
+| GoDaddy | public inventory file | none for the file (the Auctions API, which is not used, allows 60 requests a minute per endpoint) | one download per run | [GoDaddy inventory files](https://www.godaddy.com/help/download-inventory-files-for-godaddy-auctions-41284), [GoDaddy API Terms of Use](https://www.godaddy.com/en/legal/agreements/godaddy-api-terms-of-use) | 2026-10-06 |
+| Namecheap | public market sales CSV | none; the Universal Terms of Service forbid "repetitive, high volume requests" | one download per run | [Namecheap Universal ToS](https://www.namecheap.com/legal/universal/universal-tos/) | 2026-10-07 |
+| Ahrefs | `domain-rating-free`, on demand from the web app, not a sync | not recorded; Ahrefs may rate-limit or throttle without notice | not paced yet (#76) | [Ahrefs free DR endpoint](https://docs.ahrefs.com/en/api/reference/public/post-domain-rating-free) | not verified |
+| NameSilo, DropCatch | not implemented | none published | `DEFAULT_RATE_LIMIT` when added | `docs/references/data-licensing.md` | 2026-10-06 |
+
 ## Dynadot synchronization
 
 The Dynadot adapter (`apps/web/src/server/providers/dynadot/index.ts`) requests `get_open_auctions`, validates unknown provider JSON at runtime, normalizes it, and passes only application listings to the sync service. It requests up to 1,000 expired-auction records per page and accepts at most 1,000 pages. It enforces a 30-second request timeout, a 10 MiB response limit, a maximum response cardinality equal to the requested page size, bounded provider strings, normalized domain syntax, nonnegative counters, safe integer money in cents, and valid timestamps. Errors crossing the boundary are fixed codes and never contain the API key or request URL.
 
-Dynadot allows a regular account 60 requests a minute. Back-to-back page requests reached about 120 a minute, and on 2026-10-07 three runs in a row failed partway through: Dynadot answered HTTP 200 with `{"Response":{"ResponseCode":"-1","Error":"Too many requests. Please try again in 1 minute after."}}`, which failed validation as `dynadot_response_error`. The adapter now requests pages at most once every 1.1 seconds, so a 433-page sync takes about 8 minutes. It recognizes that answer as the transient `dynadot_rate_limited`, which the Workflow retries after a minute. With pacing, a full sync on 2026-10-07 fetched 460 pages (459,111 listings) in 8.5 minutes with no rate limit.
+Dynadot allows a regular account 60 requests a minute. Back-to-back page requests reached about 120 a minute, and on 2026-10-07 three runs in a row failed partway through: Dynadot answered HTTP 200 with `{"Response":{"ResponseCode":"-1","Error":"Too many requests. Please try again in 1 minute after."}}`, which failed validation as `dynadot_response_error`. The adapter now waits for the shared pacer (see Provider rate limits) before every request, so pages are requested at most once every 1.1 seconds and a 433-page sync takes about 8 minutes. With pacing, a full sync on 2026-10-07 fetched 460 pages (459,111 listings) in 8.5 minutes with no rate limit.
+
+Dynadot reports a failed command as HTTP 200 with a `Response` object holding a `ResponseCode` and usually an `Error` message. The adapter does not rely on the exact wording:
+
+- A message that mentions too many requests, a rate limit, throttling, or trying again is the transient `dynadot_rate_limited`, on any page, and its "try again in N seconds, minutes, or hours" becomes the retry delay.
+- Any other error answer is `dynadot_api_error`. On page 1 it is permanent: an invalid key or command fails the first request. After page 1 the key and command have already worked, so it is most likely a limit worded differently, and it is retried.
 
 Dynadot writes a missing value as `-`, and since October 2026 some renewal prices as `--`; any run of dashes, an empty string, or a negative number is stored as null. Before this, 117 listings on one page had `--` and failed the page's 10% rejection threshold.
 
@@ -173,7 +197,7 @@ The future schema must enforce domain/metric-provider identity. A later listing 
 
 ## Future providers
 
-Additional auction adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`) and register their secret names, optional file feed, and factory in `apps/web/src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
+Additional auction adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`) and register their secret names, rate limit (see Provider rate limits) or file feed, and factory in `apps/web/src/server/providers/registry.ts`; the sync service, D1 storage, and Workflow need no changes, and the Cron Trigger picks the provider up automatically. Adapters page by number and decide `isLastPage` from raw counts. They must preserve the same boundary: runtime validation, normalized outputs, stable provider listing identity, bounded requests/writes, idempotent upserts, persisted run state, and success-only reconciliation. A provider-specific deterministic identity must be documented before ingesting any provider without a stable listing ID. Queues are justified only when fan-out, retry timing, rate limits, or execution duration require them.
 
 ## Deploying (not done; needs owner authorization)
 

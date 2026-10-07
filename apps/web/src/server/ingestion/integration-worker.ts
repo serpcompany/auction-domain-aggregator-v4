@@ -663,7 +663,8 @@ async function proveCsvFeedSync(
         const result = await callback()
         if (name === 'stage feed') stagedObjects = await cloudFeedObjects(env.FEED_PAGES)
         return result
-      }
+      },
+      sleep: async () => undefined
     },
     nonRetryable: code => new Error(code),
     dependencies: { fetchImpl: (async () => new Response(csv)) as typeof fetch }
@@ -726,7 +727,8 @@ async function proveCloudFeedSync(
             stagedObjects = await cloudFeedObjects(env.FEED_PAGES)
           }
           return result
-        }
+        },
+        sleep: async () => undefined
       },
       nonRetryable: code => new Error(code),
       dependencies: {

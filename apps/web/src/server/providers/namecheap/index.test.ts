@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { ResponseTooLargeError } from '../normalize'
-import { PROVIDER_REGISTRY } from '../registry'
+import { type FeedProviderRegistration, PROVIDER_REGISTRY } from '../registry'
 import { createNamecheapAdapter, NamecheapProviderError, normalizeNamecheapRecords } from './index'
 
 // Invented row in the shape of Namecheap's market sales CSV, as staged: the
@@ -171,7 +171,8 @@ describe('Namecheap adapter', () => {
   })
 
   it('is built by the registry as a CSV file feed', async () => {
-    const registration = PROVIDER_REGISTRY.namecheap!
+    const registration = PROVIDER_REGISTRY.namecheap as FeedProviderRegistration
+    expect(registration.rateLimit).toBe('one download per run')
     expect(registration.secretNames).toEqual([])
     expect(registration.fileFeed).toMatchObject({ format: 'csv', pageSize: 2000 })
     const withoutPages = registration.createAdapter({ secrets: {} })

@@ -18,7 +18,8 @@ export class ProviderSyncWorkflow extends WorkflowEntrypoint<SyncWorkerEnv, Prov
     // Step results here are plain JSON objects, which Workflows persists.
     const runner: StepRunner = {
       do: (name, config, callback) =>
-        step.do(name, config as never, callback as never) as Promise<never>
+        step.do(name, config as never, callback as never) as Promise<never>,
+      sleep: (name, milliseconds) => step.sleep(name, milliseconds)
     }
     return runProviderSync({
       provider: String(event.payload?.provider ?? ''),

@@ -18,16 +18,25 @@ export type SyncErrorCode =
 export type RunErrorCode = Exclude<SyncErrorCode, 'sync_interrupted'> | string
 
 // `transient` marks a segment that failed in a way a retry may not repeat.
-// Its run is left running, so the retry resumes it.
+// Its run is left running, so the retry resumes it. `retryAfterMs` carries
+// the provider's requested wait, if it gave one.
 export class SyncError extends Error {
   readonly code: RunErrorCode
   readonly transient: boolean
+  readonly retryAfterMs: number | null
 
-  constructor(code: RunErrorCode, { transient = false }: { transient?: boolean } = {}) {
+  constructor(
+    code: RunErrorCode,
+    {
+      transient = false,
+      retryAfterMs = null
+    }: { transient?: boolean; retryAfterMs?: number | null } = {}
+  ) {
     super(code)
     this.name = 'SyncError'
     this.code = code
     this.transient = transient
+    this.retryAfterMs = retryAfterMs
   }
 }
 
@@ -212,7 +221,12 @@ export async function runSyncSegment(
     // with the page and counters committed at the last segment boundary, so
     // it fetches and upserts this segment's pages again (upserts are
     // idempotent) and the counters stay exact.
-    if (isTransient(error)) throw new SyncError(errorCode, { transient: true })
+    if (isTransient(error)) {
+      throw new SyncError(errorCode, {
+        transient: true,
+        retryAfterMs: error instanceof ProviderError ? error.retryAfterMs : null
+      })
+    }
     try {
       await storage.completeRun(run, {
         pagesFetched: run.pagesFetched,

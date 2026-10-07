@@ -7,6 +7,7 @@ import type { FeedPageBucket } from './feed-pages'
 import {
   CLEANUP_STEP,
   fixedErrorCode,
+  MAX_PROVIDER_WAIT_MS,
   runProviderSync,
   STAGE_STEP,
   type StepConfig,
@@ -25,19 +26,23 @@ function nonRetryableError(code: string) {
   return Object.assign(new Error(code), { name: 'NonRetryableError' })
 }
 
-// Records each step attempt's name and configuration, and retries a step
-// that throws up to its retry limit without waiting. Like local Workflows
-// (observed with Wrangler 4.110), a step that throws a NonRetryableError
-// rejects with `NonRetryableError: <message>`. A step named in `rerun` runs
-// once more after it first succeeds, as when the platform interrupts it
-// before its result is persisted.
+// Records each step attempt's name and configuration, and each sleep's name
+// and duration, and retries a step that throws up to its retry limit without
+// waiting. Like local Workflows (observed with Wrangler 4.110), a step that
+// throws a NonRetryableError rejects with `NonRetryableError: <message>`. A
+// step named in `rerun` runs once more after it first succeeds, as when the
+// platform interrupts it before its result is persisted.
 function stepRunner({ rerun = [] }: { rerun?: string[] } = {}) {
-  const steps: { name: string; config: StepConfig }[] = []
+  const steps: { name: string; config?: StepConfig; sleepMs?: number }[] = []
   const pending = new Set(rerun)
   return {
     steps,
     names: () => steps.map(step => step.name),
+    sleeps: () => steps.flatMap(step => (step.sleepMs === undefined ? [] : [step.sleepMs])),
     runner: {
+      async sleep(name: string, milliseconds: number) {
+        steps.push({ name, sleepMs: milliseconds })
+      },
       async do<T>(name: string, config: StepConfig, callback: () => Promise<T>) {
         for (let attempt = 0; ; attempt += 1) {
           steps.push({ name, config })
@@ -147,6 +152,17 @@ async function feedZip(records: unknown[]) {
   })
 }
 
+const dynadotItem = {
+  auction_id: 1,
+  domain: 'invented-1.example',
+  auction_type: 'expired',
+  currency: 'usd',
+  current_bid_price: '12',
+  bids: 1,
+  bidders: 1,
+  end_time_stamp: 1760003600000
+}
+
 function setup({
   zip,
   env = {},
@@ -179,6 +195,7 @@ function setup({
       nonRetryable,
       dependencies: {
         fetchImpl: fetchImpl as unknown as typeof fetch,
+        wait: async () => undefined,
         createStorage: (_database, provider) => {
           const store = memoryStorage(provider)
           stores.set(provider, store)
@@ -270,7 +287,76 @@ describe('provider sync workflow', () => {
     await expect(run('dynadot')).rejects.toThrow('dynadot_http_error')
     expect(steps.names()).toEqual(['start run', 'sync pages, segment 1'])
     expect(nonRetryable).toHaveBeenCalledWith('dynadot_http_error')
-    expect(stores.get('dynadot')!.failures).toEqual(['dynadot_http_error'])
+    expect(stores.get('dynadot')?.failures).toEqual(['dynadot_http_error'])
+  })
+
+  it('waits as long as the provider asks before running the segment again', async () => {
+    const fetchImpl = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response('busy', { status: 429, headers: { 'retry-after': '300' } })
+      )
+      .mockResolvedValueOnce(new Response('busy', { status: 429, headers: { 'retry-after': '0' } }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: 'success', auction_list: [dynadotItem] }))
+      )
+    vi.stubGlobal('fetch', fetchImpl)
+    const { run, steps, stores } = setup({
+      env: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' }
+    })
+    await expect(run('dynadot')).resolves.toMatchObject({ recordsUpserted: 1 })
+    expect(steps.names()).toEqual([
+      'start run',
+      'sync pages, segment 1',
+      'wait before segment 1, retry 1',
+      'sync pages, segment 1, retry 1',
+      'wait before segment 1, retry 2',
+      'sync pages, segment 1, retry 2'
+    ])
+    // At least the requested wait, and at least the step's own backoff.
+    expect(steps.sleeps()).toEqual([300_000, 120_000])
+    expect(fetchImpl).toHaveBeenCalledTimes(3)
+    expect(stores.get('dynadot')?.failures).toEqual([])
+  })
+
+  it('records the run failed after as many waits as the step has retries', async () => {
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            Response: {
+              ResponseCode: '-1',
+              Error: 'Too many requests. Please try again in 1 minute after.'
+            }
+          })
+        )
+    )
+    vi.stubGlobal('fetch', fetchImpl)
+    const { run, steps, stores, nonRetryable } = setup({
+      env: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' }
+    })
+    await expect(run('dynadot')).rejects.toThrow('dynadot_rate_limited')
+    expect(steps.sleeps()).toEqual([60_000, 120_000, 240_000])
+    expect(steps.names().slice(-2)).toEqual(['sync pages, segment 1, retry 3', 'record failed run'])
+    expect(fetchImpl).toHaveBeenCalledTimes(SYNC_STEP.retries.limit + 1)
+    expect(nonRetryable).not.toHaveBeenCalled()
+    expect(stores.get('dynadot')?.failures).toEqual(['dynadot_rate_limited'])
+  })
+
+  it('fails the run at once when the provider asks for too long a wait', async () => {
+    const retryAfter = String(MAX_PROVIDER_WAIT_MS / 1000 + 1)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () => new Response('down', { status: 503, headers: { 'retry-after': retryAfter } })
+      )
+    )
+    const { run, steps, stores } = setup({
+      env: { DYNADOT_API_PRODUCTION_KEY: 'invented-test-key' }
+    })
+    await expect(run('dynadot')).rejects.toThrow('dynadot_http_error')
+    expect(steps.names()).toEqual(['start run', 'sync pages, segment 1', 'record failed run'])
+    expect(stores.get('dynadot')?.failures).toEqual(['dynadot_http_error'])
   })
 
   it('retries a transient failure mid-segment and completes with exact counters', async () => {
