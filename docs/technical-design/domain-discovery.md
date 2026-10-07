@@ -2,7 +2,7 @@
 
 Status: Implemented locally
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ## Purpose
 
@@ -74,6 +74,24 @@ Before, every request spent about 1,450 ms in the three facet statements (about 
 What remains is the count and the sorted page. For most shapes both still read every open listing through `auction_listings_status_provider_idx`, and the page sorts them in a temporary B-tree: about 110 to 290 ms for each statement, and 1.2 seconds for a deep links-sorted page. That is #6.
 
 Metric sorts (#65) read `domain_seo_metrics` and `domain_metrics` through a correlated scalar subquery per listing, by primary key, then sort in a temporary B-tree. The subquery is evaluated once per row: descending relies on SQLite placing nulls last, and ascending replaces a null with the largest integer. Measured with `corepack pnpm benchmark:filters` against 901,512 open listings on 2026-10-07, median whole-request times were 1.19 s for a Trust Flow sort, 1.29 s for Semrush Authority, 0.43 s for Ahrefs DR (a small table), and 0.24 s for DR within `.com`, against 0.28 s for a price sort. Evaluating the subquery twice (the `is null` pattern of the other nullable sorts) cost about 0.5 s more. If metric sorts need to be faster, copy the metrics onto `auction_listings` at sync time and index them.
+
+## Ahrefs DR enrichment
+
+DR is fetched only for the rows on screen. After the page renders, `apps/web/src/components/auctions/domain-ratings.tsx` posts up to 50 shown domains without a settled rating to `POST /api/enrichment/domain-rating`, and calls `router.refresh()` when the answer says something was stored. The route (`apps/web/src/server/enrichment/domain-rating-request.ts`) validates the body and runs `enrichDomainRatings` (`domain-rating.ts`) on the D1 store (`domain-rating-store.ts`):
+
+1. **Abort.** It stops if the request's `signal` is aborted, before any D1 write and again just before the Ahrefs call. In the second case it deletes the claims it just made, so the next request can claim those domains at once. This covers React StrictMode's double effect in development and fast paging, where the client aborts its earlier POST. `next dev` aborts the signal natively. On Workers, OpenNext passes the incoming request's signal to route handlers, and the `enable_request_signal` compatibility flag in `apps/web/wrangler.jsonc` makes workerd abort it when the client disconnects.
+2. **Cool-down.** If any `ahrefs_requests.cool_down_until` is in the future, it answers 429 `ahrefs_cool_down` with a `Retry-After` header and calls nothing.
+3. **Claim.** One `INSERT ... SELECT ... ON CONFLICT DO UPDATE ... RETURNING` statement claims the domains that have an active listing and either no `domain_metrics` row, an `omitted` row whose `retry_after` has passed, or a lapsed claim. A claim is a `pending` row with `retry_after` 60 seconds ahead, longer than the call's 15-second timeout. SQLite runs the statement atomically and RETURNING lists only the rows it wrote, so a concurrent request for the same domains gets none of them and makes no call. Isolate memory is not shared between Worker instances, so the claim lives in D1. Domain names travel as one JSON array, so the statement uses three bound parameters for any page.
+4. **Call.** It asks Ahrefs once for the claimed domains.
+5. **Record.** One D1 batch writes the call's `ahrefs_requests` row and its results. A rated domain becomes `ok`, an unrated one `not_found`, and a domain Ahrefs left out of its answer `omitted`, with `retry_after` a week later. Results replace only `pending` and `omitted` rows, so `ok` and `not_found` stay write-once. A failed call writes only its log row. On `ahrefs_rate_limited` that row's `cool_down_until` is the 429's `Retry-After` (seconds or an HTTP date), or 60 seconds without one, bounded to between 1 second and 1 hour. The claims of a failed call are left to lapse, so those domains wait a minute before another try.
+
+`ahrefs_requests` holds one row per call to Ahrefs, whatever the outcome: `requested_at`, `domain_count`, `outcome` (`ok` or the `ahrefs_*` code), and `cool_down_until`. Counting its rows counts usage exactly. The cool-down read is a range on `ahrefs_requests_cool_down_until_idx`.
+
+The table read treats `ok` and `not_found` as fetched, and also an `omitted` row until its `retry_after`. That cell shows "no rating", and the client does not ask again. A `pending` row, or an `omitted` one past its retry time, reads as not fetched, so the cell shows the spinner and the client asks again.
+
+When a request finds every domain held by another one, it stores nothing and does not refresh. If the request holding them belonged to a page the person has left, the ratings appear on the next view.
+
+The route has no access control yet; #15 adds it. Ahrefs calls are not paced beyond the claim and the cool-down. They should adopt the shared pacer from #74 once it merges.
 
 ## UI boundary
 
