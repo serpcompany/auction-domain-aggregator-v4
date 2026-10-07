@@ -405,7 +405,8 @@ export function createD1IngestionStorage(
             recordsInactivated: completion.recordsInactivated,
             recordsRejected: completion.recordsRejected,
             errorCode: completion.errorCode,
-            failedPage: completion.failedPage
+            failedPage: completion.failedPage,
+            rejectionReasons: completion.rejectionReasons
           })
           .where(runningRunFilter(provider, run))
           .returning({ id: ingestionRuns.id }),

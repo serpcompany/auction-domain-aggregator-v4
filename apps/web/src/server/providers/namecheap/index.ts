@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { parseDomain, parseMoneyCents } from '../normalize'
+import { parseDomain, parseField, parseMoneyCents } from '../normalize'
 import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
@@ -8,6 +8,7 @@ import {
   type NormalizedSeoMetrics,
   type ProviderAdapter,
   ProviderError,
+  type ProviderErrorOptions,
   type ProviderPage
 } from '../types'
 
@@ -62,11 +63,12 @@ export type NamecheapProviderErrorCode =
   | 'namecheap_parse_error'
   | 'namecheap_response_too_large'
   | 'namecheap_response_error'
+  | 'namecheap_too_many_rejected'
 
 export class NamecheapProviderError extends ProviderError {
   declare readonly code: NamecheapProviderErrorCode
 
-  constructor(code: NamecheapProviderErrorCode, options?: { transient?: boolean }) {
+  constructor(code: NamecheapProviderErrorCode, options?: ProviderErrorOptions) {
     super(code, options)
     this.name = 'NamecheapProviderError'
   }
@@ -121,31 +123,39 @@ function seoMetrics(record: NamecheapRecord): NormalizedSeoMetrics | undefined {
 }
 
 function normalizeRecord(record: NamecheapRecord): NormalizedListing {
-  const { auctionUrl, externalId } = parseSaleUrl(record.url)
-  const startsAt = record.startDate ? parseTimestamp(record.startDate) : null
-  const registered = record.registeredDate ? parseTimestamp(record.registeredDate) : null
+  const { auctionUrl, externalId } = parseField('url', () => parseSaleUrl(record.url))
+  const startsAt = parseField('startDate', () =>
+    record.startDate ? parseTimestamp(record.startDate) : null
+  )
+  const registered = parseField('registeredDate', () =>
+    record.registeredDate ? parseTimestamp(record.registeredDate) : null
+  )
   const metrics = seoMetrics(record)
 
   return {
     provider: 'namecheap',
     externalId,
-    domainName: parseDomain(record.name),
+    domainName: parseField('name', () => parseDomain(record.name)),
     auctionUrl,
     // Every Namecheap Market sale is a timed auction.
     auctionType: 'AUCTION',
     currency: 'USD',
-    currentBidCents: parseMoneyCents(record.price),
+    currentBidCents: parseField('price', () => parseMoneyCents(record.price)),
     bidCount: record.bidCount,
     // The feed has no bidder count, visitors, or a generic link count.
     bidderCount: null,
     startsAt,
-    endsAt: parseTimestamp(record.endDate),
+    endsAt: parseField('endDate', () => parseTimestamp(record.endDate)),
     ageYears: ageYears(registered, startsAt),
     inboundLinks: null,
     visitors: null,
     // Namecheap shows Estibot's valuation as the sale's appraisal.
-    appraisalCents: record.estibotValue === undefined ? null : parseMoneyCents(record.estibotValue),
-    renewalPriceCents: record.renewPrice === undefined ? null : parseMoneyCents(record.renewPrice),
+    appraisalCents: parseField('estibotValue', () =>
+      record.estibotValue === undefined ? null : parseMoneyCents(record.estibotValue)
+    ),
+    renewalPriceCents: parseField('renewPrice', () =>
+      record.renewPrice === undefined ? null : parseMoneyCents(record.renewPrice)
+    ),
     ...(metrics ? { seoMetrics: metrics } : {})
   }
 }
@@ -154,7 +164,7 @@ export function normalizeNamecheapRecords(records: unknown[]): Omit<ProviderPage
   return normalizeStagedRecords(
     records,
     record => normalizeRecord(namecheapRecordSchema.parse(record)),
-    () => new NamecheapProviderError('namecheap_response_error')
+    rejections => new NamecheapProviderError('namecheap_too_many_rejected', { rejections })
   )
 }
 

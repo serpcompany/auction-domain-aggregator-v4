@@ -1,3 +1,7 @@
+import { z } from 'zod'
+
+import type { RejectionReasons } from './types'
+
 // Normalization shared by provider adapters. Every helper throws a plain
 // Error on invalid input; adapters count the record as rejected or map the
 // failure to their own fixed provider error code.
@@ -92,4 +96,38 @@ export function parseNonnegativeInteger(value: string | number) {
     throw new Error('invalid_integer')
   }
   return parsed
+}
+
+// A field that failed normalization, named so a rejected record says which.
+class FieldError extends Error {
+  constructor(field: string, error: unknown) {
+    // Helper errors are fixed codes; anything else (a URL parser's message,
+    // say) could carry record text, so it is not kept.
+    const code =
+      error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : 'invalid'
+    super(`${field}: ${code}`)
+    this.name = 'FieldError'
+  }
+}
+
+// Parses one field of a provider record, naming the field if it fails.
+export function parseField<T>(field: string, parse: () => T): T {
+  try {
+    return parse()
+  } catch (error) {
+    throw new FieldError(field, error)
+  }
+}
+
+// Counts why a record was rejected: the first schema issue's field and code,
+// or the field `parseField` named.
+export function countRejection(reasons: RejectionReasons, error: unknown) {
+  let reason = 'record: invalid'
+  if (error instanceof z.ZodError) {
+    const [{ path, code }] = error.issues
+    reason = `${path.map(String).join('.') || 'record'}: ${code}`
+  } else if (error instanceof FieldError) {
+    reason = error.message
+  }
+  reasons[reason] = (reasons[reason] ?? 0) + 1
 }

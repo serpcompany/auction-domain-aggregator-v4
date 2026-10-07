@@ -145,9 +145,17 @@ describe('Namecheap record normalization', () => {
     expect(page.listings).toHaveLength(valid.length)
   })
 
-  it('fails a page where more than a tenth of the records are invalid', () => {
-    expect(() => normalizeNamecheapRecords([record, record, { ...record, price: 'x' }])).toThrow(
-      new NamecheapProviderError('namecheap_response_error')
+  it('fails a page where more than a tenth of the records are invalid, naming the fields', () => {
+    let caught: unknown
+    try {
+      normalizeNamecheapRecords([record, record, { ...record, renewPrice: '--' }])
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toEqual(
+      new NamecheapProviderError('namecheap_too_many_rejected', {
+        rejections: { 'renewPrice: invalid_format': 1 }
+      })
     )
   })
 })

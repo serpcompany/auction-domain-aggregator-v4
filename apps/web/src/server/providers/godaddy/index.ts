@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-import { parseDomain, parseMoneyCents } from '../normalize'
+import { parseDomain, parseField, parseMoneyCents } from '../normalize'
 import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
@@ -8,6 +8,7 @@ import {
   type NormalizedSeoMetrics,
   type ProviderAdapter,
   ProviderError,
+  type ProviderErrorOptions,
   type ProviderPage
 } from '../types'
 
@@ -62,11 +63,12 @@ export type GodaddyProviderErrorCode =
   | 'godaddy_parse_error'
   | 'godaddy_response_too_large'
   | 'godaddy_response_error'
+  | 'godaddy_too_many_rejected'
 
 export class GodaddyProviderError extends ProviderError {
   declare readonly code: GodaddyProviderErrorCode
 
-  constructor(code: GodaddyProviderErrorCode, options?: { transient?: boolean }) {
+  constructor(code: GodaddyProviderErrorCode, options?: ProviderErrorOptions) {
     super(code, options)
     this.name = 'GodaddyProviderError'
   }
@@ -122,30 +124,33 @@ function seoMetrics(record: GodaddyRecord): NormalizedSeoMetrics | undefined {
 }
 
 function normalizeRecord(record: GodaddyRecord): NormalizedListing {
-  const { auctionUrl, externalId } = parseAuctionLink(record.link)
+  const { auctionUrl, externalId } = parseField('link', () => parseAuctionLink(record.link))
   // Buy-now listings take no bids; a bid auction must report its count.
-  if (record.numberOfBids === undefined && record.auctionType === 'Bid') {
-    throw new Error('missing_bid_count')
-  }
+  const bidCount = parseField('numberOfBids', () => {
+    if (record.numberOfBids === undefined && record.auctionType === 'Bid') {
+      throw new Error('missing')
+    }
+    return record.numberOfBids ?? 0
+  })
   const metrics = seoMetrics(record)
 
   return {
     provider: 'godaddy',
     externalId,
-    domainName: parseDomain(record.domainName),
+    domainName: parseField('domainName', () => parseDomain(record.domainName)),
     auctionUrl,
     auctionType: AUCTION_TYPES[record.auctionType],
     currency: 'USD',
-    currentBidCents: parseMoneyCents(record.price),
-    bidCount: record.numberOfBids ?? 0,
+    currentBidCents: parseField('price', () => parseMoneyCents(record.price)),
+    bidCount,
     // The feed has no bidder count.
     bidderCount: null,
     startsAt: null,
-    endsAt: parseEndTime(record.auctionEndTime),
+    endsAt: parseField('auctionEndTime', () => parseEndTime(record.auctionEndTime)),
     ageYears: record.domainAge ?? null,
     inboundLinks: null,
     visitors: record.pageviews ?? null,
-    appraisalCents: nullableMoney(record.valuation),
+    appraisalCents: parseField('valuation', () => nullableMoney(record.valuation)),
     renewalPriceCents: null,
     ...(metrics ? { seoMetrics: metrics } : {})
   }
@@ -155,7 +160,7 @@ export function normalizeGodaddyRecords(records: unknown[]): Omit<ProviderPage, 
   return normalizeStagedRecords(
     records,
     record => normalizeRecord(godaddyRecordSchema.parse(record)),
-    () => new GodaddyProviderError('godaddy_response_error')
+    rejections => new GodaddyProviderError('godaddy_too_many_rejected', { rejections })
   )
 }
 

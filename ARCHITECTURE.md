@@ -74,9 +74,9 @@ D1 is the current source of truth. `apps/web/src/server/db/schema.ts` defines:
 - `domain_metrics`: domain enrichment keyed by domain and metric (`ahrefs_dr`). `ok` and `not_found` are write-once; `omitted` (no answer from Ahrefs) and `pending` (a claim by an in-flight request) hold the domain until `retry_after`.
 - `ahrefs_requests`: one row per call to Ahrefs with its time, domain count, outcome, and any 429 cool-down.
 - `domain_seo_metrics`: one row per domain of feed-published Majestic and SEMrush metrics in typed, indexed columns, with the publishing source. Every sync that carries metrics overwrites them (latest wins).
-- `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, and a fixed diagnostic code.
+- `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, a fixed diagnostic code, and, when a page had too many invalid records, why they were rejected.
 
-Generated migrations are in `apps/web/drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. `0006_listing_tld_length_facets.sql` adds the generated columns, their indexes, and `listing_facets` with a one-time backfill. `0008_ahrefs_request_limits.sql` rebuilds `domain_metrics` for its new statuses and `retry_after`, and adds `ahrefs_requests`. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
+Generated migrations are in `apps/web/drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. `0006_listing_tld_length_facets.sql` adds the generated columns, their indexes, and `listing_facets` with a one-time backfill. `0008_ahrefs_request_limits.sql` rebuilds `domain_metrics` for its new statuses and `retry_after`, and adds `ahrefs_requests`. `0009_run_rejection_reasons.sql` adds `ingestion_runs.rejection_reasons`. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
 
 ### Cloudflare R2 and Workflows
 

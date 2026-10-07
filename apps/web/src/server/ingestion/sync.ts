@@ -2,7 +2,8 @@ import {
   type AuctionProvider,
   type NormalizedListing,
   type ProviderAdapter,
-  ProviderError
+  ProviderError,
+  type RejectionReasons
 } from '../providers/types'
 
 export type SyncErrorCode =
@@ -59,6 +60,9 @@ export type RunCompletion = RunCounters & {
   completedAt: Date
   errorCode: RunErrorCode
   failedPage: number | null
+  // Why the failing page's records were rejected, for a `*_too_many_rejected`
+  // failure.
+  rejectionReasons: RejectionReasons | null
 }
 
 export type SuccessfulRunFinalization = Omit<RunCounters, 'recordsInactivated'> & {
@@ -136,12 +140,45 @@ function runErrorCode(error: unknown): RunErrorCode {
   return 'sync_failed'
 }
 
-// A provider failure marked transient, or an unexpected error (a D1 batch
-// failing, typically) may succeed when the segment runs again. A SyncError is
-// a deliberate verdict: the guard, the page limit, or an invalid request.
+// An unexpected error raised by storage: a D1 batch failing, typically.
+class StorageFailure extends Error {
+  constructor() {
+    super('sync_failed')
+    this.name = 'StorageFailure'
+  }
+}
+
+// Runs a storage call, marking an unexpected error as a storage failure. A
+// SyncError from storage (a stale run, the reconciliation guard) is a
+// deliberate verdict and passes through.
+async function stored<T>(call: () => Promise<T>) {
+  try {
+    return await call()
+  } catch (error) {
+    if (error instanceof SyncError) throw error
+    throw new StorageFailure()
+  }
+}
+
+// A provider failure marked transient, or a storage failure, may succeed
+// when the segment runs again. Anything else is final: a SyncError is a
+// deliberate verdict (the guard, the page limit, an invalid request), and an
+// unexpected adapter error is a bug that a retry would only repeat.
 function isTransient(error: unknown) {
   if (error instanceof ProviderError) return error.transient
-  return !(error instanceof SyncError)
+  return error instanceof StorageFailure
+}
+
+// Commits the pages a failing segment stored before the failing one, so the
+// retry resumes at that page instead of fetching them again. Best effort: if
+// the commit fails too, the retry resumes from the last committed page. A run
+// that is no longer running is reported as stale.
+async function commitProgress(storage: IngestionStorage, run: RunState) {
+  try {
+    await storage.updateRunProgress(run)
+  } catch (error) {
+    if (error instanceof SyncError && error.code === 'sync_stale_continuation') throw error
+  }
 }
 
 // Starts a run of `storage`'s provider, interrupting any run of that provider
@@ -168,28 +205,33 @@ export async function runSyncSegment(
   const run = runId ? await storage.loadRunningRun(runId) : await storage.startRun(clock())
   validateRun(run, maxPages)
 
+  const segmentStart = run.nextPage
   let failedPage: number | null = null
   try {
     const finalPageInSegment = Math.min(run.nextPage + segmentPages - 1, maxPages)
     for (let pageIndex = run.nextPage; pageIndex <= finalPageInSegment; pageIndex += 1) {
       failedPage = pageIndex
       const page = await adapter.fetchPage({ pageIndex })
+      await stored(() => storage.upsertListings(run, page.listings))
+      // Counted only once the page is stored, so the progress committed
+      // after a later failure is exact.
       run.pagesFetched += 1
       run.recordsFetched += page.received
       run.recordsRejected += page.rejected
-      await storage.upsertListings(run, page.listings)
       run.recordsUpserted += page.listings.length
       run.nextPage = pageIndex + 1
 
       if (page.isLastPage) {
         failedPage = null
-        run.recordsInactivated = await storage.finalizeSuccessfulRun(run, {
-          pagesFetched: run.pagesFetched,
-          recordsFetched: run.recordsFetched,
-          recordsUpserted: run.recordsUpserted,
-          recordsRejected: run.recordsRejected,
-          completedAt: clock()
-        })
+        run.recordsInactivated = await stored(() =>
+          storage.finalizeSuccessfulRun(run, {
+            pagesFetched: run.pagesFetched,
+            recordsFetched: run.recordsFetched,
+            recordsUpserted: run.recordsUpserted,
+            recordsRejected: run.recordsRejected,
+            completedAt: clock()
+          })
+        )
         return {
           done: true,
           summary: {
@@ -210,18 +252,22 @@ export async function runSyncSegment(
     }
     failedPage = null
 
-    await storage.updateRunProgress(run)
+    await stored(() => storage.updateRunProgress(run))
     return { done: false, run }
   } catch (error) {
     if (error instanceof SyncError && error.code === 'sync_stale_continuation') {
       throw error
     }
     const errorCode = runErrorCode(error)
-    // Nothing is recorded, and the run stays running. A retry loads it again
-    // with the page and counters committed at the last segment boundary, so
-    // it fetches and upserts this segment's pages again (upserts are
-    // idempotent) and the counters stay exact.
+    // The run stays running. When a page failed after others of this segment
+    // were stored, their progress is committed, so the retry resumes at the
+    // failing page. A failure while finishing the segment commits nothing,
+    // and the retry fetches and upserts the segment's pages again (upserts
+    // are idempotent). Either way the counters stay exact.
     if (isTransient(error)) {
+      if (failedPage !== null && run.nextPage > segmentStart) {
+        await commitProgress(storage, run)
+      }
       throw new SyncError(errorCode, {
         transient: true,
         retryAfterMs: error instanceof ProviderError ? error.retryAfterMs : null
@@ -237,7 +283,8 @@ export async function runSyncSegment(
         status: 'failed',
         completedAt: clock(),
         errorCode,
-        failedPage
+        failedPage,
+        rejectionReasons: error instanceof ProviderError ? error.rejections : null
       })
     } catch {
       // The caller receives only the sanitized synchronization error.
@@ -248,8 +295,8 @@ export async function runSyncSegment(
 
 // Marks a run failed after its segment kept failing transiently until the
 // retries ran out, so it does not stay running until the next sync interrupts
-// it. Its counters are those committed at the last segment boundary; the
-// failing page within the segment is not known. A run that is no longer
+// it. Its counters are the last committed ones, through the page before the
+// failing one; the failing page itself is not recorded. A run that is no longer
 // running was completed or interrupted already and is left alone.
 export async function failSyncRun(
   storage: IngestionStorage,
@@ -273,7 +320,8 @@ export async function failSyncRun(
     status: 'failed',
     completedAt: clock(),
     errorCode,
-    failedPage: null
+    failedPage: null,
+    rejectionReasons: null
   })
   return true
 }

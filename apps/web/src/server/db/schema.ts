@@ -132,7 +132,10 @@ export const ingestionRuns = sqliteTable(
     recordsInactivated: integer('records_inactivated').notNull().default(0),
     recordsRejected: integer('records_rejected').notNull().default(0),
     errorCode: text('error_code'),
-    failedPage: integer('failed_page')
+    failedPage: integer('failed_page'),
+    // Why the failing page's records were rejected, as `{ "<field>: <code>":
+    // count }`, for a `<provider>_too_many_rejected` failure.
+    rejectionReasons: text('rejection_reasons', { mode: 'json' }).$type<Record<string, number>>()
   },
   table => [
     check(

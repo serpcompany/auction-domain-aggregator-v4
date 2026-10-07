@@ -64,29 +64,39 @@ export type FeedPageSource = {
   readPage(page: number, maxBytes: number): Promise<string | null>
 }
 
+// Why the records of a page were rejected, counted per reason. A reason is
+// `<field>: <code>`, for example `renewal_price: invalid_decimal`.
+export type RejectionReasons = Record<string, number>
+
+export type ProviderErrorOptions = {
+  transient?: boolean
+  retryAfterMs?: number | null
+  rejections?: RejectionReasons | null
+}
+
 // Errors thrown by adapters carry a fixed, non-secret code prefixed with the
 // provider name, e.g. `dynadot_http_error`. It is persisted on failed runs.
 // `transient` marks a failure the same request may not repeat: a network
 // failure, a rate limit, a server error, or a failed staged-page read. The
 // Workflow retries those instead of failing the run. `retryAfterMs` is how
 // long the provider asked to wait (`Retry-After`, or a hint in the body); the
-// retry waits at least that long.
+// retry waits at least that long. `rejections` explains a page that failed
+// the rejection threshold, and is stored on the failed run.
 export class ProviderError extends Error {
   readonly code: string
   readonly transient: boolean
   readonly retryAfterMs: number | null
+  readonly rejections: RejectionReasons | null
 
   constructor(
     code: string,
-    {
-      transient = false,
-      retryAfterMs = null
-    }: { transient?: boolean; retryAfterMs?: number | null } = {}
+    { transient = false, retryAfterMs = null, rejections = null }: ProviderErrorOptions = {}
   ) {
     super(code)
     this.name = 'ProviderError'
     this.code = code
     this.transient = transient
     this.retryAfterMs = retryAfterMs
+    this.rejections = rejections
   }
 }
