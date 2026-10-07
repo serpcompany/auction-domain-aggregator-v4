@@ -44,3 +44,7 @@ Every ExecPlan must contain these sections in this order:
 12. `Interfaces and Dependencies`: required packages, services, configuration, and stable interfaces.
 
 End the file with a revision note describing every material plan change and why it was made. An ExecPlan that consists entirely of Markdown should not wrap itself in an outer code fence.
+
+## Active plans
+
+- [Paid SaaS: accounts, subscription, payment-gated access](active/saas-accounts-and-billing.md) (#27)
