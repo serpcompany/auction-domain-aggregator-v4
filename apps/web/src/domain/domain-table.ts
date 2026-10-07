@@ -497,11 +497,6 @@ export function formatAuctionType(value: string) {
   return titleCase(value.toLowerCase())
 }
 
-export function formatAge(value: number | null) {
-  if (value === null) return null
-  return `${value} ${value === 1 ? 'year' : 'years'}`
-}
-
 export function formatAbsoluteEndTime(value: Date) {
   const parts = new Intl.DateTimeFormat('en-US', {
     month: 'short',

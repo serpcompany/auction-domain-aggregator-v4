@@ -6,7 +6,7 @@ Last updated: 2026-10-07
 
 ## Purpose
 
-This document records the implemented D1 read path, URL contract, derived domain properties, presentation boundary, and measured schema decision for the first domain-discovery table. Stable ownership boundaries remain in `ARCHITECTURE.md`; user-visible behavior remains in the product spec.
+This document records the implemented D1 read path, URL contract, derived domain properties, presentation boundary, and measured schema decision for the domain-discovery table. A normal page or health request reads only D1 and never calls a provider. Stable ownership boundaries remain in `ARCHITECTURE.md`; user-visible behavior remains in the product spec.
 
 ## Request and state boundary
 
@@ -14,7 +14,7 @@ The page request parses untrusted search parameters into one normalized `DomainT
 
 The URL is canonical state. Filter submission uses GET and omits `page`, so applying a change returns to page 1. Removing one summary changes only that filter family and also returns to page 1. Sorting and pagination preserve all filters. Invalid enum values are rejected, numeric inputs are bounded, reversed ranges are normalized, and page size is always 50.
 
-Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 87 bindings (64 category values, active status, the reference time, 19 scalar filters including the four SEO-metric minimums, row limit, and offset), below D1's 100-bound-parameter ceiling. A workerd test on real D1 runs that worst case (`domain-listings-query.workers.test.ts`).
+Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 87 bindings (64 category values, active status, the reference time, 19 scalar filters including the four SEO-metric minimums, row limit, and offset), below D1's 100-bound-parameter ceiling. A workerd test on real D1 runs that worst case.
 
 ## D1 query behavior
 
@@ -28,7 +28,7 @@ Reads remain sequential. Local D1 produced snapshot locking when the count, row,
 
 ## Facets
 
-The Source, Auction type, and TLD options do not depend on the filters, so they are not computed per request. `listing_facets` holds one row per `(facet, value)` with `latest_ends_at`, the latest end time among active listings with that value. `apps/web/src/server/db/listing-facets.ts` rebuilds the table from the whole active inventory (every provider) with one `DELETE` and one `INSERT ... SELECT ... GROUP BY`, and `finalizeSuccessfulRun` runs both in the same D1 batch that inactivates unseen listings and marks the run succeeded. Migration `0006_listing_tld_length_facets.sql` ran the same insert once as a backfill.
+The Source, Auction type, and TLD options do not depend on the filters, so they are not computed per request. `listing_facets` holds one row per `(facet, value)` with `latest_ends_at`, the latest end time among active listings with that value. `apps/web/src/server/db/listing-facets.ts` rebuilds the table from the whole active inventory (every provider) with one `DELETE` and one `INSERT ... SELECT ... GROUP BY`, and `finalizeSuccessfulRun` runs both in the same D1 batch that inactivates unseen listings and marks the run succeeded. Because the rebuild reads every provider's rows, it is correct whichever provider finishes last; it is idempotent, so it needs no running-run guard of its own. Migration `0006_listing_tld_length_facets.sql` ran the same insert once as a backfill.
 
 A request reads the rows whose `latest_ends_at` is after its reference time, so a value disappears once all of its auctions have ended, as it did when the facets were grouped per request. Sources and auction types are then limited to the parser's allowlists in TypeScript. Every TLD is returned (479 in the local inventory); the earlier 250-value cap is gone.
 
@@ -75,23 +75,9 @@ What remains is the count and the sorted page. For most shapes both still read e
 
 Metric sorts (#65) read `domain_seo_metrics` and `domain_metrics` through a correlated scalar subquery per listing, by primary key, then sort in a temporary B-tree. The subquery is evaluated once per row: descending relies on SQLite placing nulls last, and ascending replaces a null with the largest integer. Measured with `corepack pnpm benchmark:filters` against 901,512 open listings on 2026-10-07, median whole-request times were 1.19 s for a Trust Flow sort, 1.29 s for Semrush Authority, 0.43 s for Ahrefs DR (a small table), and 0.24 s for DR within `.com`, against 0.28 s for a price sort. Evaluating the subquery twice (the `is null` pattern of the other nullable sorts) cost about 0.5 s more. If metric sorts need to be faster, copy the metrics onto `auction_listings` at sync time and index them.
 
-## Ahrefs DR enrichment
+## Ahrefs DR
 
-DR is fetched only for the rows on screen. After the page renders, `apps/web/src/components/auctions/domain-ratings.tsx` posts up to 50 shown domains without a settled rating to `POST /api/enrichment/domain-rating`, and calls `router.refresh()` when the answer says something was stored. The route (`apps/web/src/server/enrichment/domain-rating-request.ts`) validates the body and runs `enrichDomainRatings` (`domain-rating.ts`) on the D1 store (`domain-rating-store.ts`):
-
-1. **Abort.** It stops if the request's `signal` is aborted, before any D1 write and again just before the Ahrefs call. In the second case it deletes the claims it just made, so the next request can claim those domains at once. This covers React StrictMode's double effect in development and fast paging, where the client aborts its earlier POST. `next dev` aborts the signal natively. On Workers, OpenNext passes the incoming request's signal to route handlers, and the `enable_request_signal` compatibility flag in `apps/web/wrangler.jsonc` makes workerd abort it when the client disconnects.
-2. **Cool-down.** If any `ahrefs_requests.cool_down_until` is in the future, it answers 429 `ahrefs_cool_down` with a `Retry-After` header and calls nothing.
-3. **Claim.** One `INSERT ... SELECT ... ON CONFLICT DO UPDATE ... RETURNING` statement claims the domains that have an active listing and either no `domain_metrics` row, an `omitted` row whose `retry_after` has passed, or a lapsed claim. A claim is a `pending` row with `retry_after` 60 seconds ahead, longer than the call's 15-second timeout. SQLite runs the statement atomically and RETURNING lists only the rows it wrote, so a concurrent request for the same domains gets none of them and makes no call. Isolate memory is not shared between Worker instances, so the claim lives in D1. Domain names travel as one JSON array, so the statement uses three bound parameters for any page.
-4. **Call.** It asks Ahrefs once for the claimed domains.
-5. **Record.** One D1 batch writes the call's `ahrefs_requests` row and its results. A rated domain becomes `ok`, an unrated one `not_found`, and a domain Ahrefs left out of its answer `omitted`, with `retry_after` a week later. Results replace only `pending` and `omitted` rows, so `ok` and `not_found` stay write-once. A failed call writes only its log row. On `ahrefs_rate_limited` that row's `cool_down_until` is the 429's `Retry-After` (seconds or an HTTP date), or 60 seconds without one, bounded to between 1 second and 1 hour. The claims of a failed call are left to lapse, so those domains wait a minute before another try.
-
-`ahrefs_requests` holds one row per call to Ahrefs, whatever the outcome: `requested_at`, `domain_count`, `outcome` (`ok` or the `ahrefs_*` code), and `cool_down_until`. Counting its rows counts usage exactly. The cool-down read is a range on `ahrefs_requests_cool_down_until_idx`.
-
-The table read treats `ok` and `not_found` as fetched, and also an `omitted` row until its `retry_after`. That cell shows "no rating", and the client does not ask again. A `pending` row, or an `omitted` one past its retry time, reads as not fetched, so the cell shows the spinner and the client asks again.
-
-When a request finds every domain held by another one, it stores nothing and does not refresh. If the request holding them belonged to a page the person has left, the ratings appear on the next view.
-
-The route has no access control yet; #15 adds it. Ahrefs calls are not paced beyond the claim and the cool-down. They should adopt the shared pacer from #74 once it merges.
+The page reads stored DR for the visible rows only. Fetching it, on demand from the browser, is in [Ahrefs Domain Rating enrichment](domain-rating-enrichment.md).
 
 ## UI boundary
 
@@ -102,6 +88,4 @@ The table is a server-rendered stock `Table` whose columns come from one registr
 
 ## Provider-free verification
 
-The `*.workers.test.ts` files run in workerd through `@cloudflare/vitest-plugin`. Every test starts from empty, in-memory D1 and R2 with the migrations applied. They exercise every predicate and sort against invented rows (including multi-label names and names with quotes and backslashes), and prove that a successful Workflow sync rebuilds the facets and that 300 TLDs are all offered. Playwright's `webServer` runs `apps/web/scripts/e2e-server.ts` and waits for `/api/health`. The script builds OpenNext with `apps/web/wrangler.e2e.jsonc`, refuses a bundle that contains non-public env variables (as `preview` does), and moves the build to `apps/web/tmp/e2e/.open-next`, served through `apps/web/e2e/worker.ts`. The developer's own `.open-next` is set aside during the build and put back, so a test run never replaces it. The script then applies migrations to a fresh `tmp/e2e/state`, inserts 60 deterministic invented listings and rebuilds the facets as a successful sync would, and serves the build with `wrangler dev --env-file /dev/null`, which never loads `.dev.vars`. Playwright refuses to start when the port is taken and stops the server's process group when the run ends.
-
-Neither proof calls a provider, uses remote D1, or mutates `apps/web/.wrangler` and the owner's inventory. The browser build reads `.env*` files like any Next build, which is why it refuses a bundle with non-public values.
+The workerd D1 tests and the browser tests run every predicate, sort, and facet rebuild against invented rows in isolated D1; how they stay isolated is in [Isolated verification](isolated-verification.md).

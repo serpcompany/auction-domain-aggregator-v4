@@ -225,7 +225,7 @@ export const ahrefsRequests = sqliteTable(
 )
 
 // Third-party SEO metrics published per domain in an auction provider's feed
-// (GoDaddy today). Unlike `domain_metrics`, every sync that carries them
+// (GoDaddy and Namecheap). Unlike `domain_metrics`, every sync that carries them
 // overwrites the row, so the latest values win. Typed columns keep the table
 // filters index-friendly.
 export const domainSeoMetrics = sqliteTable(

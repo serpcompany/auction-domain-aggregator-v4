@@ -12,17 +12,9 @@ const LEAF_BUDGET = 300;
 const MAP_NAMES = ["README.md", "AGENTS.md"];
 const KEBAB_CASE = /^[a-z0-9]+(-[a-z0-9]+)*$/;
 
-// Docs already over budget when this check was added (#36). Each may shrink, but never grow;
-// #20 tracks trimming and splitting them.
-const ALLOWANCES = {
-  "docs/plans/completed/bootstrap-application-harness.md": 666,
-  "docs/plans/completed/domain-table-filtering-and-presentation.md": 965,
-  "docs/plans/completed/dynadot-domain-table.md": 442,
-  "docs/plans/completed/ui-redesign.md": 533,
-  "docs/references/data-licensing.md": 435,
-  "docs/references/spamzilla/spamzilla-filter-reference.md": 4524,
-  "docs/technical-design/data-ingestion.md": 465,
-};
+// Docs already over budget when this check was added (#36). Each may shrink, but never grow.
+// #20 split or summarized every one, so none remain.
+const ALLOWANCES = {};
 
 process.chdir(fileURLToPath(new URL("../../", import.meta.url)));
 
