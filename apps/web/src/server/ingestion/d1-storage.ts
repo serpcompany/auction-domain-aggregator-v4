@@ -1,7 +1,7 @@
-import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm'
+import { and, count, eq, exists, gt, inArray, isNull, or, type SQLWrapper, sql } from 'drizzle-orm'
 
 import { refreshListingFacetsQueries } from '../db/listing-facets'
-import { auctionListings, ingestionRuns } from '../db/schema'
+import { auctionListings, ingestionRunSeenPages, ingestionRuns } from '../db/schema'
 import type { AppDatabase } from '../db/types'
 import type { AuctionProvider, NormalizedListing } from '../providers/types'
 import { type IngestionStorage, type RunState, SyncError } from './sync'
@@ -64,6 +64,10 @@ const INSERT_DOMAINS_SQL = `
   ON CONFLICT(name) DO NOTHING
 `
 
+// Every write is billed per row, plus a row per index it touches, so an
+// unchanged listing is left alone: its seen-pages entry is what proves the
+// run saw it. `last_seen_at` is therefore the start of the last run that
+// changed the row.
 const UPSERT_LISTINGS_SQL = `
   INSERT INTO auction_listings (
     provider, external_id, domain_name, auction_url, auction_type, currency,
@@ -96,9 +100,25 @@ const UPSERT_LISTINGS_SQL = `
     appraisal_cents = excluded.appraisal_cents,
     renewal_price_cents = excluded.renewal_price_cents,
     status = 'active', last_seen_at = excluded.last_seen_at
+  WHERE auction_listings.status <> 'active'
+    OR auction_listings.domain_name IS NOT excluded.domain_name
+    OR auction_listings.auction_url IS NOT excluded.auction_url
+    OR auction_listings.auction_type IS NOT excluded.auction_type
+    OR auction_listings.currency IS NOT excluded.currency
+    OR auction_listings.current_bid_cents IS NOT excluded.current_bid_cents
+    OR auction_listings.bid_count IS NOT excluded.bid_count
+    OR auction_listings.bidder_count IS NOT excluded.bidder_count
+    OR auction_listings.starts_at IS NOT excluded.starts_at
+    OR auction_listings.ends_at IS NOT excluded.ends_at
+    OR auction_listings.age_years IS NOT excluded.age_years
+    OR auction_listings.inbound_links IS NOT excluded.inbound_links
+    OR auction_listings.visitors IS NOT excluded.visitors
+    OR auction_listings.appraisal_cents IS NOT excluded.appraisal_cents
+    OR auction_listings.renewal_price_cents IS NOT excluded.renewal_price_cents
 `
 
 // Feed metrics are refreshed by every sync that carries them: latest wins.
+// As with listings, `updated_at` moves only when a value changes.
 const UPSERT_SEO_METRICS_SQL = `
   INSERT INTO domain_seo_metrics (
     domain_name, source, majestic_tf, majestic_cf, majestic_backlinks,
@@ -127,6 +147,25 @@ const UPSERT_SEO_METRICS_SQL = `
     semrush_ref_domains = excluded.semrush_ref_domains,
     semrush_backlinks = excluded.semrush_backlinks,
     updated_at = excluded.updated_at
+  WHERE domain_seo_metrics.source IS NOT excluded.source
+    OR domain_seo_metrics.majestic_tf IS NOT excluded.majestic_tf
+    OR domain_seo_metrics.majestic_cf IS NOT excluded.majestic_cf
+    OR domain_seo_metrics.majestic_backlinks IS NOT excluded.majestic_backlinks
+    OR domain_seo_metrics.majestic_ref_domains IS NOT excluded.majestic_ref_domains
+    OR domain_seo_metrics.semrush_as IS NOT excluded.semrush_as
+    OR domain_seo_metrics.semrush_ref_domains IS NOT excluded.semrush_ref_domains
+    OR domain_seo_metrics.semrush_backlinks IS NOT excluded.semrush_backlinks
+`
+
+// Inserts nothing once the run has stopped running, which is how a stale
+// continuation is detected now that unchanged listings write nothing.
+const INSERT_SEEN_PAGE_SQL = `
+  INSERT INTO ingestion_run_seen_pages (run_id, external_ids)
+  SELECT ?, ?
+  WHERE EXISTS (
+    SELECT 1 FROM ingestion_runs
+    WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
+  )
 `
 
 function runningRunFilter(provider: AuctionProvider, run: Pick<RunState, 'runId' | 'startedAt'>) {
@@ -151,6 +190,10 @@ function runSelection() {
   }
 }
 
+function deleteSeenPages(db: AppDatabase, runIds: number[] | SQLWrapper) {
+  return db.delete(ingestionRunSeenPages).where(inArray(ingestionRunSeenPages.runId, runIds))
+}
+
 function requireRun(run: RunState | undefined) {
   if (!run) throw new SyncError('sync_stale_continuation')
   return run
@@ -164,7 +207,15 @@ export function createD1IngestionStorage(
     provider,
 
     async startRun(startedAt) {
-      const [, inserted] = await db.batch([
+      const [, , inserted] = await db.batch([
+        // Leftovers of runs that crashed before finishing.
+        deleteSeenPages(
+          db,
+          db
+            .select({ id: ingestionRuns.id })
+            .from(ingestionRuns)
+            .where(eq(ingestionRuns.provider, provider))
+        ),
         db
           .update(ingestionRuns)
           .set({
@@ -202,6 +253,15 @@ export function createD1IngestionStorage(
       if (listings.some(listing => listing.provider !== provider)) {
         throw new SyncError('sync_invalid_request')
       }
+      const seenStatement = db.$client
+        .prepare(INSERT_SEEN_PAGE_SQL)
+        .bind(
+          run.runId,
+          JSON.stringify([...new Set(listings.map(listing => listing.externalId))]),
+          run.runId,
+          provider,
+          run.startedAt.getTime()
+        )
       const uniqueDomains = [...new Set(listings.map(listing => listing.domainName))]
       const domainStatements = chunks(uniqueDomains, DOMAIN_BATCH_SIZE).map(batch =>
         db.$client
@@ -239,15 +299,13 @@ export function createD1IngestionStorage(
             run.startedAt.getTime()
           )
       )
-      const results = await db.$client.batch([
+      const [seen] = await db.$client.batch([
+        seenStatement,
         ...domainStatements,
         ...listingStatements,
         ...metricStatements
       ])
-      const listingChanges = results
-        .slice(domainStatements.length, domainStatements.length + listingStatements.length)
-        .reduce((total, result) => total + (result.meta.changes ?? 0), 0)
-      if (listingChanges === 0) {
+      if (!seen?.meta.changes) {
         throw new SyncError('sync_stale_continuation')
       }
     },
@@ -261,7 +319,10 @@ export function createD1IngestionStorage(
       const reconciliationFilter = and(
         eq(auctionListings.provider, provider),
         eq(auctionListings.status, 'active'),
-        lt(auctionListings.lastSeenAt, run.startedAt),
+        sql`${auctionListings.externalId} not in (
+          select json_each.value from ingestion_run_seen_pages as seen, json_each(seen.external_ids)
+          where seen.run_id = ${run.runId}
+        )`,
         exists(guardedRunningRun)
       )!
 
@@ -280,7 +341,8 @@ export function createD1IngestionStorage(
 
       // One atomic batch: record the count, inactivate exactly those rows
       // while the run is still running, mark the run succeeded, then rebuild
-      // the facet values from the reconciled active inventory.
+      // the facet values from the reconciled active inventory. The run's seen
+      // pages are deleted after the statements that read them.
       const [, , completed] = await db.batch([
         db
           .update(ingestionRuns)
@@ -303,6 +365,7 @@ export function createD1IngestionStorage(
           })
           .where(runFilter)
           .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
+        deleteSeenPages(db, [run.runId]),
         ...refreshListingFacetsQueries(db)
       ])
       if (!completed[0]) {
@@ -330,21 +393,24 @@ export function createD1IngestionStorage(
     },
 
     async completeRun(run, completion) {
-      const completed = await db
-        .update(ingestionRuns)
-        .set({
-          status: completion.status,
-          completedAt: completion.completedAt,
-          pagesFetched: completion.pagesFetched,
-          recordsFetched: completion.recordsFetched,
-          recordsUpserted: completion.recordsUpserted,
-          recordsInactivated: completion.recordsInactivated,
-          recordsRejected: completion.recordsRejected,
-          errorCode: completion.errorCode,
-          failedPage: completion.failedPage
-        })
-        .where(runningRunFilter(provider, run))
-        .returning({ id: ingestionRuns.id })
+      const [completed] = await db.batch([
+        db
+          .update(ingestionRuns)
+          .set({
+            status: completion.status,
+            completedAt: completion.completedAt,
+            pagesFetched: completion.pagesFetched,
+            recordsFetched: completion.recordsFetched,
+            recordsUpserted: completion.recordsUpserted,
+            recordsInactivated: completion.recordsInactivated,
+            recordsRejected: completion.recordsRejected,
+            errorCode: completion.errorCode,
+            failedPage: completion.failedPage
+          })
+          .where(runningRunFilter(provider, run))
+          .returning({ id: ingestionRuns.id }),
+        deleteSeenPages(db, [run.runId])
+      ])
       if (!completed[0]) {
         throw new SyncError('sync_stale_continuation')
       }

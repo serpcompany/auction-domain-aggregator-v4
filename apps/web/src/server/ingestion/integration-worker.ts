@@ -14,6 +14,7 @@ import {
   domainMetrics,
   domainSeoMetrics,
   domains,
+  ingestionRunSeenPages,
   ingestionRuns
 } from '../db/schema'
 import { enrichDomainRatings } from '../enrichment/domain-rating'
@@ -172,6 +173,24 @@ async function proveReconciliationSafety(
       (await activeGuardListings(database)) === 0,
     'ended_listings_reconciled'
   )
+
+  // An inactive listing seen again comes back even though none of its
+  // fields changed, and finishing a run, either way, clears its seen pages.
+  const returnRun = await storage.startRun(new Date('2026-09-03T00:00:00.000Z'))
+  await storage.upsertListings(returnRun, guardListings.slice(0, 1))
+  assertIntegration((await activeGuardListings(database)) === 1, 'unchanged_listing_reactivated')
+  await storage.finalizeSuccessfulRun(returnRun, {
+    completedAt: new Date('2026-09-03T00:10:00.000Z'),
+    pagesFetched: 1,
+    recordsFetched: 1,
+    recordsUpserted: 1,
+    recordsRejected: 0
+  })
+  const [seenPages] = await database
+    .select({ value: count() })
+    .from(ingestionRunSeenPages)
+    .where(inArray(ingestionRunSeenPages.runId, [shortRun.runId, returnRun.runId]))
+  assertIntegration(seenPages?.value === 0, 'seen_pages_cleared')
 }
 
 async function activeListingsFor(
@@ -929,6 +948,15 @@ async function runProof(env: IntegrationEnv) {
 
   const repeatedRun = await storage.startRun(new Date('2026-07-13T03:00:00.000Z'))
   await storage.upsertListings(repeatedRun, activeListings)
+  // Unchanged listings are not rewritten: writes are billed per row.
+  const [unchanged] = await database
+    .select({ lastSeenAt: auctionListings.lastSeenAt })
+    .from(auctionListings)
+    .where(eq(auctionListings.externalId, 'active-05'))
+  assertIntegration(
+    unchanged?.lastSeenAt.getTime() === successfulStartedAt.getTime(),
+    'unchanged_listing_rewritten'
+  )
   const repeatedInactivated = await storage.finalizeSuccessfulRun(repeatedRun, {
     completedAt: new Date('2026-07-13T03:30:00.000Z'),
     pagesFetched: 1,

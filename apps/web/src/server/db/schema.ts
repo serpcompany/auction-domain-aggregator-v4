@@ -149,6 +149,23 @@ export const ingestionRuns = sqliteTable(
   ]
 )
 
+// The external IDs each page of a running sync returned, one JSON array per
+// page. Reconciliation diffs active listings against them, so unchanged
+// listings need no write to prove they were seen. Rows live only while
+// their run does: finishing a run deletes them.
+export const ingestionRunSeenPages = sqliteTable(
+  'ingestion_run_seen_pages',
+  {
+    // A rowid key: AUTOINCREMENT would add a sqlite_sequence write per page.
+    id: integer('id').primaryKey(),
+    runId: integer('run_id')
+      .notNull()
+      .references(() => ingestionRuns.id),
+    externalIds: text('external_ids').notNull()
+  },
+  table => [index('ingestion_run_seen_pages_run_id_idx').on(table.runId)]
+)
+
 // Domain-level enrichment, fetched on demand and stored once per domain and
 // metric. Only `ahrefs_dr` exists today.
 export const domainMetrics = sqliteTable(
