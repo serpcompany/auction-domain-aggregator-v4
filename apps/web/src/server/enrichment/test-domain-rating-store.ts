@@ -5,7 +5,7 @@ type Row = Omit<DomainRatingResult, 'domainName' | 'status'> & {
 }
 
 // An in-memory DomainRatingStore with the D1 store's rules, for unit tests.
-// The integration proof checks the same rules against D1.
+// domain-rating-store.workers.test.ts checks the same rules against D1.
 export function createMemoryDomainRatingStore(activeDomains: string[]) {
   const active = new Set(activeDomains)
   const rows = new Map<string, Row>()

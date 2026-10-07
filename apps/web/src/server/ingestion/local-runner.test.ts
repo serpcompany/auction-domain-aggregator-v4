@@ -182,4 +182,17 @@ describe('local runner utilities', () => {
     expect(existsSync(temporaryDirectory)).toBe(false)
     lifecycle.unregister()
   })
+
+  it('listens on the current process by default', () => {
+    const removeDirectory = vi.fn()
+    const before = process.listenerCount('SIGTERM')
+    const lifecycle = installSignalCleanup({
+      temporaryDirectory: '/temporary/runner',
+      removeDirectory
+    })
+    expect(process.listenerCount('SIGTERM')).toBe(before + 1)
+    lifecycle.unregister()
+    expect(process.listenerCount('SIGTERM')).toBe(before)
+    expect(removeDirectory).not.toHaveBeenCalled()
+  })
 })

@@ -15,7 +15,6 @@
     "typecheck": "next typegen && tsc --noEmit",
     "test": "vitest run --coverage",
     "test:watch": "vitest",
-    "test:integration": "node --import tsx scripts/test-d1-integration.ts",
     "benchmark:filters": "node --import tsx scripts/benchmark-domain-filters.ts",
     "test:e2e": "playwright test",
     "db:generate": "drizzle-kit generate",
@@ -27,7 +26,7 @@
     "sync": "wrangler d1 migrations apply DB --local --config wrangler.ingestion.jsonc --env-file /dev/null && node --env-file-if-exists=../../.secrets/providers.env --import tsx scripts/sync-provider.ts",
     "sync:dynadot": "pnpm sync dynadot",
     "check:quick": "pnpm lint && pnpm typecheck && pnpm db:check && pnpm test",
-    "check": "pnpm check:quick && pnpm test:integration && pnpm test:e2e",
+    "check": "pnpm check:quick && pnpm test:e2e",
     "deploy:web": "node -e \"console.error('The website has no deployed environment yet: it waits for accounts and payments (#27).'); process.exit(1)\"",
     "preview": "pnpm db:migrate:local && opennextjs-cloudflare build && node --import tsx scripts/assert-no-bundled-env.ts && opennextjs-cloudflare preview",
     "cf-typegen": "wrangler types --env-file /dev/null --env-interface CloudflareEnv ./cloudflare-env.d.ts"

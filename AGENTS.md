@@ -48,11 +48,10 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - Inner loop, while editing: `corepack pnpm exec vitest related --run <files>`, plus `corepack pnpm exec tsc --noEmit -p .` and `corepack pnpm exec biome check <files>`.
 - `corepack pnpm check:quick`: the push-level check. Runs Biome (format and lint, read-only), type checks, the migration-history check, and unit tests.
 - `corepack pnpm format`: format with Biome. `corepack pnpm exec biome check --write` also applies safe lint fixes and sorts imports.
-- `corepack pnpm test`: run the unit and component tests with coverage.
-- `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
+- `corepack pnpm test`: run both Vitest projects with Istanbul coverage at 100% over `src/`: `unit` (Node and jsdom) and `workers` (`*.workers.test.ts` in workerd through `@cloudflare/vitest-plugin`, with real D1 and R2 emptied and migrated before every test, never `.wrangler`). `corepack pnpm exec vitest run --project workers` runs only the D1 tests.
 - `corepack pnpm test:e2e`: build OpenNext into `tmp/e2e/` (the developer's `.open-next` is left in place) and run browser acceptance against deterministic fixtures in an isolated local D1/workerd instance on port 8797.
 - `corepack pnpm benchmark:filters`: time whole table requests through `queryDomainListingsWithDatabase` (the page's read path) against the populated local D1 inventory, without loading credentials or printing rows.
-- `corepack pnpm check`: the finish gate. Runs the quick checks, isolated D1 integration proof, and isolated browser acceptance. UI changes also need a check at 1440px and 390px; ingestion changes that touch a provider need one real `pnpm sync` of that provider.
+- `corepack pnpm check`: the finish gate. Runs the quick checks (which include the workerd D1 tests) and isolated browser acceptance. UI changes also need a check at 1440px and 390px; ingestion changes that touch a provider need one real `pnpm sync` of that provider.
 - `node .github/scripts/check-docs.mjs` (from the repository root): doc size budgets and kebab-case paths, also run by the Docs Checks workflow.
 - `corepack pnpm preview`: migrate local D1, build with OpenNext, and serve the Cloudflare Worker locally.
 - `corepack pnpm build`: verify the standard Next.js production build.

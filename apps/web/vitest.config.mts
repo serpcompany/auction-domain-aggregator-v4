@@ -17,6 +17,9 @@ export default defineConfig({
         '**/*.d.ts',
         // Stock shadcn source, kept as upstream ships it.
         'src/components/ui/**',
+        'src/hooks/use-mobile.ts',
+        // Next.js renders these server components; browser acceptance (e2e/) covers them.
+        'src/app/**/{page,layout}.tsx',
         // Test fixtures and helpers.
         'src/**/test-*.ts',
         'src/server/ingestion/zip-fixture.ts'
