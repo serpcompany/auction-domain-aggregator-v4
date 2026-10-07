@@ -487,7 +487,7 @@ export function formatProvider(value: string) {
 }
 
 export function formatAuctionType(value: string) {
-  return titleCase(value)
+  return titleCase(value.toLowerCase())
 }
 
 export function formatAge(value: number | null) {

@@ -1,7 +1,7 @@
 import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { EnrichVisibleDomainRatings } from '@/components/enrich-visible-domain-ratings'
+import { EnrichVisibleDomainRatings } from '@/components/auctions/enrich-visible-domain-ratings'
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }))
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
