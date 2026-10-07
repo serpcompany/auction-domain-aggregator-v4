@@ -1,5 +1,6 @@
 // Ingestion Worker: a daily Cron Trigger starts one `provider-sync` Workflow
-// instance per provider (src/server/ingestion/sync-worker.ts). The top level
+// instance per provider and one `domain-rating` (Ahrefs DR backfill) instance
+// (src/server/ingestion/sync-worker.ts). The top level
 // is local-only: every binding stays in Wrangler's local simulation and the
 // IDs are placeholders. `env.staging` and `env.production` are the deployed
 // Workers; named environments inherit no bindings, so each declares every
@@ -43,6 +44,13 @@
       "name": "provider-sync",
       "binding": "PROVIDER_SYNC",
       "class_name": "ProviderSyncWorkflow"
+    },
+    // The daily Ahrefs DR backfill (src/server/enrichment/domain-rating-backfill.ts).
+    // Its key is the AHREFS_API_KEY secret; without it the instance fails.
+    {
+      "name": "domain-rating",
+      "binding": "DOMAIN_RATING",
+      "class_name": "DomainRatingWorkflow"
     }
   ],
   "env": {
@@ -83,6 +91,11 @@
           "name": "auction-domain-aggregator-provider-sync-staging",
           "binding": "PROVIDER_SYNC",
           "class_name": "ProviderSyncWorkflow"
+        },
+        {
+          "name": "auction-domain-aggregator-domain-rating-staging",
+          "binding": "DOMAIN_RATING",
+          "class_name": "DomainRatingWorkflow"
         }
       ]
     },
@@ -123,6 +136,11 @@
           "name": "auction-domain-aggregator-provider-sync-production",
           "binding": "PROVIDER_SYNC",
           "class_name": "ProviderSyncWorkflow"
+        },
+        {
+          "name": "auction-domain-aggregator-domain-rating-production",
+          "binding": "DOMAIN_RATING",
+          "class_name": "DomainRatingWorkflow"
         }
       ]
     }

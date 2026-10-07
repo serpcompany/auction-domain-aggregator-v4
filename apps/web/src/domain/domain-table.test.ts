@@ -46,6 +46,7 @@ describe('domain table filters', () => {
       majesticCfMin: undefined,
       majesticRefDomainsMin: undefined,
       semrushAsMin: undefined,
+      domainRatingMin: undefined,
       endingWithin: undefined,
       sort: 'endsAt',
       direction: 'asc',
@@ -198,6 +199,7 @@ describe('domain table links and sort direction', () => {
     majesticCfMin: '15',
     majesticRefDomainsMin: '20',
     semrushAsMin: '5',
+    domainRatingMin: '30',
     endingWithin: '24h',
     sort: 'domain',
     direction: 'asc',
@@ -230,6 +232,7 @@ describe('domain table links and sort direction', () => {
       majesticCfMin: '15',
       majesticRefDomainsMin: '20',
       semrushAsMin: '5',
+      domainRatingMin: '30',
       endingWithin: '24h',
       sort: 'domain',
       direction: 'asc',
@@ -265,6 +268,7 @@ describe('domain table links and sort direction', () => {
       majesticCfMin: undefined,
       majesticRefDomainsMin: undefined,
       semrushAsMin: undefined,
+      domainRatingMin: undefined,
       endingWithin: undefined,
       sort: 'bids',
       direction: 'desc',
@@ -404,6 +408,7 @@ describe('domain table filter summaries', () => {
     majesticCfMin: '15',
     majesticRefDomainsMin: '20',
     semrushAsMin: '5',
+    domainRatingMin: '30',
     sort: 'price',
     direction: 'desc',
     page: '4'
@@ -425,14 +430,15 @@ describe('domain table filter summaries', () => {
       'majesticTfMin',
       'majesticCfMin',
       'majesticRefDomainsMin',
-      'semrushAsMin'
+      'semrushAsMin',
+      'domainRatingMin'
     ]) {
       expect(hasActiveDomainTableFilters(parseDomainTableFilters({ [metric]: '1' }))).toBe(true)
     }
   })
 
   it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(14)
+    expect(countAdvancedDomainTableFilters(active)).toBe(15)
     expect(
       countAdvancedDomainTableFilters(
         parseDomainTableFilters({
@@ -469,7 +475,8 @@ describe('domain table filter summaries', () => {
       'Majestic TF: 10+',
       'Majestic CF: 15+',
       'Referring domains: 20+',
-      'SEMrush AS: 5+'
+      'SEMrush AS: 5+',
+      'Ahrefs DR: 30+'
     ])
 
     const priceRemoval = new URL(

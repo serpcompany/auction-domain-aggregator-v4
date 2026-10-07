@@ -49,7 +49,7 @@ describe.each(DEPLOYED_ENVIRONMENTS)('the %s environment', env => {
     expect(web.r2_buckets).toEqual([])
   })
 
-  it('has a sync Worker with its own Workflow, R2 bucket, and the same D1', () => {
+  it('has a sync Worker with its own Workflows, R2 bucket, and the same D1', () => {
     expect(sync.name).toBe(`auction-domain-aggregator-ingestion-${env}`)
     expect(sync.workers_dev).toBe(false)
     expect(sync.preview_urls).toBe(false)
@@ -59,6 +59,11 @@ describe.each(DEPLOYED_ENVIRONMENTS)('the %s environment', env => {
         name: `auction-domain-aggregator-provider-sync-${env}`,
         binding: 'PROVIDER_SYNC',
         class_name: 'ProviderSyncWorkflow'
+      },
+      {
+        name: `auction-domain-aggregator-domain-rating-${env}`,
+        binding: 'DOMAIN_RATING',
+        class_name: 'DomainRatingWorkflow'
       }
     ])
     expect(sync.r2_buckets).toEqual([

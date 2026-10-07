@@ -7,11 +7,12 @@ import {
   type FetchDomainRatings
 } from './domain-rating'
 
-const DOMAIN = /^(?=.{1,253}$)[a-z0-9-]+(?:\.[a-z0-9-]+)+$/
+// A normalized name Ahrefs can be asked about.
+export const RATEABLE_DOMAIN = /^(?=.{1,253}$)[a-z0-9-]+(?:\.[a-z0-9-]+)+$/
 
 const requestSchema = z
   .object({
-    domains: z.array(z.string().regex(DOMAIN)).min(1).max(DOMAIN_RATING_REQUEST_LIMIT)
+    domains: z.array(z.string().regex(RATEABLE_DOMAIN)).min(1).max(DOMAIN_RATING_REQUEST_LIMIT)
   })
   .strict()
 

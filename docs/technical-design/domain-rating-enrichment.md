@@ -2,18 +2,18 @@
 
 Status: Implemented locally
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
-Ahrefs Domain Rating (DR) is the one value the web application fetches from a provider. This leaf records how the request path stays bounded and how stored DR differs from feed-published metrics. The licence terms are in [Ahrefs licensing](../references/data-licensing/ahrefs.md); why it is on demand is in the [completed plan](../plans/completed/ahrefs-domain-rating.md).
+Ahrefs Domain Rating (DR) is the one value the web application fetches from a provider. It reaches D1 two ways: on demand for the rows on screen, and from a daily backfill that rates every listed domain. This leaf records how both stay bounded and how stored DR differs from feed-published metrics. The licence terms are in [Ahrefs licensing](../references/data-licensing/ahrefs.md); why it started on demand is in the [completed plan](../plans/completed/ahrefs-domain-rating.md).
 
 ## Rules
 
-- DR is fetched only for the rows on screen, never for the whole inventory, so it cannot be filtered or sorted across the inventory. This follows the licence's anti-harvesting clause.
-- `POST /api/enrichment/domain-rating` is the only request path that calls a provider. Page rendering stays D1-only.
-- A stored DR is write-once and never refreshed by scheduled work. Feed-published Majestic and SEMrush metrics are different: every sync replaces them ([Data ingestion](data-ingestion.md#feed-published-seo-metrics)).
+- DR is fetched for the rows on screen and, since 2026-10-08, for the whole inventory by a daily backfill, so it can be filtered and sorted like the feed metrics. The owner chose the backfill knowing the licence forbids harvesting DR "in bulk or systematically" to build a competing dataset; the question to Ahrefs is still open ([Ahrefs licensing](../references/data-licensing/ahrefs.md)).
+- `POST /api/enrichment/domain-rating` is the only request path that calls a provider. Page rendering stays D1-only. The backfill runs in the ingestion Worker.
+- A stored DR is write-once and never refreshed, by either path. Feed-published Majestic and SEMrush metrics are different: every sync replaces them ([Data ingestion](data-ingestion.md#feed-published-seo-metrics)).
 - `domain_metrics` is keyed by `(domain_name, metric)`; `ahrefs_dr` is the only metric. A later listing for the same domain reuses the stored value.
 - Every displayed value sits under the "Domain Rating by Ahrefs" attribution linked to `https://ahrefs.com/`.
-- The key is `AHREFS_API_KEY` in the app Worker's env (`apps/web/.dev.vars` locally). Without it the route answers a fixed error and cells keep showing "not collected".
+- The key is `AHREFS_API_KEY` in the app Worker's env and the ingestion Worker's (`apps/web/.dev.vars` locally for both). Without it the route answers a fixed error and cells keep showing "not collected", and the backfill instance fails with `ahrefs_missing_credentials`.
 
 ## Request path
 
@@ -31,8 +31,22 @@ The table read treats `ok` and `not_found` as fetched, and also an `omitted` row
 
 When a request finds every domain held by another one, it stores nothing and does not refresh. If the request holding them belonged to a page the person has left, the ratings appear on the next view.
 
+## Daily backfill
+
+The ingestion Worker's daily Cron Trigger also starts one `domain-rating` Workflow instance (`apps/web/src/server/enrichment/domain-rating-backfill.ts`, entry in `sync-worker.ts`). It first sleeps an hour, so the provider syncs it starts with have stored the day's new listings. Then each step:
+
+1. Waits out any cool-down in `ahrefs_requests`, sleeping as long as it has left.
+2. Selects up to 1,000 domains (the endpoint's maximum) in name order after the last one it rated, that have a listing open now and no `ok` or `not_found` row, nor an `omitted` or `pending` row still waiting. The query walks `auction_listings_domain_name_idx` from that cursor, so a run reads the inventory once however much is already rated; `+status` and `+ends_at` keep SQLite on that index.
+3. Passes over names the route's validation would reject, then calls Ahrefs once and records the call and its results exactly as step 5 above. It makes no claims, which halves its D1 writes: it skips domains the route has claimed, and stored results are write-once, so an overlap costs at most one extra lookup.
+4. Sleeps 2 seconds before the next call. A 429 sets the shared cool-down, which the next step waits out; a rejected key ends the instance with `ahrefs_unauthorized`; any other failure is retried after 1, 2, then 4 minutes, and then ends the instance.
+
+A run stops after 1,000 calls (1,000,000 domains, about two hours), and a rate-limited call counts toward that, so a run Ahrefs keeps refusing still ends. It logs `domain_rating_backfill` with its call, request, and write counts, and returns them. The first runs rate the existing inventory (about 2 million domains locally, so two daily runs); after that a run rates the day's new domains, about 165 calls. Each rated domain costs about two D1 row writes (the row and its key index).
+
+`corepack pnpm sync ahrefs-dr` runs the same Workflow locally; it reads `AHREFS_API_KEY` from `apps/web/.dev.vars`. A name Ahrefs answers with an HTTP error for a whole batch would fail each day's run at the same place; the fix then is to bisect the batch, which is not built yet.
+
 ## Gaps
 
 - The route has no access control of its own. On Staging and Production the whole website is owner-only behind Cloudflare Access ([Deployment](deployment.md)); payment-gated access arrives with accounts (#27). Each deployed website calls Ahrefs only once the owner sets its `AHREFS_API_KEY` secret.
-- Ahrefs calls are not paced beyond the claim and the cool-down; they are not yet on the shared provider pacer ([Provider rate limits](provider-rate-limits.md)).
+- On-demand calls are not paced beyond the claim and the cool-down. The backfill paces its own calls 2 seconds apart; Ahrefs publishes no limit for this endpoint ([Provider rate limits](provider-rate-limits.md)).
+- A stored DR is never refreshed. DR changes slowly, but a refresh (re-rating the oldest ratings each day) is the next step if the values go stale.
 - Majestic Topic is not planned (#19).

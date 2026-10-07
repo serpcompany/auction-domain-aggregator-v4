@@ -85,9 +85,22 @@ export async function enrichDomainRatings(
     signal.throwIfAborted()
   }
 
+  const stored = await rateDomains(store, fetchRatings, claimed, { startedAt, now })
+  return { requested: claimed.length, stored }
+}
+
+// Asks Ahrefs once for the given domains and writes the answer together with
+// the call's log row; returns how many results were written. A failed call is
+// logged, with a cool-down after a 429, and rethrown.
+export async function rateDomains(
+  store: Pick<DomainRatingStore, 'record'>,
+  fetchRatings: FetchDomainRatings,
+  domains: string[],
+  { startedAt, now }: { startedAt: Date; now: () => Date }
+): Promise<number> {
   let ratings: Map<string, number | null>
   try {
-    ratings = await fetchRatings(claimed)
+    ratings = await fetchRatings(domains)
   } catch (error) {
     const code = error instanceof AhrefsError ? error.code : 'enrichment_failed'
     const coolDownSeconds =
@@ -100,7 +113,7 @@ export async function enrichDomainRatings(
     await store.record(
       {
         requestedAt: startedAt,
-        domainCount: claimed.length,
+        domainCount: domains.length,
         outcome: code,
         coolDownUntil:
           coolDownSeconds === null ? null : new Date(now().getTime() + coolDownSeconds * 1000)
@@ -111,7 +124,7 @@ export async function enrichDomainRatings(
   }
 
   const answeredAt = now()
-  const results = claimed.map((domainName): DomainRatingResult => {
+  const results = domains.map((domainName): DomainRatingResult => {
     const value = ratings.get(domainName)
     if (value === undefined) {
       return {
@@ -123,9 +136,8 @@ export async function enrichDomainRatings(
     }
     return { domainName, status: value === null ? 'not_found' : 'ok', value, retryAfter: null }
   })
-  const stored = await store.record(
-    { requestedAt: startedAt, domainCount: claimed.length, outcome: 'ok', coolDownUntil: null },
+  return store.record(
+    { requestedAt: startedAt, domainCount: domains.length, outcome: 'ok', coolDownUntil: null },
     results
   )
-  return { requested: claimed.length, stored }
 }
