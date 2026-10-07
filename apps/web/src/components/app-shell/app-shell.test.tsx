@@ -7,7 +7,8 @@ import { ThemeProvider } from '@/components/app-shell/theme-provider'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { TooltipProvider } from '@/components/ui/tooltip'
 
-vi.mock('next/navigation', () => ({ usePathname: () => '/' }))
+let pathname = '/'
+vi.mock('next/navigation', () => ({ usePathname: () => pathname }))
 
 beforeAll(() => {
   // jsdom has no matchMedia; the stock sidebar asks it whether the viewport is a phone.
@@ -20,14 +21,14 @@ beforeAll(() => {
   })
 })
 
-function Shell() {
+function Shell({ parent }: { parent?: { label: string; href: string } }) {
   return (
     <ThemeProvider attribute="class">
       <TooltipProvider>
         <SidebarProvider>
           <AppSidebar />
           <SidebarInset>
-            <SiteHeader title="Auctions">
+            <SiteHeader title={parent ? 'Filters' : 'Auctions'} parent={parent}>
               <span>Synced 2 minutes ago</span>
             </SiteHeader>
           </SidebarInset>
@@ -53,6 +54,27 @@ describe('app shell', () => {
     expect(sidebar.queryByRole('link', { name: 'Sync status' })).not.toBeInTheDocument()
   })
 
+  it('keeps Auctions marked on the Filters page and on no other page', () => {
+    pathname = '/filters/'
+    const { container, unmount } = render(<Shell />)
+    const link = () =>
+      within(container.querySelector('[data-slot="sidebar"]') as HTMLElement).getByRole('link', {
+        name: 'Auctions'
+      })
+    expect(link()).toHaveAttribute('data-active')
+    unmount()
+
+    pathname = '/syncs/'
+    const other = render(<Shell />)
+    expect(
+      within(other.container.querySelector('[data-slot="sidebar"]') as HTMLElement).getByRole(
+        'link',
+        { name: 'Auctions' }
+      )
+    ).not.toHaveAttribute('data-active')
+    pathname = '/'
+  })
+
   it('puts the trigger, the page title, page status, and the theme toggle in the header', () => {
     render(<Shell />)
 
@@ -64,5 +86,19 @@ describe('app shell', () => {
     )
     expect(within(header).getByText('Synced 2 minutes ago')).toBeInTheDocument()
     expect(within(header).getByRole('button', { name: 'Toggle dark mode' })).toBeInTheDocument()
+  })
+
+  it('links a parent page in the breadcrumb', () => {
+    render(<Shell parent={{ label: 'Auctions', href: '/?sort=price' }} />)
+
+    const breadcrumb = screen.getByRole('navigation', { name: 'breadcrumb' })
+    expect(within(breadcrumb).getByRole('link', { name: 'Auctions' })).toHaveAttribute(
+      'href',
+      '/?sort=price'
+    )
+    expect(within(breadcrumb).getByRole('link', { name: 'Filters' })).toHaveAttribute(
+      'aria-current',
+      'page'
+    )
   })
 })

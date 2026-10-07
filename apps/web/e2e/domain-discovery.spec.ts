@@ -16,6 +16,26 @@ test('applies the URL trailing-slash rule in the Worker entry', async ({ request
   }
 })
 
+test('edits every filter on the Filters page and applies them to the results', async ({ page }) => {
+  await page.goto('/filters/?tld=com&sort=price&direction=desc&page=3')
+
+  await expect(page.getByRole('heading', { level: 1, name: 'Filters' })).toBeVisible()
+  await expect(page.getByText('1 filter set')).toBeVisible()
+  await page.getByLabel('Min bids').fill('1')
+  await page.getByLabel('Minimum length (characters)').fill('20')
+  await page.getByLabel('Maximum length (characters)').fill('5')
+  await expect(page.getByText('Fix the domain length range to apply')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Show results' })).toBeDisabled()
+
+  await page.getByLabel('Maximum length (characters)').fill('')
+  await page.getByLabel('Minimum length (characters)').fill('')
+  await expect(page.getByText('2 filters set')).toBeVisible()
+  await page.getByRole('button', { name: 'Show results' }).click()
+
+  await expect(page).toHaveURL(/\/\?tld=com&bidsMin=1&sort=price&direction=desc&page=1$/)
+  await expect(page.getByRole('link', { name: 'Remove Bids: 1+ filter' })).toBeVisible()
+})
+
 test('serves the deterministic domain inventory with a healthy database', async ({
   page,
   request

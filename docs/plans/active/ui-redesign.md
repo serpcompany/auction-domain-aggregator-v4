@@ -26,7 +26,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [ ] Milestone 0 (#59): owner approves the spec PR.
 - [x] (2026-10-07) Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
 - [ ] Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
-- [ ] Milestone 2b (#55): Filters page at `/filters/`.
+- [x] (2026-10-07) Milestone 2b (#55), done before Milestone 2 so the toolbar's All filters button has a target: Filters page at `/filters/`.
 - [ ] Milestone 3 (#56): details panel and the phone layout.
 - [ ] Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
 - [ ] Milestone 5 (#58): Sync status screen.
@@ -164,7 +164,7 @@ Replace the page body with the approved desktop design. Components live in `apps
 - Table: renders only the chosen columns. A header group row for Majestic (TF, CF, referring domains), Semrush (AS), and "Domain Rating by Ahrefs" (DR, linked to `https://ahrefs.com/`, as the licence requires) shrinks or disappears with its columns; single-line 40-pixel rows; sortable headers as Next links with `aria-sort`; sticky header and Domain column; the table frame is the scroll region and the page itself does not scroll at desktop sizes. Ends shows the relative time colored by urgency and the absolute UTC time beside it.
 - Pagination: "Showing 1–50 of N", "Page X of Y", and first, previous, next, last as Next links styled with `buttonVariants` (the stock `PaginationLink` hydration issue is recorded in the technology-stack document).
 
-Delete `domain-discovery.tsx` and `domain-results-table.tsx` in this milestone. `domain-filters.tsx` goes in Milestone 2b. Delete their test file, and replace them with tests per component. Rewrite the three Playwright journeys for the new markup without weakening what they assert.
+Delete `domain-discovery.tsx` and `domain-results-table.tsx` in this milestone. Milestone 2b (#55) landed first, so `domain-filters.tsx` goes here too. Delete their test file, and replace them with tests per component. Rewrite the three Playwright journeys for the new markup without weakening what they assert.
 
 ### Milestone 2b: Filters page
 

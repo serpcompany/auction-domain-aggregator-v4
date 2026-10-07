@@ -18,7 +18,10 @@ import {
 } from '@/components/ui/sidebar'
 
 // Only built screens appear here; later milestones add Sync status.
-const discoverItems = [{ title: 'Auctions', href: '/', icon: GavelIcon }]
+const discoverItems = [
+  // The Filters page belongs to Auctions.
+  { title: 'Auctions', href: '/', icon: GavelIcon, activeFor: ['/', '/filters/'] }
+]
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname()
@@ -48,7 +51,7 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
               <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton
                   tooltip={item.title}
-                  isActive={pathname === item.href}
+                  isActive={item.activeFor.includes(pathname)}
                   render={<Link href={item.href} />}
                 >
                   <item.icon aria-hidden="true" />
