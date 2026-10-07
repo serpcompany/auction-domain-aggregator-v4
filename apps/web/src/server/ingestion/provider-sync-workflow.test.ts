@@ -20,6 +20,7 @@ import { buildZipFixture } from './zip-fixture'
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  vi.restoreAllMocks()
 })
 
 function nonRetryableError(code: string) {
@@ -225,15 +226,15 @@ describe('provider sync workflow', () => {
 
     await expect(run('godaddy')).resolves.toEqual(TWENTY_ONE_PAGES)
     expect(steps.names()).toEqual([
-      'stage feed',
       'start run',
+      'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 2',
       'delete staged pages'
     ])
     expect(steps.steps.map(step => step.config)).toEqual([
-      STAGE_STEP,
       SYNC_STEP,
+      STAGE_STEP,
       SYNC_STEP,
       SYNC_STEP,
       CLEANUP_STEP
@@ -264,7 +265,7 @@ describe('provider sync workflow', () => {
     expect(fetchImpl.mock.calls[0]![0]).toBe(
       'https://d3ry1h4w5036x1.cloudfront.net/reports/Namecheap_Market_Sales.csv'
     )
-    expect(steps.names()[0]).toBe('stage feed')
+    expect(steps.names().slice(0, 2)).toEqual(['start run', 'stage feed'])
     expect(stores.get('namecheap')!.listings.size).toBe(2_001)
     expect(bucket.objects.size).toBe(0)
   })
@@ -424,11 +425,15 @@ describe('provider sync workflow', () => {
     expect(failed.nonRetryable).not.toHaveBeenCalled()
     expect(failed.fetchImpl).toHaveBeenCalledTimes(3)
     expect(failed.steps.names()).toEqual([
+      'start run',
       'stage feed',
       'stage feed',
       'stage feed',
+      'record failed run',
       'delete staged pages'
     ])
+    // The run was started first, so the failure shows on the Sync status page.
+    expect(failed.stores.get('godaddy')?.failures).toEqual(['feed_download_failed'])
 
     const empty = setup({ zip: await feedZip([]) })
     await expect(empty.run('godaddy')).rejects.toThrow('feed_empty')
@@ -449,8 +454,32 @@ describe('provider sync workflow', () => {
     await expect(flaky.run('godaddy')).resolves.toMatchObject({
       recordsUpserted: 1
     })
-    expect(flaky.steps.names().slice(0, 2)).toEqual(['stage feed', 'stage feed'])
+    expect(flaky.steps.names().slice(0, 3)).toEqual(['start run', 'stage feed', 'stage feed'])
     expect(flaky.nonRetryable).not.toHaveBeenCalled()
+  })
+
+  it('logs how long staging took and how long page writes waited', async () => {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {})
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const staged = setup({ zip: await feedZip([godaddyRecord(1)]) })
+    await expect(staged.run('godaddy')).resolves.toMatchObject({ recordsUpserted: 1 })
+    expect(info).toHaveBeenCalledWith('feed_staged', {
+      provider: 'godaddy',
+      seconds: expect.any(Number),
+      pagesWritten: 1,
+      averageWriteMs: expect.any(Number),
+      records: 1
+    })
+
+    const failed = setup({})
+    await expect(failed.run('godaddy')).rejects.toThrow('feed_download_failed')
+    expect(warn).toHaveBeenCalledWith('feed_stage_failed', {
+      provider: 'godaddy',
+      seconds: expect.any(Number),
+      pagesWritten: 0,
+      averageWriteMs: null,
+      code: 'feed_download_failed'
+    })
   })
 
   it('retries a download that drops while the zip header is read', async () => {
@@ -482,7 +511,13 @@ describe('provider sync workflow', () => {
     })
     await expect(renamed.run('godaddy')).rejects.toThrow('feed_unsupported_archive')
     expect(renamed.fetchImpl).toHaveBeenCalledTimes(1)
-    expect(renamed.steps.names()).toEqual(['stage feed', 'delete staged pages'])
+    expect(renamed.steps.names()).toEqual([
+      'start run',
+      'stage feed',
+      'record failed run',
+      'delete staged pages'
+    ])
+    expect(renamed.stores.get('godaddy')?.failures).toEqual(['feed_unsupported_archive'])
 
     // One record larger than the adapter's 10 MiB page limit.
     const huge = setup({
@@ -520,10 +555,10 @@ describe('provider sync workflow', () => {
     // run, so the result matches an uninterrupted sync.
     await expect(run('godaddy')).resolves.toEqual(TWENTY_ONE_PAGES)
     expect(steps.names()).toEqual([
-      'stage feed',
-      'stage feed',
       'start run',
       'start run',
+      'stage feed',
+      'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 1',
       'delete staged pages'
@@ -551,8 +586,8 @@ describe('provider sync workflow', () => {
       recordsUpserted: 1
     })
     expect(transient.steps.names()).toEqual([
-      'stage feed',
       'start run',
+      'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 1',
       'delete staged pages'

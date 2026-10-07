@@ -2,8 +2,8 @@
 // thin runtime entry (Workflow class and Cron Trigger); everything here takes
 // its step runner and bindings as arguments so it is tested directly.
 //
-//   [stage feed]                  file feeds only: zip or CSV -> R2 page files
 //   start run                     a new running row in D1
+//   [stage feed]                  file feeds only: zip or CSV -> R2 page files
 //   sync pages, segment 1..n      runSyncSegment over 20 pages per step
 //   [delete staged pages]         file feeds only, also after a failure
 //
@@ -30,7 +30,8 @@ import {
   createR2PageSource,
   deleteFeedPages,
   type FeedPageBucket,
-  feedPagesPrefix
+  feedPagesPrefix,
+  timePageWrites
 } from './feed-pages'
 import { type FeedErrorCode, feedErrorCode, stageZippedFeed } from './feed-stage'
 import {
@@ -87,8 +88,10 @@ export const CLEANUP_STEP: StepConfig = {
 }
 
 const SEGMENT_PAGES = 20
-// GoDaddy's archive is about 37 MB zipped and 450 MB unzipped.
-const FEED_DOWNLOAD_TIMEOUT_MS = 10 * 60_000
+// GoDaddy's archive is about 37 MB zipped and 450 MB unzipped. The download
+// is read while its pages are written, so it gets most of the stage step's
+// 15 minutes.
+const FEED_DOWNLOAD_TIMEOUT_MS = 14 * 60_000
 const FEED_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024
 const FEED_DOCUMENT_MAX_BYTES = 4 * 1024 * 1024 * 1024
 // Namecheap's CSV is about 194 MB.
@@ -163,39 +166,9 @@ export async function runProviderSync({
     : createD1IngestionStorage(drizzle(env.DB, { schema }), provider)
 
   const stageAndSync = async (): Promise<SyncSummary> => {
-    if (fileFeed && prefix) {
-      await step.do('stage feed', STAGE_STEP, async () => {
-        const common = {
-          url: fileFeed.url,
-          pageSize: fileFeed.pageSize,
-          limits: {
-            maxPages: fileFeed.maxPages,
-            maxPageBytes: fileFeed.maxPageBytes
-          },
-          timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
-          sink: createR2PageSink(bucket, prefix),
-          fetchImpl: dependencies.fetchImpl
-        }
-        try {
-          return fileFeed.format === 'csv'
-            ? await stageCsvFeed({ ...common, maxBytes: FEED_CSV_MAX_BYTES })
-            : await stageZippedFeed({
-                ...common,
-                entry: fileFeed.entry,
-                field: fileFeed.field,
-                maxArchiveBytes: FEED_ARCHIVE_MAX_BYTES,
-                maxDocumentBytes: FEED_DOCUMENT_MAX_BYTES
-              })
-        } catch (error) {
-          const code = feedErrorCode(error)
-          if (!code) throw nonRetryable('feed_stage_failed')
-          throw RETRYABLE_FEED_ERRORS.has(code) ? new Error(code) : nonRetryable(code)
-        }
-      })
-    }
-
-    // A failure here (a D1 error) changed nothing that a retry would not
-    // replace, so it is retried.
+    // Started before staging, so the Sync status page shows a feed that is
+    // downloading, and one that fails to stage. A failure here (a D1 error)
+    // changed nothing that a retry would not replace, so it is retried.
     let runId = await step.do('start run', SYNC_STEP, async () => {
       try {
         return await startSyncRun(storage)
@@ -211,6 +184,54 @@ export async function runProviderSync({
           recorded: await failSyncRun(storage, failedRunId, code)
         }))
         .catch(() => undefined)
+    }
+    if (fileFeed && prefix) {
+      try {
+        await step.do('stage feed', STAGE_STEP, async () => {
+          const writes = timePageWrites(createR2PageSink(bucket, prefix))
+          const common = {
+            url: fileFeed.url,
+            pageSize: fileFeed.pageSize,
+            limits: {
+              maxPages: fileFeed.maxPages,
+              maxPageBytes: fileFeed.maxPageBytes
+            },
+            timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
+            sink: writes.sink,
+            fetchImpl: dependencies.fetchImpl
+          }
+          // Workers Logs shows how long staging took and how long each page
+          // write waited, so a slow download and slow writes can be told apart.
+          const started = Date.now()
+          const timing = () => ({
+            provider,
+            seconds: Math.round((Date.now() - started) / 1000),
+            ...writes.stats()
+          })
+          try {
+            const staged =
+              fileFeed.format === 'csv'
+                ? await stageCsvFeed({ ...common, maxBytes: FEED_CSV_MAX_BYTES })
+                : await stageZippedFeed({
+                    ...common,
+                    entry: fileFeed.entry,
+                    field: fileFeed.field,
+                    maxArchiveBytes: FEED_ARCHIVE_MAX_BYTES,
+                    maxDocumentBytes: FEED_DOCUMENT_MAX_BYTES
+                  })
+            console.info('feed_staged', { ...timing(), records: staged.records })
+            return staged
+          } catch (error) {
+            const code = feedErrorCode(error)
+            console.warn('feed_stage_failed', { ...timing(), code: code ?? 'feed_stage_failed' })
+            if (!code) throw nonRetryable('feed_stage_failed')
+            throw RETRYABLE_FEED_ERRORS.has(code) ? new Error(code) : nonRetryable(code)
+          }
+        })
+      } catch (error) {
+        await recordFailedRun(fixedErrorCode(error))
+        throw error
+      }
     }
     // `waits` counts the provider-requested waits within the current segment.
     for (let segment = 1, waits = 0; ; ) {

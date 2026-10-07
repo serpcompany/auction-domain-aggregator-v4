@@ -35,6 +35,24 @@ export function createR2PageSink(bucket: FeedPageBucket, prefix: string): FeedPa
   }
 }
 
+// Counts page writes and their total wait, for the staging log.
+export function timePageWrites(sink: FeedPageSink) {
+  let count = 0
+  let milliseconds = 0
+  return {
+    sink: (async (page, body) => {
+      const started = Date.now()
+      await sink(page, body)
+      count += 1
+      milliseconds += Date.now() - started
+    }) satisfies FeedPageSink,
+    stats: () => ({
+      pagesWritten: count,
+      averageWriteMs: count === 0 ? null : Math.round(milliseconds / count)
+    })
+  }
+}
+
 export function createR2PageSource(bucket: FeedPageBucket, prefix: string): FeedPageSource {
   return {
     async readPage(page, maxBytes) {

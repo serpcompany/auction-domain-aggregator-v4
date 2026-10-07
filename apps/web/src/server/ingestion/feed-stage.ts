@@ -653,9 +653,15 @@ export type FeedPageLimits = {
   maxPageBytes?: number
 }
 
+// A deployed Worker waits over a second for each R2 put, so writing pages
+// one at a time made the download outlast its timeout. Six is the Workers
+// limit on connections waiting for response headers; more would only queue.
+export const PAGE_WRITES_IN_FLIGHT = 6
+
 // Groups records into pages of `pageSize`. A full page is held back until
 // the next record arrives, so the final page is always marked `isLastPage`,
-// even when the record count is an exact multiple of the page size.
+// even when the record count is an exact multiple of the page size. Up to
+// `PAGE_WRITES_IN_FLIGHT` pages are written at once; `finish` waits for all.
 export function createPageWriter(
   pageSize: number,
   sink: FeedPageSink,
@@ -668,24 +674,36 @@ export function createPageWriter(
   let held: RawElement[] | null = null
   let pages = 0
   let records = 0
+  const inFlight = new Set<Promise<void>>()
+  let writeFailed = false
+
+  // Waits until at most `limit` writes are in flight, then reports a failed
+  // one. Writing a page again under the same key is safe, so it is retried.
+  const settle = async (limit: number) => {
+    while (inFlight.size > limit) await Promise.race(inFlight)
+    if (writeFailed) throw new FeedError('feed_page_write_failed')
+  }
 
   const write = async (pageRecords: RawElement[], isLastPage: boolean) => {
     pages += 1
     if (pages > maxPages) throw new FeedError('feed_too_large')
     const body = pageBody(pages, isLastPage, pageRecords)
     if (body.byteLength > maxPageBytes) throw new FeedError('feed_too_large')
-    try {
-      await sink(pages, body)
-    } catch {
-      // Writing a page again under the same key is safe, so this is retried.
-      throw new FeedError('feed_page_write_failed')
-    }
+    await settle(PAGE_WRITES_IN_FLIGHT - 1)
+    const page = pages
+    const pending: Promise<void> = Promise.resolve()
+      .then(() => sink(page, body))
+      .catch(() => {
+        writeFailed = true
+      })
+      .finally(() => inFlight.delete(pending))
+    inFlight.add(pending)
   }
 
   return {
     // Adds a record and returns a page that is now complete and not last,
     // if any. The caller writes it with `flush` before reading more input,
-    // so at most two pages are buffered.
+    // so at most two pages wait to be written.
     add(record: RawElement): RawElement[] | null {
       records += 1
       current.push(record)
@@ -706,6 +724,7 @@ export function createPageWriter(
       } else {
         await write(held ?? current, true)
       }
+      await settle(0)
       return { pages, records }
     }
   }
