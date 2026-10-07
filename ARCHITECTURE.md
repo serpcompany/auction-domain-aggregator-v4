@@ -2,11 +2,13 @@
 
 ## Status
 
-This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 (`docs/technical-design/production-sync.md`). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
+This document maps the current application and its stable boundaries. Dynadot, GoDaddy, and Namecheap auction ingestion (a cron-started Cloudflare Workflow per provider), the feeds' per-domain SEO metrics, on-demand Ahrefs DR, and the D1-backed discovery table are implemented and verified locally with Wrangler. Only the sync is deployed: CI deploys the ingestion Worker's production environment and migrates its D1 ([Production sync](docs/technical-design/production-sync.md)). The website has no deployed environment until accounts and payments (#27). Other auction providers are not implemented yet.
+
+How each part behaves in detail is in the [technical design](docs/technical-design/README.md); this document keeps only what is unlikely to change.
 
 ## System purpose
 
-The system collects auction and expired-domain listings, stores normalized data locally, and presents active listings in a filterable and sortable table. The user leaves the application to complete auction activity on the provider's listing page.
+The system collects auction and expired-domain listings, stores normalized data in D1, and presents active listings in a filterable and sortable table. The user leaves the application to complete auction activity on the provider's listing page.
 
 ## Current system flow
 
@@ -15,8 +17,8 @@ daily Cron Trigger (or local `pnpm sync <provider>`)
         |
         v
 ingestion Worker -> one `provider-sync` Workflow instance per provider
-        |   [stage feed]       file feeds: fetch zip -> inflate -> split `data`
-        |                      array -> 1,000-record page files in R2
+        |   [stage feed]       file feeds: download -> split into
+        |                      page files in R2
         |   sync segments      provider adapter (API, or R2 pages) -> bounded,
         |                      guarded D1 upserts; reconciliation on success
         |   [delete pages]     file feeds: remove the instance's R2 prefix
@@ -35,34 +37,23 @@ ingestion Worker -> one `provider-sync` Workflow instance per provider
 
 ### Next.js application
 
-`apps/web/src/app/page.tsx` normalizes URL search parameters, asks `apps/web/src/server/queries/domain-listings.ts` for active listings, server-renders `apps/web/src/components/auctions/auctions-page.tsx`. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only the facet values and the current page cross into the UI. Which table columns show is a per-browser choice in the `columns` cookie, read by the page so the server renders only those columns; it is not part of the URL.
+The page normalizes URL search parameters into one filter value, asks the server-only query boundary for active listings, and server-renders the Auctions page. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only the facet values and the current page cross into the UI. Which table columns show is a per-browser choice in the `columns` cookie, read by the server; it is not part of the URL.
 
-TLD and domain length are SQLite-generated, indexed columns of `auction_listings`; hyphen and digit presence are query expressions over the normalized name. The read model applies OR within repeated source, auction-type, and TLD values and AND across filter families. The filter-independent facets (sources, auction types, every TLD) are not grouped per request: each successful sync rebuilds the `listing_facets` read model, and a request reads it. Count, page, facet, and freshness reads remain sequential because concurrent local D1 snapshots previously produced locking failures. The page reads the facets and freshness first (`queryInventoryStatus`), renders the toolbar and header at once, then starts the listing query and streams the results behind a skeleton in a `Suspense` boundary keyed by the URL, so every filter, sort, and page change shows the skeleton too. `apps/web/src/app/error.tsx` catches a failed read. The full read behavior and measured index decision are recorded in `docs/technical-design/domain-discovery.md`.
+Filter-independent facets (sources, auction types, every TLD) are a read model, `listing_facets`, that each successful sync rebuilds; requests read it rather than grouping the inventory. Reads remain sequential, because concurrent local D1 snapshots produced locking failures. The page streams the results behind a skeleton in a `Suspense` boundary keyed by the URL. The read behavior, the derived TLD and length columns, and the measured index decisions are in [Domain discovery](docs/technical-design/domain-discovery.md).
 
-The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points. The one exception is `POST /api/enrichment/domain-rating`, described below.
+The request boundary is D1-only: normal page and health requests may construct the server-side Drizzle client and query D1, but must not import or call provider networking or ingestion entry points. The one exception is `POST /api/enrichment/domain-rating`, below.
 
 ### Auction ingestion
 
-Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps/web/src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one instance of the `provider-sync` Workflow for each provider in `apps/web/src/server/providers/registry.ts`; Dynadot and GoDaddy are implemented. `sync-worker.ts` is a thin runtime adapter; the steps live in `apps/web/src/server/ingestion/provider-sync-workflow.ts`. Workflow steps replace the earlier loopback HTTP continuation loop: each step gets its own CPU budget, its result is persisted, and the platform retries an interrupted step. `corepack pnpm sync <provider>` runs the same Workflow inside a temporary local `wrangler dev` (`apps/web/scripts/sync-provider.ts`).
+Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps/web/src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one instance of the `provider-sync` Workflow for each provider in `apps/web/src/server/providers/registry.ts`. The Worker entry only adapts the runtime; the steps live in `provider-sync-workflow.ts`. Each step gets its own CPU budget, its result is persisted, and the platform retries an interrupted step. `corepack pnpm sync <provider>` runs the same Workflow inside a temporary local `wrangler dev`.
 
-Adapters implement `ProviderAdapter` from `apps/web/src/server/providers/types.ts`: they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `apps/web/src/server/ingestion/sync.ts` defines provider-neutral synchronization behavior, run by the Workflow as a `start run` step and then segments of 20 pages per step. Continuation state is server-owned in D1, so a segment that runs again resumes the same run from its last committed page. `apps/web/src/server/ingestion/d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so a provider's run never reconciles or interrupts another provider's listings or runs; only the facet rebuild at a successful finalization reads every provider's active listings. Provider responses are runtime-validated and normalized before persistence. Domains and listings are upserted in bounded batches. Missing listings become inactive only in the same atomic finalization as a successful complete run, which also rebuilds `listing_facets` from the reconciled inventory, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
+Adapters implement `ProviderAdapter` (`apps/web/src/server/providers/types.ts`): they fetch one numbered page, return normalized listings with raw received and rejected counts, and decide whether it is the last page. `sync.ts` defines provider-neutral synchronization, run in segments of pages per Workflow step. Continuation state is server-owned in D1, so a segment that runs again resumes the same run from its last committed page. `d1-storage.ts` owns D1 writes and reconciliation for storage bound to one provider, so one provider's run never reconciles or interrupts another's. Missing listings become inactive only in the same atomic finalization as a successful complete run, and a guard fails the run instead when too many still-running auctions would disappear at once. Individual invalid provider records are skipped and counted rather than failing the run.
 
-GoDaddy publishes no paged API for its inventory, only a daily zipped JSON file of about 600,000 listings (37 MB zipped, 450 MB unzipped). Its registry entry declares a file feed. The Workflow's first step streams the archive with `fetch`, reads the zip entry from its local header, inflates it with `DecompressionStream('deflate-raw')`, splits the `data` array with a byte-level scanner, and writes 1,000-record page files marked with `isLastPage` to the `FEED_PAGES` R2 bucket under the instance's own prefix (`apps/web/src/server/ingestion/feed-stage.ts`, `feed-pages.ts`). The GoDaddy adapter reads those pages through a `FeedPageSource`, and the run follows the same sync, storage, and reconciliation path as Dynadot. A final step deletes the prefix after success or failure. The whole stage measured about 3 to 8 seconds of Worker CPU and 10 MiB of heap, inside the configured 60-second step limit.
-
-Namecheap publishes its open market sales as one public CSV of about 1.1 million rows (194 MB), refreshed hourly. Its registry entry declares a `csv` file feed: the stage step shares the download, decodes the body as a stream, splits rows with a streaming RFC 4180 parser, and writes each row as a JSON object of its non-empty fields into 2,000-record page files with the same envelope (`apps/web/src/server/ingestion/feed-csv.ts`). Both feed adapters read pages through one staged-page reader (`apps/web/src/server/providers/staged-feed.ts`).
+A provider either has a paged API, paced to its declared rate limit, or publishes one file. A file feed is downloaded once per run and split into page files under the Workflow instance's own prefix in the `FEED_PAGES` R2 bucket; its adapter reads those pages and follows the same sync path. Dynadot is a paged API; GoDaddy (zipped JSON) and Namecheap (CSV) are file feeds. The details are in [Data ingestion](docs/technical-design/data-ingestion.md) and one leaf per provider.
 
 ### Domain enrichment
 
-Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `apps/web/src/components/auctions/domain-ratings.tsx` posts the visible domains that lack DR (only while the DR column is shown) to `POST /api/enrichment/domain-rating`.
-- That route is the only request path that calls a provider. It has no access control until #15.
-- It accepts at most 50 domains. `apps/web/src/server/enrichment/domain-rating.ts` claims, in one atomic D1 statement (`domain-rating-store.ts`), those with an active listing and no settled rating, so overlapping requests never ask Ahrefs for the same domain. A request aborted before the call makes none and gives its claims back.
-- Ratings come from Ahrefs' free `domain-rating-free` endpoint (`apps/web/src/server/enrichment/ahrefs.ts`) and are written once to `domain_metrics`. "No rating" is stored too, so it is not requested again. A domain Ahrefs leaves out of its answer is stored as `omitted` and asked for again after a week.
-- Every call is logged in `ahrefs_requests`. After a 429 the log row carries a cool-down, honoring `Retry-After`, during which the route answers 429 without calling Ahrefs.
-- When something is stored, the client refreshes the page, which re-renders from D1.
-- Details are in `docs/technical-design/domain-discovery.md`.
-- Every displayed value sits under the "Domain Rating by Ahrefs" attribution link that the DR licence requires (`docs/references/data-licensing.md`).
-
-Majestic Topic is not planned (#19).
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, the browser posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`, the only request path that calls a provider. It accepts at most 50 domains, claims them atomically in D1 so overlapping requests never ask Ahrefs for the same domain, logs every call, and honors a cool-down after a 429. The route has no access control; the website is not deployed until #27. Every displayed value sits under the "Domain Rating by Ahrefs" attribution link the DR licence requires ([Ahrefs licensing](docs/references/data-licensing/ahrefs.md)). Details are in [Ahrefs Domain Rating enrichment](docs/technical-design/domain-rating-enrichment.md). Majestic Topic is not planned (#19).
 
 ### Cloudflare D1
 
@@ -70,17 +61,18 @@ D1 is the current source of truth. `apps/web/src/server/db/schema.ts` defines:
 
 - `domains`: normalized domain identity and first-seen time.
 - `auction_listings`: provider/external-ID identity, domain foreign key, outbound URL, mutable auction fields, active state, first/last-seen times, and the generated `tld` and `domain_length` columns.
-- `listing_facets`: the source, auction-type, and TLD values of the active inventory, each with its latest end time; derived data that only a successful sync's finalization (and test fixtures) rewrites.
-- `domain_metrics`: domain enrichment keyed by domain and metric (`ahrefs_dr`). `ok` and `not_found` are write-once; `omitted` (no answer from Ahrefs) and `pending` (a claim by an in-flight request) hold the domain until `retry_after`.
-- `ahrefs_requests`: one row per call to Ahrefs with its time, domain count, outcome, and any 429 cool-down.
-- `domain_seo_metrics`: one row per domain of feed-published Majestic and SEMrush metrics in typed, indexed columns, with the publishing source. Every sync that carries metrics overwrites them (latest wins).
-- `ingestion_runs`: provider run status, server-owned next-page continuation, timestamps, counters, a fixed diagnostic code, and, when a page had too many invalid records, why they were rejected.
+- `listing_facets`: the source, auction-type, and TLD values of the active inventory; derived data that only a successful sync's finalization (and test fixtures) rewrites.
+- `domain_metrics`: on-demand domain enrichment keyed by domain and metric (`ahrefs_dr`), write-once once settled.
+- `ahrefs_requests`: one row per call to Ahrefs, with any 429 cool-down.
+- `domain_seo_metrics`: one row per domain of feed-published Majestic and SEMrush metrics; every sync that carries them overwrites them (latest wins).
+- `ingestion_runs`: provider run status, server-owned continuation, counters, a fixed diagnostic code, and why a page's records were rejected.
+- `ingestion_run_seen_pages`: the external IDs each page of a running sync returned, so reconciliation needs no write for unchanged listings; deleted when the run finishes.
 
-Generated migrations are in `apps/web/drizzle/`; `0001_smooth_alex_wilder.sql` adds persisted continuation state, and `0005_greedy_glorian.sql` adds `domain_seo_metrics` and makes `auction_listings.bidder_count` nullable, because GoDaddy publishes no bidder count. `0006_listing_tld_length_facets.sql` adds the generated columns, their indexes, and `listing_facets` with a one-time backfill. `0008_ahrefs_request_limits.sql` rebuilds `domain_metrics` for its new statuses and `retry_after`, and adds `ahrefs_requests`. `0009_run_rejection_reasons.sql` adds `ingestion_runs.rejection_reasons`. Both application and ingestion Wrangler configurations bind the same local-only database with `remote: false`.
+Reviewed generated migrations are in `apps/web/drizzle/`. The top level of both Wrangler configurations binds a local-only database (`remote: false`); only the ingestion Worker's `env.production` binds a remote one.
 
 ### Cloudflare R2 and Workflows
 
-The ingestion Worker binds `FEED_PAGES` (R2) for transient file-feed pages and `PROVIDER_SYNC` (the `provider-sync` Workflow). Both are local-only; R2 holds no durable data, and nothing user-facing reads it.
+The ingestion Worker binds `FEED_PAGES` (R2) for transient file-feed pages and `PROVIDER_SYNC` (the `provider-sync` Workflow). R2 holds no durable data, and nothing user-facing reads it.
 
 ## Architectural invariants
 
@@ -102,23 +94,21 @@ Every ingestion run records provider, start and completion times, outcome, page 
 
 D1 statements stay below its 100-bound-parameter limit, and a sync is segmented into Workflow steps so each fits a Worker invocation's CPU limit. Network calls, archive and document sizes, and page bodies have explicit time and size bounds, and every provider API declares a rate limit that its requests are paced to. Indexes follow the implemented table filters and sorts.
 
-Detailed behavior and verified ingestion evidence are in `docs/technical-design/data-ingestion.md`.
-
 ## Physical code map
 
-- `apps/web/worker.ts` is the Worker entry (Wrangler `main`). It wraps the OpenNext handler in `apps/web/src/lib/app-worker.ts`, which applies the URL trailing-slash rule from `apps/web/src/lib/trailing-slash.ts`, then hands the request to OpenNext. Unless `APP_ENV` is `production`, every response carries `X-Robots-Tag: noindex, nofollow` and `/robots.txt` disallows crawling (`apps/web/src/lib/indexing.ts`). Only the production environment sets `APP_ENV=production`; the local top level sets `local`.
-- `apps/web/src/app/` owns Next.js routes, the root layout (theme provider, sidebar shell, toaster), global styles, and the D1 health route.
-- `apps/web/src/app/filters/page.tsx` is the Filters page: it parses the same URL as the table, reads only the facets (`queryListingFacets`), and renders `apps/web/src/components/filters/`, a client form that applies its draft as a canonical table URL on page 1. `apps/web/src/domain/filter-form.ts` holds its pure section, count, and range-validation logic.
-- `apps/web/src/app/syncs/page.tsx` is Sync status: per-provider cards and recent runs from `ingestion_runs` and active listing counts (`apps/web/src/server/queries/sync-status-query.ts`, D1 only, never the provider registry). The root layout reads how many providers' latest run failed for the sidebar badge, and treats a read failure as zero. `apps/web/src/domain/sync-schedule.ts` mirrors the ingestion cron, and a test keeps them in step.
-- `apps/web/src/components/app-shell/` owns the stock `sidebar-07` shell: the app sidebar, the page header (sidebar trigger, breadcrumb, page status, theme toggle), the freshness badge, and the `next-themes` provider.
-- `apps/web/src/components/auctions/` owns the Auctions page: the toolbar island (search, faceted Source and TLD filters, Max bid, Ends, the Columns menu), the removable filter chips, the server-rendered results table (and, below 768 px, a results list in its place), the listing details panel (a client Sheet, or a Drawer on phones, fed the row already loaded), and pagination. `apps/web/src/domain/table-columns.ts` is the single registry of table columns and parses the `columns` cookie. `apps/web/src/components/ui/` contains stock shadcn source.
-- `apps/web/src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
-- `apps/web/src/server/db/` owns the server-only Drizzle schema, client, and database types, and `listing-facets.ts`, the SQL that rebuilds the facet read model.
-- `apps/web/src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.
-- `apps/web/src/server/providers/types.ts` defines the normalized listing and adapter contract; `apps/web/src/server/providers/registry.ts` maps implemented providers to their secret names, rate limit or file feed, and adapters; `apps/web/src/server/providers/rate-limit.ts` holds the shared request pacer and `Retry-After` parsing; `apps/web/src/server/providers/normalize.ts` holds shared domain, money, and bounded-body parsing; `apps/web/src/server/providers/dynadot/` and `apps/web/src/server/providers/godaddy/` terminate each provider's shapes.
-- `apps/web/src/server/ingestion/` owns the provider-neutral sync flow, provider-bound D1 storage, the ingestion Worker and Workflow (`sync-worker.ts`, `provider-sync-workflow.ts`), web-stream file-feed staging (`feed-stage.ts`) and its R2 pages (`feed-pages.ts`), and local-runner utilities. `zip-fixture.ts` builds invented archives for tests only.
-- `apps/web/scripts/sync-provider.ts` runs one provider's Workflow in a temporary local `wrangler dev`.
-- `apps/web/e2e/` contains Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures. `apps/web/scripts/e2e-server.ts` builds and serves it from `apps/web/tmp/e2e/` (entry `apps/web/e2e/worker.ts`), leaving the developer's `.open-next` in place.
-- `apps/web/wrangler.jsonc` and `apps/web/wrangler.ingestion.jsonc` define the application and ingestion Workers sharing local D1 only; the ingestion configuration adds the local R2 bucket, the Workflow, the Cron Trigger, and its CPU limit. `apps/web/wrangler.integration.jsonc` (D1 and R2) and `apps/web/wrangler.e2e.jsonc` are isolated proof configurations and never use the owner's local inventory.
+All application code is under `apps/web/`.
+
+- `worker.ts` is the Worker entry (Wrangler `main`). It wraps the OpenNext build in the application Worker (`src/lib/app-worker.ts`), which applies the URL trailing-slash rule (`src/lib/trailing-slash.ts`), then hands the request to OpenNext. Unless `APP_ENV` is `production`, every response carries `X-Robots-Tag: noindex, nofollow` and `/robots.txt` disallows crawling (`src/lib/indexing.ts`).
+- `src/app/`: Next.js routes and the root layout. `/` is the Auctions table, `/filters/` the Filters page (the same URL contract, every filter), `/syncs/` Sync status (D1 only, never the provider registry), plus the D1 health and DR enrichment routes. The root layout reads how many providers' latest run failed for the sidebar badge and treats a read failure as zero, so a D1 error never breaks the shell; `error.tsx` catches a failed page read.
+- `src/components/`: site components grouped by area (`app-shell/`, `auctions/`, `filters/`, `sync/`); `ui/` holds stock shadcn source.
+- `src/domain/`: pure logic shared by server and browser: URL filter parsing and links (`domain-table.ts`), the column registry and `columns` cookie (`table-columns.ts`), the Filters form (`filter-form.ts`), and the sync schedule, which mirrors the ingestion cron under a test.
+- `src/server/db/`: the server-only Drizzle schema, client, and the facet rebuild SQL.
+- `src/server/queries/`: the server-only read boundary for the table and the Sync status page.
+- `src/server/enrichment/`: Ahrefs DR fetching, claims, and storage.
+- `src/server/providers/`: the normalized listing and adapter contract, the registry, the shared pacer and normalization helpers, the staged-page reader, and one directory per provider that terminates its shapes.
+- `src/server/ingestion/`: the provider-neutral sync, provider-bound D1 storage, the ingestion Worker and Workflow, file-feed staging to R2, and local-runner utilities.
+- `scripts/`: the local sync runner, the filter benchmark, and the isolated integration and e2e harnesses.
+- `e2e/`: Playwright acceptance against an OpenNext workerd preview with temporary, provider-free D1 fixtures, built and served from `tmp/e2e/` by `scripts/e2e-server.ts` so the developer's `.open-next` stays in place.
+- `wrangler.jsonc` and `wrangler.ingestion.jsonc` define the application and ingestion Workers; `wrangler.integration.jsonc` and `wrangler.e2e.jsonc` are isolated proof configurations that never use the owner's local inventory.
 
 Browser components must not import `apps/web/src/server/`. Provider-specific shapes must not escape their adapter. Only ingestion code may cross both the provider-network and database boundaries; it runs only in the ingestion Worker, never in the web application's request path.

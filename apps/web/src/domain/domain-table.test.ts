@@ -7,7 +7,6 @@ import {
   DOMAIN_TABLE_PAGE_SIZE,
   DOMAIN_TABLE_SORTS,
   formatAbsoluteEndTime,
-  formatAge,
   formatAuctionType,
   formatCompactCount,
   formatDateTime,
@@ -336,15 +335,6 @@ describe('domain table formatting', () => {
     ['EXPIRED', 'Expired']
   ])('normalizes auction type %s for display', (value, expected) => {
     expect(formatAuctionType(value)).toBe(expected)
-  })
-
-  it.each([
-    [null, null],
-    [0, '0 years'],
-    [1, '1 year'],
-    [12, '12 years']
-  ])('formats age %s with a full unit', (value, expected) => {
-    expect(formatAge(value)).toBe(expected)
   })
 
   it.each([

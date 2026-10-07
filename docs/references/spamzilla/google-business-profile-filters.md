@@ -1,0 +1,222 @@
+# Google Business Profile filters
+
+Google Business Profile (GBP) presence, location, category, and rating. Part of the [SpamZilla filter reference](README.md), extracted from the supplied SpamZilla filter interface HTML; field names are preserved exactly as submitted by the form.
+
+## Google My Business
+
+| Filter | Filter type | Field | Constraints/defaults |
+|---|---|---|---|
+| Has GBP | Checkbox | `Filter[has_gbp]` | checked value = `1`; unchecked sends no value |
+| Has GBP in Country | Searchable dropdown | `Filter[gbp_country]` | default option = Any Country |
+| Has GBP in City | Dynamic searchable dropdown | `Filter[gbp_city]` | options loaded dynamically, typically after country selection |
+| GBP Category | Searchable dropdown | `Filter[gbp_category]` | default option = Any Category |
+| GBP Rating | Numeric range | `Filter[gbp_rating_from]` / `Filter[gbp_rating_to]` | 1–5; defaults 1 to 5 |
+
+### Has GBP in Country — all options
+
+- **Filter type:** searchable single-select dropdown
+- **Field:** `Filter[gbp_country]`
+- **Options (195):**
+  - `Any Country`
+  - Afghanistan — value `112`
+  - Albania — value `111`
+  - Algeria — value `84`
+  - Angola — value `143`
+  - Anguilla — value `179`
+  - Antigua and Barbuda — value `178`
+  - Argentina — value `68`
+  - Armenia — value `142`
+  - Aruba — value `136`
+  - Australia — value `50`
+  - Austria — value `12`
+  - Azerbaijan — value `153`
+  - Bahamas — value `86`
+  - Bahrain — value `127`
+  - Bangladesh — value `34`
+  - Barbados — value `87`
+  - Belarus — value `104`
+  - Belgium — value `8`
+  - Belize — value `158`
+  - Benin — value `98`
+  - Bermuda — value `109`
+  - Bhutan — value `128`
+  - Bolivia — value `92`
+  - Bosnia and Herzegovina — value `90`
+  - Botswana — value `107`
+  - Brazil — value `27`
+  - British Virgin Islands — value `172`
+  - Brunei — value `144`
+  - Bulgaria — value `75`
+  - Burkina Faso — value `99`
+  - Cambodia — value `70`
+  - Cameroon — value `94`
+  - Canada — value `3`
+  - Cape Verde — value `180`
+  - Cayman Islands — value `177`
+  - Chad — value `154`
+  - Chile — value `62`
+  - China — value `103`
+  - Colombia — value `33`
+  - Congo-Brazzaville — value `145`
+  - Cook Islands — value `148`
+  - Costa Rica — value `48`
+  - Côte d'Ivoire — value `14`
+  - Croatia — value `31`
+  - Cuba — value `76`
+  - Curacao — value `39`
+  - Cyprus — value `121`
+  - Czechia — value `51`
+  - Democratic Republic of the Congo — value `113`
+  - Denmark — value `26`
+  - District of Bratislava II — value `159`
+  - Djibouti — value `193`
+  - Dominica — value `168`
+  - Dominican Republic — value `64`
+  - East Java — value `194`
+  - Ecuador — value `24`
+  - Egypt — value `59`
+  - El Salvador — value `52`
+  - Equatorial Guinea — value `40`
+  - Eritrea — value `190`
+  - Estonia — value `119`
+  - Ethiopia — value `89`
+  - Faroe Islands — value `173`
+  - Fiji — value `165`
+  - Finland — value `53`
+  - France — value `37`
+  - Gabon — value `163`
+  - Georgia — value `131`
+  - Germany — value `2`
+  - Ghana — value `9`
+  - Gibraltar — value `147`
+  - Greece — value `69`
+  - Grenada — value `170`
+  - Guatemala — value `18`
+  - Guernsey — value `185`
+  - Guinea — value `152`
+  - Guinea-Bissau — value `186`
+  - Guyana — value `160`
+  - Haiti — value `81`
+  - Honduras — value `80`
+  - Hungary — value `96`
+  - Iceland — value `110`
+  - India — value `29`
+  - Indonesia — value `20`
+  - Iran — value `45`
+  - Iraq — value `66`
+  - Ireland — value `13`
+  - Isle of Man — value `150`
+  - Israel — value `78`
+  - Italy — value `38`
+  - Ivory Coast — value `184`
+  - Jamaica — value `44`
+  - Japan — value `55`
+  - Jersey — value `171`
+  - Jordan — value `83`
+  - Kazakhstan — value `100`
+  - Kenya — value `7`
+  - Kosovo — value `137`
+  - Kuwait — value `130`
+  - Kyrgyzstan — value `151`
+  - Laos — value `120`
+  - Latvia — value `93`
+  - Lebanon — value `77`
+  - Libya — value `192`
+  - Liechtenstein — value `174`
+  - Lithuania — value `134`
+  - Luxembourg — value `135`
+  - Madagascar — value `97`
+  - Malawi — value `146`
+  - Malaysia — value `72`
+  - Maldives — value `91`
+  - Mali — value `183`
+  - Malta — value `105`
+  - Marshall Islands — value `169`
+  - Mauritius — value `116`
+  - Mexico — value `15`
+  - Moldova — value `162`
+  - Monaco — value `106`
+  - Mongolia — value `161`
+  - Montenegro — value `149`
+  - Morocco — value `5`
+  - Mozambique — value `125`
+  - Myanmar — value `71`
+  - Namibia — value `73`
+  - Nepal — value `11`
+  - Netherlands — value `41`
+  - New Zealand — value `118`
+  - Nicaragua — value `28`
+  - Niger — value `166`
+  - Nigeria — value `17`
+  - North Macedonia — value `156`
+  - Northern Cyprus — value `54`
+  - Norway — value `88`
+  - Oman — value `138`
+  - Pakistan — value `21`
+  - Palestinian Territories — value `176`
+  - Panama — value `67`
+  - Papua New Guinea — value `132`
+  - Paraguay — value `129`
+  - Peru — value `4`
+  - Philippines — value `43`
+  - Poland — value `61`
+  - Portugal — value `36`
+  - Qatar — value `63`
+  - Romania — value `74`
+  - Russia — value `42`
+  - Rwanda — value `101`
+  - Saint Kitts and Nevis — value `133`
+  - Saint Lucia — value `140`
+  - Saint Vincent and the Grenadines — value `115`
+  - San Marino — value `122`
+  - Saudi Arabia — value `46`
+  - Senegal — value `82`
+  - Serbia — value `22`
+  - Seychelles — value `187`
+  - Sierra Leone — value `181`
+  - Singapore — value `57`
+  - Sint Maarten — value `182`
+  - Slovakia — value `117`
+  - Slovenia — value `139`
+  - Somalia — value `95`
+  - Somaliland — value `188`
+  - South Africa — value `56`
+  - South Korea — value `102`
+  - South Sudan — value `108`
+  - Spain — value `16`
+  - Sri Lanka — value `6`
+  - Suriname — value `123`
+  - Sweden — value `58`
+  - Switzerland — value `65`
+  - Syria — value `189`
+  - Taiwan — value `191`
+  - Tajikistan — value `175`
+  - Tanzania — value `23`
+  - Thailand — value `30`
+  - The Gambia — value `157`
+  - Togo — value `126`
+  - Trinidad and Tobago — value `35`
+  - Tunisia — value `114`
+  - Turkey — value `19`
+  - Turkmenistan — value `155`
+  - Turks and Caicos Islands — value `141`
+  - Uganda — value `79`
+  - Ukraine — value `60`
+  - United Arab Emirates — value `47`
+  - United Kingdom — value `10`
+  - United States — value `1`
+  - Uruguay — value `85`
+  - Uzbekistan — value `167`
+  - Venezuela — value `25`
+  - Vietnam — value `49`
+  - Yemen — value `164`
+  - Zambia — value `32`
+  - Zimbabwe — value `124`
+
+### GBP Category — all options
+
+- **Filter type:** searchable single-select dropdown
+- **Field:** `Filter[gbp_category]`
+- **Options (3579):**
+
+The 3579 options, in UI order, are in [`gbp-categories.csv`](gbp-categories.csv): one row per option with its `label` and submitted `value`. `Any Category` has no value. The list is data, so it lives in a CSV rather than a Markdown list.
