@@ -66,12 +66,17 @@ export type FeedPageSource = {
 
 // Errors thrown by adapters carry a fixed, non-secret code prefixed with the
 // provider name, e.g. `dynadot_http_error`. It is persisted on failed runs.
+// `transient` marks a failure the same request may not repeat: a network
+// failure, a rate limit, a server error, or a failed staged-page read. The
+// Workflow retries those instead of failing the run.
 export class ProviderError extends Error {
   readonly code: string
+  readonly transient: boolean
 
-  constructor(code: string) {
+  constructor(code: string, { transient = false }: { transient?: boolean } = {}) {
     super(code)
     this.name = 'ProviderError'
     this.code = code
+    this.transient = transient
   }
 }

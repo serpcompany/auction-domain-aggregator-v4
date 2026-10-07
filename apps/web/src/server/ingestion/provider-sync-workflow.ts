@@ -11,8 +11,11 @@
 // again: after a retryable error, or when the platform interrupts it before
 // its result is persisted. Re-staging rewrites the same page keys, starting
 // again interrupts the earlier run, and a sync step resumes the run from its
-// server-owned `next_page` in D1. A sync error has already marked the run
-// failed, so it is not retried within the instance.
+// server-owned `next_page` in D1. A transient sync failure (a network error,
+// a rate limit, a failed D1 batch or R2 read) leaves the run running and is
+// retried the same way; when its retries run out, a further step marks the
+// run failed. Any other sync error has already marked the run failed, so it
+// is not retried within the instance.
 import { drizzle } from 'drizzle-orm/d1'
 
 import * as schema from '../db/schema'
@@ -29,6 +32,7 @@ import {
 } from './feed-pages'
 import { type FeedErrorCode, feedErrorCode, stageZippedFeed } from './feed-stage'
 import {
+  failSyncRun,
   type IngestionStorage,
   runSyncSegment,
   SyncError,
@@ -63,8 +67,10 @@ export const STAGE_STEP: StepConfig = {
   retries: { limit: 2, delay: '1 minute', backoff: 'exponential' },
   timeout: '15 minutes'
 }
+// Dynadot's rate limit asks for a minute before the next request, so the
+// first retry waits that long (then 2 and 4 minutes).
 export const SYNC_STEP: StepConfig = {
-  retries: { limit: 2, delay: '30 seconds', backoff: 'exponential' },
+  retries: { limit: 3, delay: '1 minute', backoff: 'exponential' },
   timeout: '15 minutes'
 }
 export const CLEANUP_STEP: StepConfig = {
@@ -174,27 +180,46 @@ export async function runProviderSync({
       }
     })
     for (let segment = 1; ; segment += 1) {
-      const outcome = await step.do(
-        `sync pages, segment ${segment}`,
-        SYNC_STEP,
-        async (): Promise<SegmentOutcome> => {
-          try {
-            const result = await runSyncSegment(adapter, storage, {
-              runId,
-              segmentPages: SEGMENT_PAGES
-            })
-            return result.done
-              ? { done: true, summary: result.summary }
-              : { done: false, runId: result.run.runId }
-          } catch (error) {
-            // A SyncError is final: the run is already marked failed with
-            // its code, or is no longer running. Any other error came from
-            // loading the run before a page was read, so it is retried.
-            if (error instanceof SyncError) throw nonRetryable(error.code)
-            throw new Error('sync_failed')
+      let outcome: SegmentOutcome
+      try {
+        outcome = await step.do(
+          `sync pages, segment ${segment}`,
+          SYNC_STEP,
+          async (): Promise<SegmentOutcome> => {
+            try {
+              const result = await runSyncSegment(adapter, storage, {
+                runId,
+                segmentPages: SEGMENT_PAGES
+              })
+              return result.done
+                ? { done: true, summary: result.summary }
+                : { done: false, runId: result.run.runId }
+            } catch (error) {
+              // A transient SyncError left the run running, so it is
+              // retried. Any other SyncError is final: the run is already
+              // marked failed with its code, or is no longer running. Any
+              // other error came from loading the run before a page was
+              // read, so it is retried too.
+              if (error instanceof SyncError) {
+                throw error.transient ? new Error(error.code) : nonRetryable(error.code)
+              }
+              throw new Error('sync_failed')
+            }
           }
+        )
+      } catch (error) {
+        if (!isNonRetryableFailure(error)) {
+          const code = fixedErrorCode(error)
+          const failedRunId = runId
+          // Best effort: if this fails too, the next sync interrupts the run.
+          await step
+            .do('record failed run', SYNC_STEP, async () => ({
+              recorded: await failSyncRun(storage, failedRunId, code)
+            }))
+            .catch(() => undefined)
         }
-      )
+        throw error
+      }
       if (outcome.done) return outcome.summary
       runId = outcome.runId
     }
@@ -227,6 +252,10 @@ export async function runProviderSync({
 // the message `NonRetryableError: <message>`; a step that exhausted its
 // retries keeps its own message.
 const STEP_ERROR_CODE = /^(?:NonRetryableError: )?([a-z]+_[a-z_]+)$/
+
+function isNonRetryableFailure(error: unknown) {
+  return error instanceof Error && error.message.startsWith('NonRetryableError: ')
+}
 
 // The instance error is a fixed, non-secret code such as
 // `sync_reconciliation_guard` or `feed_download_failed`.

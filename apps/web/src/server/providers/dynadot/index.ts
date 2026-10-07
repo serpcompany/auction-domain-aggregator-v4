@@ -45,6 +45,13 @@ const dynadotResponseSchema = z
   })
   .passthrough()
 
+// Dynadot answers an over-limit request with HTTP 200 and
+// `{"Response":{"ResponseCode":"-1","Error":"Too many requests. Please try
+// again in 1 minute after."}}`.
+const rateLimitedSchema = z.object({
+  Response: z.object({ Error: z.string().regex(/too many requests/i) })
+})
+
 // A page where more than this share of auctions is invalid indicates a
 // response-format change rather than a few bad records.
 const MAX_REJECTED_RATIO = 0.1
@@ -60,12 +67,13 @@ export type DynadotProviderErrorCode =
   | 'dynadot_parse_error'
   | 'dynadot_response_too_large'
   | 'dynadot_response_error'
+  | 'dynadot_rate_limited'
 
 export class DynadotProviderError extends ProviderError {
   declare readonly code: DynadotProviderErrorCode
 
-  constructor(code: DynadotProviderErrorCode) {
-    super(code)
+  constructor(code: DynadotProviderErrorCode, options?: { transient?: boolean }) {
+    super(code, options)
     this.name = 'DynadotProviderError'
   }
 }
@@ -90,7 +98,8 @@ function parseRequiredString(value: string | number) {
 function isNullableSentinel(value: string | number | undefined) {
   if (value === undefined) return true
   const text = String(value).trim()
-  if (text === '' || text === '-') return true
+  // Dynadot writes a missing value as `-` and, for some renewal prices, `--`.
+  if (/^-*$/.test(text)) return true
   const number = Number(text.replaceAll(',', '').replace(/^\$/, ''))
   return Number.isFinite(number) && number < 0
 }
@@ -195,11 +204,14 @@ export async function fetchDynadotPage({
     try {
       response = await fetchImpl(url, { signal })
     } catch {
-      throw new DynadotProviderError('dynadot_network_error')
+      throw new DynadotProviderError('dynadot_network_error', { transient: true })
     }
 
     if (!response.ok) {
-      throw new DynadotProviderError('dynadot_http_error')
+      // A rate limit or a server error may clear; other statuses will not.
+      throw new DynadotProviderError('dynadot_http_error', {
+        transient: response.status === 429 || response.status >= 500
+      })
     }
 
     let text: string
@@ -210,7 +222,7 @@ export async function fetchDynadotPage({
         throw new DynadotProviderError('dynadot_response_too_large')
       }
       if (signal.aborted) {
-        throw new DynadotProviderError('dynadot_network_error')
+        throw new DynadotProviderError('dynadot_network_error', { transient: true })
       }
       throw new DynadotProviderError('dynadot_parse_error')
     }
@@ -220,6 +232,9 @@ export async function fetchDynadotPage({
       body = JSON.parse(text)
     } catch {
       throw new DynadotProviderError('dynadot_parse_error')
+    }
+    if (rateLimitedSchema.safeParse(body).success) {
+      throw new DynadotProviderError('dynadot_rate_limited', { transient: true })
     }
 
     try {
@@ -237,17 +252,33 @@ export async function fetchDynadotPage({
 }
 
 const DYNADOT_PAGE_SIZE = 1000
+// A regular Dynadot account may make 60 requests a minute. Back-to-back page
+// requests reached about 120 and were rate-limited partway through a sync,
+// so pages are requested at most once per this interval.
+export const DYNADOT_REQUEST_INTERVAL_MS = 1_100
+
+function sleep(milliseconds: number) {
+  return new Promise<void>(resolve => setTimeout(resolve, milliseconds))
+}
 
 export function createDynadotAdapter({
   apiKey,
-  fetchImpl
+  fetchImpl,
+  now = Date.now,
+  wait = sleep
 }: {
   apiKey: string
   fetchImpl?: typeof fetch
+  now?: () => number
+  wait?: (milliseconds: number) => Promise<void>
 }): ProviderAdapter {
+  let lastRequestAt = Number.NEGATIVE_INFINITY
   return {
     provider: 'dynadot',
     async fetchPage({ pageIndex }) {
+      const delay = lastRequestAt + DYNADOT_REQUEST_INTERVAL_MS - now()
+      if (delay > 0) await wait(delay)
+      lastRequestAt = now()
       const page = await fetchDynadotPage({
         apiKey,
         pageIndex,

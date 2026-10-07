@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 import { parseDomain, parseMoneyCents } from '../normalize'
-import { normalizeStagedRecords, readStagedPage } from '../staged-feed'
+import { isTransientStagedPageError, normalizeStagedRecords, readStagedPage } from '../staged-feed'
 import {
   type FeedPageSource,
   type NormalizedListing,
@@ -66,8 +66,8 @@ export type GodaddyProviderErrorCode =
 export class GodaddyProviderError extends ProviderError {
   declare readonly code: GodaddyProviderErrorCode
 
-  constructor(code: GodaddyProviderErrorCode) {
-    super(code)
+  constructor(code: GodaddyProviderErrorCode, options?: { transient?: boolean }) {
+    super(code, options)
     this.name = 'GodaddyProviderError'
   }
 }
@@ -175,7 +175,10 @@ export function createGodaddyAdapter({
           maxPages: GODADDY_MAX_PAGES,
           maxPageBytes: GODADDY_PAGE_BYTE_LIMIT
         },
-        code => new GodaddyProviderError(`godaddy_${code}`)
+        code =>
+          new GodaddyProviderError(`godaddy_${code}`, {
+            transient: isTransientStagedPageError(code)
+          })
       )
       return { ...normalizeGodaddyRecords(page.records), isLastPage: page.isLastPage }
     }

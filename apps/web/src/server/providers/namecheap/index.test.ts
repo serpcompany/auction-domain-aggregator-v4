@@ -213,7 +213,9 @@ describe('Namecheap adapter', () => {
     for (const [outcome, code] of cases) {
       const { adapter } = adapterFor({ 1: outcome })
       await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
-        new NamecheapProviderError(code as never)
+        new NamecheapProviderError(code as never, {
+          transient: code === 'namecheap_page_read_error'
+        })
       )
     }
   })
