@@ -4,7 +4,7 @@
 // IDs are placeholders. `env.production` is the deployed Worker; named
 // environments inherit no bindings, so it declares every one, and every
 // remote command passes `--env production`. CI deploys it (.github/workflows/
-// ci.yml); see docs/technical-design/data-ingestion.md.
+// ci.yml); see docs/technical-design/production-sync.md.
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "auction-domain-aggregator-ingestion-local",

@@ -13,9 +13,9 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - `README.md`: human-facing project overview.
 - `ARCHITECTURE.md`: stable system map, boundaries, and architectural invariants.
 - `docs/product-specs/`: agreed product behavior and scope.
-- `docs/technical-design/`: accepted technical choices, system design, and their rationale.
-- `docs/plans/README.md`: when and how to maintain durable implementation plans.
-- `docs/references/`: external-product research used to inform decisions. Reference material is not automatically a product requirement.
+- `docs/technical-design/README.md`: map of accepted technical choices and system design, one topic per leaf (stack, read model, DR enrichment, ingestion, each provider, production sync, test isolation).
+- `docs/plans/README.md`: when and how to maintain durable implementation plans, and summaries of completed ones.
+- `docs/references/README.md`: external research (data licensing per provider, the SpamZilla inventory). Reference material is not automatically a product requirement.
 
 ## Working rules
 
@@ -44,7 +44,7 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm db:generate`: generate a migration after an intentional Drizzle schema change.
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
-- `corepack pnpm sync <provider>`: migrate local D1, then run that provider's `provider-sync` Workflow (the same code the daily Cron Trigger starts) in a temporary local `wrangler dev` of the ingestion Worker on ports 8790 and 9330, with local D1, R2, and Workflows. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` and `namecheap` need no credentials: the Workflow downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped, about 2 to 3 minutes end to end) or Namecheap Market's public sales CSV (about 194 MB and 1.1 million rows, about 5 minutes) and stages it in local R2. Do not edit `apps/web/src/` while it runs: Wrangler's reload orphans the running instance. GoDaddy content is licensed for the owner's internal use only.
+- `corepack pnpm sync <provider>`: migrate local D1, then run that provider's `provider-sync` Workflow (the same code the daily Cron Trigger starts) in a temporary local `wrangler dev` of the ingestion Worker on ports 8790 and 9330, with local D1, R2, and Workflows. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` (about 2 to 3 minutes) and `namecheap` (about 5 minutes) need no credentials: the Workflow downloads the public file and stages it in local R2. Do not edit `apps/web/src/` while it runs: Wrangler's reload orphans the running instance. GoDaddy content is licensed for the owner's internal use only.
 - Inner loop, while editing: `corepack pnpm exec vitest related --run <files>`, plus `corepack pnpm exec tsc --noEmit -p .` and `corepack pnpm exec biome check <files>`.
 - `corepack pnpm check:quick`: the push-level check. Runs Biome (format and lint, read-only), type checks, the migration-history check, and unit tests.
 - `corepack pnpm format`: format with Biome. `corepack pnpm exec biome check --write` also applies safe lint fixes and sorts imports.

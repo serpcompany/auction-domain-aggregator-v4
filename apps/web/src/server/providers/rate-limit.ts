@@ -1,7 +1,7 @@
 // Rate limits for provider APIs. Every paged-API provider declares one in the
 // registry (`registry.ts`), and the Workflow builds a pacer from it that the
 // adapter awaits before each request. The table of limits and their sources
-// is in `docs/technical-design/data-ingestion.md`.
+// is in `docs/technical-design/provider-rate-limits.md`.
 
 // The most often an API may be called, and where that number comes from.
 export type RateLimit = {

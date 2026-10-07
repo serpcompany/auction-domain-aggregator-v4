@@ -2,7 +2,7 @@
 
 Status: Accepted foundation
 
-Last updated: 2026-10-06
+Last updated: 2026-10-07
 
 ## Purpose
 
@@ -24,17 +24,17 @@ Use pnpm 10.17.0 through Corepack 0.34.0 for dependency installation and package
 
 Build the website with Next.js 16 and TypeScript. OpenNext for Cloudflare builds the application as a Cloudflare Worker; Wrangler runs that output locally under workerd. `next dev` remains the fast Node.js development path, so both it and the workerd preview must stay healthy.
 
-The local adapter and runtime path are verified. The website is not deployed: it waits for accounts and payments (#27), and `pnpm run deploy:web` refuses until then. Only the ingestion Worker is deployed, by CI (`docs/technical-design/data-ingestion.md`).
+The local adapter and runtime path are verified. The website is not deployed: it waits for accounts and payments (#27), and `pnpm run deploy:web` refuses until then. Only the ingestion Worker is deployed, by CI ([Production sync](production-sync.md)).
 
 ### Hosting and compute: Cloudflare
 
 Host the website on Cloudflare. Use Cloudflare-native compute for server-side application behavior and domain-ingestion workloads when it fits their runtime and execution requirements. Use Cloudflare Cron Triggers to start periodic auction synchronization outside the user request path.
 
-Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps/web/src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one Cloudflare Workflow instance per provider; Workflow steps give each stage of a sync its own CPU budget, persisted results, and retries, which replaced a loopback continuation loop on the owner's machine. Measured on 2026-10-06, staging GoDaddy's 450 MB feed inside one step used about 3 to 8 seconds of Worker CPU and about 10 MiB of JavaScript heap, so no Container is needed (`docs/plans/completed/cloud-ingestion.md`). The Worker sets `limits.cpu_ms` to 60,000 (Workers Paid). Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
+Ingestion is a separate Worker (`apps/web/wrangler.ingestion.jsonc`, entry `apps/web/src/server/ingestion/sync-worker.ts`) with no HTTP routes. Its daily Cron Trigger starts one Cloudflare Workflow instance per provider; Workflow steps give each stage of a sync its own CPU budget, persisted results, and retries, which replaced a loopback continuation loop on the owner's machine. Measured on 2026-10-06, staging GoDaddy's 450 MB feed inside one step used about 3 to 8 seconds of Worker CPU and about 10 MiB of JavaScript heap, so no Container is needed ([Cloud ingestion](../plans/completed/cloud-ingestion.md)). The Worker sets `limits.cpu_ms` to 60,000 (Workers Paid). Cloudflare Queues are optional and should be added only when fan-out, rate limiting, retries, or execution duration requires them.
 
 ### Object storage: Cloudflare R2
 
-Use R2 for transient ingestion files: a file feed's page files live under a per-Workflow-instance prefix in the `FEED_PAGES` bucket only for the duration of one run and are deleted by its last step. Nothing user-facing reads R2. The binding is local-only until deployment is authorized.
+Use R2 for transient ingestion files: a file feed's page files live under a per-Workflow-instance prefix in the `FEED_PAGES` bucket only for the duration of one run and are deleted by its last step. Nothing user-facing reads R2. The top-level binding is local-only; the production sync has its own bucket, whose lifecycle rule expires pages a failed cleanup leaves behind ([Production sync](production-sync.md)).
 
 ### Database: Cloudflare D1
 
@@ -42,7 +42,7 @@ Use Cloudflare D1 as the relational database and source of truth for normalized 
 
 External provider responses are untrusted input. Parse them into the application's own data types at the provider boundary before storing or acting on them.
 
-The current `DB` binding is deliberately local-only. The health route proves D1 access in both the Node development server and the workerd preview. The first product schema now stores normalized domains, auction listings, and ingestion runs; no remote D1 database exists yet.
+The top-level `DB` binding of both Wrangler configurations is deliberately local-only. The health route proves D1 access in both the Node development server and the workerd preview. The only remote database is the production sync's D1, which CI migrates on each push to `main` ([Production sync](production-sync.md)); the website has none until it is deployed (#27).
 
 ### Database access and migrations: Drizzle ORM
 
@@ -66,7 +66,7 @@ Add components only as they are needed. The current set includes Alert, Badge, B
 
 Use Zod 4 for runtime validation of provider responses. File feeds are split by a small dependency-free byte scanner (`apps/web/src/server/ingestion/feed-stage.ts`) rather than a streaming JSON library, so the same code runs in workerd and Node. Use Biome for formatting and linting (`apps/web/biome.json`, the SERP standard settings), with stock `apps/web/src/components/ui/` exempt from the few rules that conflict with upstream shadcn. Use TypeScript's compiler for type checks, Vitest with Testing Library and V8 coverage for fast unit/component tests, and Playwright Chromium for browser checks against the local OpenNext workerd preview.
 
-`pnpm check:quick` is the fast inner loop. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview. It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded runs, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. It installs the frozen lockfile and Chromium before running that gate; it does not deploy, load provider credentials, mutate the developer's local D1 inventory, or access remote resources.
+`pnpm check:quick` is the push-level check. `pnpm check` adds the provider-free isolated local-D1/workerd integration proof and browser tests against an isolated, deterministically seeded OpenNext workerd preview ([Isolated verification](isolated-verification.md)). It is the CI gate. CI runs for pushes to `main` and for pull requests, cancels superseded PR runs but checks every `main` commit, caches the pnpm store and Playwright browsers, and uploads the Playwright report on failure. Its `check` job installs the frozen lockfile and Chromium before running that gate; it loads no provider credentials, does not mutate the developer's local D1 inventory, and accesses no remote resources. On a push to `main`, a separate `deploy-sync-production` job deploys the ingestion Worker after `check` passes ([Production sync](production-sync.md)).
 
 ## Decisions not yet made
 

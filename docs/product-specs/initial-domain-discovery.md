@@ -49,7 +49,7 @@ The documents under `docs/references/spamzilla/` describe a much larger portion 
 
 User accounts, subscriptions, billing, teams, saved searches, bidding, additional providers, scheduled synchronization, remote Cloudflare resources, and deployment are outside this slice.
 
-GoDaddy's inventory content is licensed for the owner's internal use only (`docs/references/data-licensing.md`). Showing it to anyone else needs GoDaddy's written permission first. Namecheap publishes its sales file without a licence either way; the owner has approved showing Namecheap listings to customers, each linked back to its sale (`docs/references/data-licensing.md`).
+GoDaddy's inventory content is licensed for the owner's internal use only (`docs/references/data-licensing/godaddy.md`). Showing it to anyone else needs GoDaddy's written permission first. Namecheap publishes its sales file without a licence either way; the owner has approved showing Namecheap listings to customers, each linked back to its sale (`docs/references/data-licensing/namecheap.md`).
 
 ## Remaining product dependencies
 
