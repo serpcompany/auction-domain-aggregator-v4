@@ -6,7 +6,7 @@ The first user is the repository owner. The product replaces the part of SpamZil
 
 ## First usable workflow
 
-The agreed design is the approved mockups, `docs/plans/active/ui-redesign-mockups.html` (owner review 2026-10-07, #52). The user can:
+The agreed design is the approved mockups, `docs/plans/completed/ui-redesign-mockups.html` (owner review 2026-10-07, #52). The user can:
 
 1. Open the Auctions screen: an application shell with a collapsible sidebar (Auctions, Sync status), a header showing how fresh the inventory is and a light/dark toggle, and a server-rendered table of active auction listings collected in local D1. Auctions whose end time has passed are hidden even before the next sync, and the page warns when the inventory is more than 24 hours old.
 2. Narrow the inventory from the toolbar with quick filters for a domain fragment, one or more sources, one or more TLDs, maximum current bid, and ending window. The domain fragment applies on Enter; the others apply as soon as they change.

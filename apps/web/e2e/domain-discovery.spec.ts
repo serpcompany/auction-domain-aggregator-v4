@@ -401,3 +401,20 @@ test('explains filters that match nothing and keeps the way back', async ({ page
   await expect(page).toHaveURL(`${E2E_BASE_URL}/?sort=price&direction=asc&page=1`)
   await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
 })
+
+test('shows each provider sync and the recent runs on Sync status', async ({ page }) => {
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Sync status' }).click()
+  await expect(page).toHaveURL(`${E2E_BASE_URL}/syncs/`)
+  await expect(page.getByRole('heading', { level: 1, name: 'Sync status' })).toBeAttached()
+
+  await expect(page.getByText('Auction API')).toBeVisible()
+  await expect(page.getByText('active listings')).toBeVisible()
+  await expect(page.getByText('active listings').locator('xpath=preceding-sibling::p')).toHaveText(
+    '60'
+  )
+  await expect(page.getByText('Daily at 15:30 UTC').first()).toBeVisible()
+  const runs = page.getByRole('table')
+  await expect(runs.getByRole('row', { name: /Dynadot\s+Succeeded/ })).toBeVisible()
+  await expect(page.getByText('corepack pnpm sync dynadot')).toBeVisible()
+})

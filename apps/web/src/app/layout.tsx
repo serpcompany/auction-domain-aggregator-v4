@@ -7,6 +7,7 @@ import { ThemeProvider } from '@/components/app-shell/theme-provider'
 import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
+import { queryFailedSyncCount } from '@/server/queries/sync-status'
 import './globals.css'
 
 const geistSans = Geist({
@@ -32,6 +33,9 @@ export default async function RootLayout({
   // The stock sidebar stores its open state in this cookie; reading it keeps
   // the server render in the state the user left it.
   const sidebarOpen = (await cookies()).get('sidebar_state')?.value !== 'false'
+  // The sidebar flags failed syncs; a database that cannot be read is the
+  // page's error to report, not the shell's.
+  const failedSyncs = await queryFailedSyncCount().catch(() => 0)
 
   return (
     // The font variables sit on <html>, where globals.css applies font-sans.
@@ -58,7 +62,7 @@ export default async function RootLayout({
               Skip to main content
             </a>
             <SidebarProvider defaultOpen={sidebarOpen}>
-              <AppSidebar />
+              <AppSidebar failedSyncs={failedSyncs} />
               <SidebarInset id="main-content" tabIndex={-1} className="min-w-0">
                 {children}
               </SidebarInset>

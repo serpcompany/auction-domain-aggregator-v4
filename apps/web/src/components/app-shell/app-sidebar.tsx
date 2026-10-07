@@ -1,6 +1,6 @@
 'use client'
 
-import { GavelIcon, GlobeIcon } from 'lucide-react'
+import { GavelIcon, GlobeIcon, RefreshCwIcon } from 'lucide-react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import type * as React from 'react'
@@ -12,19 +12,24 @@ import {
   SidebarGroupLabel,
   SidebarHeader,
   SidebarMenu,
+  SidebarMenuBadge,
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail
 } from '@/components/ui/sidebar'
 
-// Only built screens appear here; later milestones add Sync status.
 const discoverItems = [
   // The Filters page belongs to Auctions.
-  { title: 'Auctions', href: '/', icon: GavelIcon, activeFor: ['/', '/filters/'] }
+  { title: 'Auctions', href: '/', icon: GavelIcon, activeFor: ['/', '/filters/'] },
+  { title: 'Sync status', href: '/syncs/', icon: RefreshCwIcon, activeFor: ['/syncs/'] }
 ]
 
-export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
-  const pathname = usePathname()
+export function AppSidebar({
+  failedSyncs = 0,
+  ...props
+}: React.ComponentProps<typeof Sidebar> & { failedSyncs?: number }) {
+  // `next dev` serves pages without the trailing slash too; compare the slashed form.
+  const current = usePathname().replace(/\/?$/, '/')
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -51,12 +56,18 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
               <SidebarMenuItem key={item.href}>
                 <SidebarMenuButton
                   tooltip={item.title}
-                  isActive={item.activeFor.includes(pathname)}
+                  isActive={item.activeFor.includes(current)}
                   render={<Link href={item.href} />}
                 >
                   <item.icon aria-hidden="true" />
                   <span>{item.title}</span>
                 </SidebarMenuButton>
+                {item.href === '/syncs/' && failedSyncs > 0 ? (
+                  <SidebarMenuBadge className="text-destructive">
+                    {failedSyncs}
+                    <span className="sr-only"> failed {failedSyncs === 1 ? 'sync' : 'syncs'}</span>
+                  </SidebarMenuBadge>
+                ) : null}
               </SidebarMenuItem>
             ))}
           </SidebarMenu>
