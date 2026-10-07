@@ -14,7 +14,7 @@ All are on the SERP account. Workflow names are account-wide, so each is prefixe
 | R2 (binding `FEED_PAGES`, sync only) | `auction-domain-aggregator-feed-pages-staging` | `auction-domain-aggregator-feed-pages-production` |
 | Sync Worker | `auction-domain-aggregator-ingestion-staging` | `auction-domain-aggregator-ingestion-production` |
 | Workflow (binding `PROVIDER_SYNC`) | `auction-domain-aggregator-provider-sync-staging` | `auction-domain-aggregator-provider-sync-production` |
-| Sync cron (UTC) | `30 17 * * *` (daily, two hours after Production, so the two never page a provider API at once) | `30 15 * * *` (daily) |
+| Sync cron (UTC) | `30 11 * * *` (daily, 20:30 in Japan, four hours before Production, so the two never page a provider API at once; Staging gets GoDaddy's previous-day file) | `30 15 * * *` (daily) |
 | Website Worker | `auction-domain-aggregator-web-staging` | `auction-domain-aggregator-web-production` |
 | Canonical host (Custom Domain) | `staging-auctions.serp.co` | `auctions.serp.co` |
 
