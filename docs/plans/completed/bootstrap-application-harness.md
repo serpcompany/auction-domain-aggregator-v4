@@ -39,4 +39,4 @@ From a frozen install in an isolated clean copy: `pnpm check` passed formatting,
 
 ## Follow-ups at completion
 
-Provider integration, the product schema, remote Cloudflare resources, upload, and deployment were left to later plans: [Dynadot domain table](dynadot-domain-table.md) added the first schema and provider, and [Production sync](../../technical-design/production-sync.md) records what is deployed today.
+Provider integration, the product schema, remote Cloudflare resources, upload, and deployment were left to later plans: [Dynadot domain table](dynadot-domain-table.md) added the first schema and provider, and [Deployment](../../technical-design/deployment.md) records what is deployed today.

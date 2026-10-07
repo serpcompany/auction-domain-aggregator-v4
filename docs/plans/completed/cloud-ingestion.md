@@ -11,7 +11,7 @@ Syncs had run only from the owner's Mac: a loopback Wrangler worker, and for GoD
 - Sync steps run the unchanged provider-neutral `runSyncSegment`, 20 pages per step, and a final step deletes the staged pages.
 - `corepack pnpm sync <provider>` runs the same Workflow inside a temporary local `wrangler dev`.
 
-`stream-json`, the `unzip` requirement, the loopback page server, and the loopback worker were removed. Deployment was out of scope; it came later ([Production sync](../../technical-design/production-sync.md)).
+`stream-json`, the `unzip` requirement, the loopback page server, and the loopback worker were removed. Deployment was out of scope; it came later ([Deployment](../../technical-design/deployment.md)).
 
 ## Key decisions
 
@@ -47,6 +47,6 @@ The 2026-10-05 GoDaddy feed build (37 MB zip, 449 MB JSON, 586,958 records), Wra
 
 ## Follow-ups at completion
 
-- Deployment (#15): done since; see [Production sync](../../technical-design/production-sync.md). Local workerd does not enforce `limits.cpu_ms`, so the deployed stage step's CPU time should be confirmed in Workers observability.
+- Deployment (#15): done since; see [Deployment](../../technical-design/deployment.md). Local workerd does not enforce `limits.cpu_ms`, so the deployed stage step's CPU time should be confirmed in Workers observability.
 - A stage failure is recorded only on the Workflow instance, not in `ingestion_runs`, because the run row starts with the first sync step.
 - Local `wrangler dev` reloads orphan running instances; the runner can only warn.
