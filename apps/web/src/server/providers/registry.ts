@@ -14,11 +14,12 @@ import {
   NAMECHEAP_PAGE_BYTE_LIMIT,
   NAMECHEAP_PAGE_SIZE
 } from './namecheap'
+import { createNamesiloAdapter, NAMESILO_RATE_LIMIT } from './namesilo'
 import type { Pacer, RateLimit } from './rate-limit'
 import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types'
 
 // Every credential an adapter may read from the ingestion worker env.
-export type ProviderSecretName = 'DYNADOT_API_PRODUCTION_KEY'
+export type ProviderSecretName = 'DYNADOT_API_PRODUCTION_KEY' | 'NAMESILO_API_KEY'
 
 export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>
 
@@ -95,6 +96,14 @@ export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistra
       maxPageBytes: NAMECHEAP_PAGE_BYTE_LIMIT
     },
     createAdapter: ({ feedPages }) => createNamecheapAdapter({ pages: feedPages })
+  },
+  // NameSilo publishes no rate limit, so it uses the default.
+  namesilo: {
+    secretNames: ['NAMESILO_API_KEY'],
+    rateLimit: NAMESILO_RATE_LIMIT,
+    createAdapter: ({ secrets, pacer }) =>
+      // The Workflow checks the key is set; an empty one fails the request.
+      createNamesiloAdapter({ apiKey: secrets.NAMESILO_API_KEY ?? '', pacer })
   }
 }
 
