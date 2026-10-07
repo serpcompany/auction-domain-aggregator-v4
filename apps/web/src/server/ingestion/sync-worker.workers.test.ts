@@ -75,7 +75,8 @@ describe('ingestion Worker', () => {
     expect(create.mock.calls.map(([options]) => options)).toEqual([
       { id: 'dynadot-20260713T1530', params: { provider: 'dynadot' } },
       { id: 'godaddy-20260713T1530', params: { provider: 'godaddy' } },
-      { id: 'namecheap-20260713T1530', params: { provider: 'namecheap' } }
+      { id: 'namecheap-20260713T1530', params: { provider: 'namecheap' } },
+      { id: 'namesilo-20260713T1530', params: { provider: 'namesilo' } }
     ])
   })
 })
