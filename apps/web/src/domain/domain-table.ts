@@ -227,9 +227,14 @@ export function parseDomainTableFilters(searchParams: DomainTableSearchParams): 
   }
 }
 
+// Cents as the dollar amount URLs and inputs use: "12" or "12.50".
+export function centsToDollarsText(cents: number) {
+  return (cents / 100).toFixed(2).replace(/\.00$/, '')
+}
+
 function appendMoney(params: URLSearchParams, key: string, cents?: number) {
   if (cents === undefined) return
-  params.set(key, (cents / 100).toFixed(2).replace(/\.00$/, ''))
+  params.set(key, centsToDollarsText(cents))
 }
 
 export function buildDomainTableHref(
@@ -325,18 +330,6 @@ function titleCase(value: string) {
     .join(' ')
 }
 
-function sourceLabel(value: AuctionSource) {
-  const labels: Record<AuctionSource, string> = {
-    dynadot: 'Dynadot',
-    dropcatch: 'DropCatch',
-    godaddy: 'GoDaddy',
-    namecheap: 'Namecheap',
-    namejet: 'NameJet',
-    namesilo: 'NameSilo'
-  }
-  return labels[value]
-}
-
 function filterMoney(cents: number) {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -370,7 +363,7 @@ export function getDomainTableFilterChips(filters: DomainTableFilters): DomainTa
 
   if (filters.query) add('query', `Search: ${filters.query}`, { query: undefined })
   if (filters.sources.length > 0)
-    add('sources', `Source: ${filters.sources.map(sourceLabel).join(', ')}`, {
+    add('sources', `Source: ${filters.sources.map(formatProvider).join(', ')}`, {
       sources: []
     })
   if (filters.tlds.length > 0)
@@ -487,7 +480,7 @@ export function formatCompactCount(value: number) {
   }
 }
 
-const providerLabels: Record<string, string> = {
+const providerLabels: Record<AuctionSource, string> = {
   dynadot: 'Dynadot',
   dropcatch: 'DropCatch',
   godaddy: 'GoDaddy',
@@ -497,7 +490,7 @@ const providerLabels: Record<string, string> = {
 }
 
 export function formatProvider(value: string) {
-  return providerLabels[value.toLowerCase()] ?? titleCase(value)
+  return providerLabels[value.toLowerCase() as AuctionSource] ?? titleCase(value)
 }
 
 export function formatAuctionType(value: string) {

@@ -99,7 +99,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'q', 'garden')
 
   await page.getByRole('button', { name: /^Max bid/ }).click()
-  await page.getByRole('spinbutton', { name: 'Maximum current bid' }).fill('30')
+  await page.getByRole('spinbutton', { name: 'Max bid' }).fill('30')
   await page.getByRole('button', { name: 'Apply', exact: true }).click()
   await expectUrlParameter(page, 'priceMax', '30')
 
