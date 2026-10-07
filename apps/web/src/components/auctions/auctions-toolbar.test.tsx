@@ -27,6 +27,7 @@ function renderToolbar(params: Record<string, string | string[]> = {}) {
     <AuctionsToolbar
       filters={parseDomainTableFilters({ sort: 'price', direction: 'desc', ...params })}
       sources={['dynadot', 'godaddy']}
+      auctionTypes={['auction', 'buy_now', 'expired']}
       tlds={['co', 'com', 'net']}
       count={<span>857,412 listings</span>}
       visibleColumns={DEFAULT_COLUMNS}
@@ -93,6 +94,13 @@ describe('AuctionsToolbar', () => {
     expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
   })
 
+  it('applies an auction type as soon as it is chosen', async () => {
+    renderToolbar()
+
+    await choose('Type', 'Expired')
+    expect(push).toHaveBeenLastCalledWith('/?type=expired&sort=price&direction=desc&page=1')
+  })
+
   it('searches TLDs, summarizes many choices, and keeps a TLD the facets dropped', async () => {
     renderToolbar({ tld: ['com', 'co', 'org'] })
     const trigger = screen.getByRole('button', { name: /^TLD/ })
@@ -147,7 +155,7 @@ describe('AuctionsToolbar', () => {
   })
 
   it('counts the filters only the Filters page sets and offers Reset', () => {
-    renderToolbar({ bidsMin: '5', noDigits: '1', tld: 'com' })
+    renderToolbar({ bidsMin: '5', noDigits: '1', tld: 'com', type: 'expired' })
 
     expect(screen.getByRole('link', { name: 'All filters 2' })).toBeInTheDocument()
     expect(screen.getByRole('link', { name: 'Reset' })).toHaveAttribute(

@@ -21,12 +21,14 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent } from '@/components/ui/popover'
 import {
   type AuctionSource,
+  type AuctionType,
   buildDomainTableHref,
   countAdvancedDomainTableFilters,
   DOMAIN_TABLE_ENDING_WINDOWS,
   type DomainTableEndingWindow,
   type DomainTableFilters,
   type DomainTableSort,
+  formatAuctionType,
   formatMoney,
   formatProvider,
   hasActiveDomainTableFilters,
@@ -252,12 +254,14 @@ function SortSelect({
 export function AuctionsToolbar({
   filters,
   sources,
+  auctionTypes,
   tlds,
   count,
   visibleColumns
 }: {
   filters: DomainTableFilters
   sources: string[]
+  auctionTypes: string[]
   tlds: string[]
   count: ReactNode
   visibleColumns: ColumnKey[]
@@ -283,6 +287,12 @@ export function AuctionsToolbar({
           options={sources.map(value => ({ value, label: formatProvider(value) }))}
           selected={filters.sources}
           onChange={values => apply({ sources: values as AuctionSource[] })}
+        />
+        <FacetedFilter
+          title="Type"
+          options={auctionTypes.map(value => ({ value, label: formatAuctionType(value) }))}
+          selected={filters.auctionTypes}
+          onChange={values => apply({ auctionTypes: values as AuctionType[] })}
         />
         <FacetedFilter
           title="TLD"

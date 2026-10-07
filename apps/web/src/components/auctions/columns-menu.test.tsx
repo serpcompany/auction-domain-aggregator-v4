@@ -50,14 +50,14 @@ describe('ColumnsMenu', () => {
 
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Renewal Off by default' }))
     expect(document.cookie).toContain(
-      'columns=source,price,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
+      'columns=source,type,price,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
     )
     expect(refresh).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Custom')
 
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Price' }))
     expect(document.cookie).toContain(
-      'columns=source,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
+      'columns=source,type,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
     )
   })
 
@@ -81,7 +81,7 @@ describe('ColumnsMenu', () => {
     expect(screen.getByRole('checkbox', { name: /Domain Rating/ })).toBeChecked()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Visitors' }))
     expect(document.cookie).toContain(
-      'columns=source,price,bids,ends,age,links,appraisal,visitors,majesticTf,majesticCf,semrushAs,domainRating'
+      'columns=source,type,price,bids,ends,age,links,appraisal,visitors,majesticTf,majesticCf,semrushAs,domainRating'
     )
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
     expect(document.cookie).toContain(`columns=${DEFAULT_COLUMNS.join(',')}`)

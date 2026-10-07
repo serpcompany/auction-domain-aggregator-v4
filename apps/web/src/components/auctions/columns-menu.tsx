@@ -131,9 +131,9 @@ export function FieldsDrawer({ visibleColumns }: { visibleColumns: ColumnKey[] }
       </FieldLabel>
     </Field>
   )
-  // Source, price, bids, and the end time always show in a listing.
+  // Source, type, price, bids, and the end time always show in a listing.
   const optional = TABLE_COLUMNS.filter(
-    column => !['source', 'price', 'bids', 'ends'].includes(column.key)
+    column => !['source', 'type', 'price', 'bids', 'ends'].includes(column.key)
   )
 
   return (

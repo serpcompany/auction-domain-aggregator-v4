@@ -34,6 +34,7 @@ describe('ResultsTable', () => {
     expect(headers).toEqual([
       'Domain',
       'Source',
+      'Type',
       'Price',
       'Bids',
       'Ends',
@@ -74,7 +75,8 @@ describe('ResultsTable', () => {
 
     expect(cells(2)).toEqual([
       'garden-example.com (opens auction in a new tab)',
-      'Dynadot · Expired',
+      'Dynadot',
+      'Expired',
       '$12.50',
       '3',
       '30mJul 13, 10:30 UTC',
@@ -109,7 +111,8 @@ describe('ResultsTable', () => {
 
     expect(cells(2)).toEqual([
       'fresh2example.net (opens auction in a new tab)',
-      'GoDaddy · Auction',
+      'GoDaddy',
+      'Auction',
       '$9.99',
       '1',
       '2d 2hJul 15, 12:00 UTC',

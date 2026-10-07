@@ -90,12 +90,9 @@ function cellContent(key: ColumnKey, row: DomainListingRow, now: Date): React.Re
   const seo = row.seoMetrics
   switch (key) {
     case 'source':
-      return (
-        <>
-          {formatProvider(row.provider)}
-          <span className="text-muted-foreground"> · {formatAuctionType(row.auctionType)}</span>
-        </>
-      )
+      return formatProvider(row.provider)
+    case 'type':
+      return formatAuctionType(row.auctionType)
     case 'price':
       return <span className="font-medium">{formatMoney(row.currentBidCents, row.currency)}</span>
     case 'bids':
