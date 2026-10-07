@@ -57,6 +57,13 @@
       "when": 1791348655361,
       "tag": "0007_sync_seen_pages",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "6",
+      "when": 1791354858023,
+      "tag": "0008_ahrefs_request_limits",
+      "breakpoints": true
     }
   ]
 }

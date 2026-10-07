@@ -1,15 +1,18 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { AhrefsError } from './ahrefs'
+import { enrichDomainRatings } from './domain-rating'
 import {
   type DomainRatingRequestDependencies,
   handleDomainRatingRequest
 } from './domain-rating-request'
+import { createMemoryDomainRatingStore } from './test-domain-rating-store'
 
-function post(body: unknown) {
+function post(body: unknown, signal?: AbortSignal) {
   return new Request('http://local/api/enrichment/domain-rating', {
     method: 'POST',
-    body: typeof body === 'string' ? body : JSON.stringify(body)
+    body: typeof body === 'string' ? body : JSON.stringify(body),
+    signal
   })
 }
 
@@ -85,5 +88,49 @@ describe('handleDomainRatingRequest', () => {
     )
     expect(response.status).toBe(status)
     expect(await response.json()).toEqual({ status: 'failed', errorCode })
+  })
+
+  it('answers 429 with Retry-After during a cool-down without calling Ahrefs', async () => {
+    const { store } = createMemoryDomainRatingStore(['a.com', 'b.com'])
+    const now = () => new Date('2026-10-07T12:00:00.000Z')
+    const fetchRatings = vi.fn(async () => {
+      throw new AhrefsError('ahrefs_rate_limited', 30)
+    })
+    const deps = dependencies({
+      enrich: (fetch, domains, signal) =>
+        enrichDomainRatings(store, fetch, domains, { signal, now }),
+      fetchRatings
+    })
+
+    const limited = await handleDomainRatingRequest(post({ domains: ['a.com'] }), deps)
+    expect(limited.status).toBe(429)
+    expect(await limited.json()).toEqual({ status: 'failed', errorCode: 'ahrefs_rate_limited' })
+
+    const cooling = await handleDomainRatingRequest(post({ domains: ['b.com'] }), deps)
+    expect(cooling.status).toBe(429)
+    expect(cooling.headers.get('retry-after')).toBe('30')
+    expect(await cooling.json()).toEqual({ status: 'failed', errorCode: 'ahrefs_cool_down' })
+    expect(fetchRatings).toHaveBeenCalledOnce()
+  })
+
+  it('passes the request signal on and makes no Ahrefs call once the client aborts', async () => {
+    const { store } = createMemoryDomainRatingStore(['a.com'])
+    const controller = new AbortController()
+    const fetchRatings = vi.fn(async () => new Map())
+    const deps = dependencies({
+      enrich: vi.fn(async (fetch, domains, signal) => {
+        controller.abort()
+        return enrichDomainRatings(store, fetch, domains, { signal })
+      }),
+      fetchRatings
+    })
+
+    const response = await handleDomainRatingRequest(
+      post({ domains: ['a.com'] }, controller.signal),
+      deps
+    )
+    expect(response.status).toBe(499)
+    expect(await response.json()).toEqual({ status: 'failed', errorCode: 'request_aborted' })
+    expect(fetchRatings).not.toHaveBeenCalled()
   })
 })

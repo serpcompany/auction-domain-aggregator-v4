@@ -167,7 +167,10 @@ export const ingestionRunSeenPages = sqliteTable(
 )
 
 // Domain-level enrichment, fetched on demand and stored once per domain and
-// metric. Only `ahrefs_dr` exists today.
+// metric. Only `ahrefs_dr` exists today. `ok` and `not_found` are final.
+// `omitted` (Ahrefs left the domain out of its answer) and `pending` (a
+// request is asking Ahrefs now) hold the domain until `retry_after`, when a
+// request may claim it again.
 export const domainMetrics = sqliteTable(
   'domain_metrics',
   {
@@ -175,18 +178,46 @@ export const domainMetrics = sqliteTable(
       .notNull()
       .references(() => domains.name),
     metric: text('metric', { enum: ['ahrefs_dr'] }).notNull(),
-    status: text('status', { enum: ['ok', 'not_found'] }).notNull(),
+    status: text('status', { enum: ['ok', 'not_found', 'omitted', 'pending'] }).notNull(),
     value: real('value'),
-    fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' }).notNull()
+    fetchedAt: integer('fetched_at', { mode: 'timestamp_ms' }).notNull(),
+    retryAfter: integer('retry_after', { mode: 'timestamp_ms' })
   },
   table => [
     primaryKey({ columns: [table.domainName, table.metric] }),
     check('domain_metrics_metric_check', sql`${table.metric} in ('ahrefs_dr')`),
-    check('domain_metrics_status_check', sql`${table.status} in ('ok', 'not_found')`),
+    check(
+      'domain_metrics_status_check',
+      sql`${table.status} in ('ok', 'not_found', 'omitted', 'pending')`
+    ),
     check(
       'domain_metrics_value_check',
-      sql`(${table.status} = 'ok' and ${table.value} between 0 and 100) or (${table.status} = 'not_found' and ${table.value} is null)`
+      sql`(${table.status} = 'ok' and ${table.value} between 0 and 100) or (${table.status} <> 'ok' and ${table.value} is null)`
+    ),
+    check(
+      'domain_metrics_retry_after_check',
+      sql`(${table.status} in ('ok', 'not_found')) = (${table.retryAfter} is null)`
     )
+  ]
+)
+
+// One row per call to Ahrefs, whatever its outcome, so usage can be counted
+// exactly. A rate-limited call sets `cool_down_until`, and no call is made
+// while any such time is in the future.
+export const ahrefsRequests = sqliteTable(
+  'ahrefs_requests',
+  {
+    // A rowid key: AUTOINCREMENT would add a sqlite_sequence write per call.
+    id: integer('id').primaryKey(),
+    requestedAt: integer('requested_at', { mode: 'timestamp_ms' }).notNull(),
+    domainCount: integer('domain_count').notNull(),
+    // `ok`, or the call's `ahrefs_*` error code.
+    outcome: text('outcome').notNull(),
+    coolDownUntil: integer('cool_down_until', { mode: 'timestamp_ms' })
+  },
+  table => [
+    check('ahrefs_requests_domain_count_positive', sql`${table.domainCount} >= 1`),
+    index('ahrefs_requests_cool_down_until_idx').on(table.coolDownUntil)
   ]
 )
 

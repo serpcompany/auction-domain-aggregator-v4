@@ -31,12 +31,23 @@ export type AhrefsErrorCode =
 
 export class AhrefsError extends Error {
   readonly code: AhrefsErrorCode
+  // From a 429's Retry-After header, when it has a usable value.
+  readonly retryAfterSeconds: number | null
 
-  constructor(code: AhrefsErrorCode) {
+  constructor(code: AhrefsErrorCode, retryAfterSeconds: number | null = null) {
     super(code)
     this.name = 'AhrefsError'
     this.code = code
+    this.retryAfterSeconds = retryAfterSeconds
   }
+}
+
+// Retry-After is either a number of seconds or an HTTP date.
+function parseRetryAfter(header: string | null, now: number) {
+  const value = header?.trim() ?? ''
+  if (/^\d+$/.test(value)) return Number(value)
+  const date = Date.parse(value)
+  return Number.isNaN(date) ? null : Math.max(0, Math.ceil((date - now) / 1000))
 }
 
 async function readBoundedText(response: Response) {
@@ -82,7 +93,12 @@ export async function fetchDomainRatings({
   if (response.status === 401 || response.status === 403) {
     throw new AhrefsError('ahrefs_unauthorized')
   }
-  if (response.status === 429) throw new AhrefsError('ahrefs_rate_limited')
+  if (response.status === 429) {
+    throw new AhrefsError(
+      'ahrefs_rate_limited',
+      parseRetryAfter(response.headers.get('retry-after'), Date.now())
+    )
+  }
   if (!response.ok) throw new AhrefsError('ahrefs_http_error')
 
   let parsed: z.infer<typeof responseSchema>

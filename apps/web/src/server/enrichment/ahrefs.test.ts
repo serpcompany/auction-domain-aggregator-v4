@@ -74,6 +74,30 @@ describe('fetchDomainRatings', () => {
     ).rejects.toEqual(new AhrefsError(code as AhrefsError['code']))
   })
 
+  it.each([
+    ['seconds', '120', 120],
+    ['an HTTP date', 'Wed, 07 Oct 2026 12:01:30 GMT', 90],
+    ['a past HTTP date', 'Wed, 07 Oct 2026 11:00:00 GMT', 0],
+    ['an unusable value', 'soon', null],
+    ['no header', null, null]
+  ])('reads a 429 Retry-After given as %s', async (_label, header, seconds) => {
+    vi.useFakeTimers({ now: new Date('2026-10-07T12:00:00.000Z') })
+    try {
+      const error = await fetchDomainRatings({
+        apiKey: 'k',
+        domains: ['a.com'],
+        fetchImpl: async () =>
+          new Response(null, {
+            status: 429,
+            headers: header === null ? {} : { 'retry-after': header }
+          })
+      }).catch(caught => caught)
+      expect(error).toMatchObject({ code: 'ahrefs_rate_limited', retryAfterSeconds: seconds })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('maps network failures and malformed or oversized responses', async () => {
     await expect(
       fetchDomainRatings({

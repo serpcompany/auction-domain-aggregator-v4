@@ -316,7 +316,9 @@ export async function queryDomainListingsWithDatabase(
       : await database
           .select({
             domainName: domainMetrics.domainName,
-            value: domainMetrics.value
+            status: domainMetrics.status,
+            value: domainMetrics.value,
+            retryAfter: domainMetrics.retryAfter
           })
           .from(domainMetrics)
           .where(
@@ -325,7 +327,18 @@ export async function queryDomainListingsWithDatabase(
               inArray(domainMetrics.domainName, pageDomains)
             )
           )
-  const ratings = new Map(ratingRows.map(({ domainName, value }) => [domainName, { value }]))
+  // A domain Ahrefs left out of its answer shows as having no rating until it
+  // may be asked again. A domain being asked about now counts as not fetched.
+  const ratings = new Map(
+    ratingRows
+      .filter(
+        ({ status, retryAfter }) =>
+          status === 'ok' ||
+          status === 'not_found' ||
+          (status === 'omitted' && retryAfter !== null && retryAfter > now)
+      )
+      .map(({ domainName, value }) => [domainName, { value }])
+  )
   const seoRows =
     pageDomains.length === 0
       ? []
