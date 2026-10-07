@@ -2,7 +2,7 @@ import type { DomainTableSort } from '@/domain/domain-table'
 
 // The one registry of table columns. The table, the Columns menu, and the
 // cookie that stores the choice all read it; Domain is always shown and is
-// not part of it.
+// not part of it. Every column can be sorted.
 export const TABLE_COLUMNS = [
   { key: 'source', label: 'Source', sort: 'source', defaultVisible: true },
   { key: 'price', label: 'Price', sort: 'price', numeric: true, defaultVisible: true },
@@ -25,6 +25,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticTf',
     label: 'TF',
     menuLabel: 'Trust Flow',
+    sort: 'majesticTf',
     group: 'Majestic',
     numeric: true,
     defaultVisible: true
@@ -33,6 +34,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticCf',
     label: 'CF',
     menuLabel: 'Citation Flow',
+    sort: 'majesticCf',
     group: 'Majestic',
     numeric: true,
     defaultVisible: true
@@ -41,6 +43,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticRefDomains',
     label: 'Ref. dom.',
     menuLabel: 'Referring domains',
+    sort: 'majesticRefDomains',
     group: 'Majestic',
     numeric: true,
     defaultVisible: false
@@ -49,6 +52,7 @@ export const TABLE_COLUMNS = [
     key: 'semrushAs',
     label: 'AS',
     menuLabel: 'Authority Score',
+    sort: 'semrushAs',
     group: 'Semrush',
     numeric: true,
     defaultVisible: true
@@ -57,6 +61,7 @@ export const TABLE_COLUMNS = [
     key: 'domainRating',
     label: 'DR',
     menuLabel: 'Domain Rating',
+    sort: 'domainRating',
     group: 'Ahrefs',
     numeric: true,
     defaultVisible: true
@@ -65,7 +70,7 @@ export const TABLE_COLUMNS = [
   key: string
   label: string
   menuLabel?: string
-  sort?: DomainTableSort
+  sort: DomainTableSort
   group?: 'Majestic' | 'Semrush' | 'Ahrefs'
   numeric?: boolean
   defaultVisible: boolean

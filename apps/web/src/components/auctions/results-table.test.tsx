@@ -172,6 +172,35 @@ describe('ResultsTable', () => {
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
+  it('sorts by every metric column, Ahrefs DR included', () => {
+    render(
+      <ResultsTable
+        rows={[fullRow]}
+        filters={parseDomainTableFilters({ sort: 'domainRating', direction: 'desc' })}
+        visibleColumns={allColumns}
+        now={now}
+      />
+    )
+
+    const dr = screen.getByRole('columnheader', { name: 'DR' })
+    expect(dr).toHaveAttribute('aria-sort', 'descending')
+    expect(within(dr).getByRole('link')).toHaveAttribute(
+      'href',
+      '/?sort=domainRating&direction=asc&page=1'
+    )
+    for (const [label, sort] of [
+      ['TF', 'majesticTf'],
+      ['CF', 'majesticCf'],
+      ['Ref. dom.', 'majesticRefDomains'],
+      ['AS', 'semrushAs']
+    ]) {
+      expect(screen.getByRole('link', { name: label })).toHaveAttribute(
+        'href',
+        `/?sort=${sort}&direction=desc&page=1`
+      )
+    }
+  })
+
   it('uses one header row when no metric column is shown', () => {
     render(<ResultsTable rows={[fullRow]} filters={filters} visibleColumns={[]} now={now} />)
 

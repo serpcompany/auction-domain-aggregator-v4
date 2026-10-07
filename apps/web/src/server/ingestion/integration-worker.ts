@@ -9,7 +9,13 @@ import {
 } from '../../domain/domain-table'
 import { refreshListingFacetsQueries } from '../db/listing-facets'
 import * as schema from '../db/schema'
-import { auctionListings, domainSeoMetrics, domains, ingestionRuns } from '../db/schema'
+import {
+  auctionListings,
+  domainMetrics,
+  domainSeoMetrics,
+  domains,
+  ingestionRuns
+} from '../db/schema'
 import { enrichDomainRatings } from '../enrichment/domain-rating'
 import { GODADDY_FEED_ENTRY } from '../providers/godaddy'
 import type { NormalizedListing, NormalizedSeoMetrics } from '../providers/types'
@@ -1142,6 +1148,45 @@ async function runProof(env: IntegrationEnv) {
   }))
   await database.insert(auctionListings).values(rankedListings)
   await database.insert(auctionListings).values(tieListings)
+  // One metric missing per ranked domain, so every metric sort proves nulls last.
+  await database.insert(domainSeoMetrics).values(
+    rankedDomains.map((domainName, index) => ({
+      domainName,
+      source: 'godaddy',
+      majesticTf: [12, 40, 25, null][index]!,
+      majesticCf: [null, 5, 30, 18][index]!,
+      majesticBacklinks: null,
+      majesticRefDomains: [100, null, 3, 50][index]!,
+      semrushAs: [7, 9, null, 2][index]!,
+      semrushRefDomains: null,
+      semrushBacklinks: null,
+      updatedAt: fixtureSeenAt
+    }))
+  )
+  // rank-1 has no Ahrefs rating; rank-3 was never fetched.
+  await database.insert(domainMetrics).values([
+    {
+      domainName: rankedDomains[0]!,
+      metric: 'ahrefs_dr',
+      status: 'ok',
+      value: 31.5,
+      fetchedAt: fixtureSeenAt
+    },
+    {
+      domainName: rankedDomains[1]!,
+      metric: 'ahrefs_dr',
+      status: 'not_found',
+      value: null,
+      fetchedAt: fixtureSeenAt
+    },
+    {
+      domainName: rankedDomains[2]!,
+      metric: 'ahrefs_dr',
+      status: 'ok',
+      value: 8,
+      fetchedAt: fixtureSeenAt
+    }
+  ])
 
   const assertFilterCase = async ({
     code,
@@ -1319,23 +1364,34 @@ async function runProof(env: IntegrationEnv) {
     visitors: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
     appraisal: ['rank-1', 'rank-2', 'rank-0', 'rank-3'],
     renewal: ['rank-0', 'rank-3', 'rank-1', 'rank-2'],
-    domainLength: ['rank-1', 'rank-3', 'rank-2', 'rank-0']
+    domainLength: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+    majesticTf: ['rank-0', 'rank-2', 'rank-1', 'rank-3'],
+    majesticCf: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+    majesticRefDomains: ['rank-2', 'rank-3', 'rank-0', 'rank-1'],
+    semrushAs: ['rank-3', 'rank-0', 'rank-1', 'rank-2'],
+    domainRating: ['rank-2', 'rank-0', 'rank-1', 'rank-3']
   }
-  const nullExternalIdBySort = {
-    age: 'rank-2',
-    links: 'rank-0',
-    visitors: 'rank-1',
-    appraisal: 'rank-3',
-    renewal: 'rank-2'
-  } as const
+  // Listings without the value, last in both directions in domain order.
+  const nullExternalIdsBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
+    age: ['rank-2'],
+    links: ['rank-0'],
+    visitors: ['rank-1'],
+    appraisal: ['rank-3'],
+    renewal: ['rank-2'],
+    majesticTf: ['rank-3'],
+    majesticCf: ['rank-0'],
+    majesticRefDomains: ['rank-1'],
+    semrushAs: ['rank-2'],
+    domainRating: ['rank-1', 'rank-3']
+  }
   for (const sort of DOMAIN_TABLE_SORTS) {
     const ascending = await query({ q: 'rank-', sort, direction: 'asc' })
     const descending = await query({ q: 'rank-', sort, direction: 'desc' })
     const expectedAscending = expectedAscendingBySort[sort]
-    const nullExternalId = nullExternalIdBySort[sort as keyof typeof nullExternalIdBySort]
+    const nullExternalIds = nullExternalIdsBySort[sort] ?? []
     const expectedDescending = [
-      ...expectedAscending.filter(externalId => externalId !== nullExternalId).reverse(),
-      ...(nullExternalId ? [nullExternalId] : [])
+      ...expectedAscending.filter(externalId => !nullExternalIds.includes(externalId)).reverse(),
+      ...nullExternalIds
     ]
     assertIntegration(
       ascending.rows.map(({ externalId }) => externalId).join(',') === expectedAscending.join(','),
@@ -1389,6 +1445,8 @@ async function runProof(env: IntegrationEnv) {
   await database
     .delete(auctionListings)
     .where(inArray(auctionListings.externalId, fixtureExternalIds))
+  await database.delete(domainSeoMetrics).where(inArray(domainSeoMetrics.domainName, rankedDomains))
+  await database.delete(domainMetrics).where(inArray(domainMetrics.domainName, rankedDomains))
   await database.delete(domains).where(inArray(domains.name, [...rankedDomains, tieDomain]))
 
   const statuses = await database

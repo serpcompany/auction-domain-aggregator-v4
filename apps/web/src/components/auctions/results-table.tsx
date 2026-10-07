@@ -36,7 +36,6 @@ import type { DomainListingRow } from '@/server/queries/domain-listings'
 
 const GROUPS: ColumnGroup[] = ['Majestic', 'Semrush', 'Ahrefs']
 
-type SortableColumn = Extract<TableColumn, { sort: DomainTableSort }>
 type GroupedColumn = Extract<TableColumn, { group: ColumnGroup }>
 
 const urgency: Record<EndTimeState, string> = {
@@ -218,8 +217,8 @@ export function ResultsTable({
   now: Date
 }) {
   const visible = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
-  // Listing columns are all sortable; metric columns all belong to a group.
-  const listing = visible.filter((column): column is SortableColumn => 'sort' in column)
+  // Metric columns sit under their group's header; the rest span both header rows.
+  const listing = visible.filter(column => !('group' in column))
   const metrics = visible.filter((column): column is GroupedColumn => 'group' in column)
   const groups = GROUPS.map(group => ({
     group,
@@ -282,13 +281,14 @@ export function ResultsTable({
                   key={column.key}
                   scope="col"
                   title={`${column.group} ${column.menuLabel}`}
+                  aria-sort={ariaSort(filters, column.sort)}
                   className={cn(
                     headClass,
                     'top-7 h-8 text-right',
                     firstInGroup.has(column.key) && 'border-l'
                   )}
                 >
-                  {column.label}
+                  <SortLink filters={filters} sort={column.sort} label={column.label} numeric />
                 </TableHead>
               ))}
             </TableRow>
