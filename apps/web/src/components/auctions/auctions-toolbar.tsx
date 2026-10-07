@@ -68,7 +68,7 @@ function SearchField({ query, onSearch }: { query?: string; onSearch: (query: st
   }
 
   return (
-    <search className="w-full sm:w-72">
+    <search className="w-full sm:w-60">
       <form onSubmit={submit}>
         <InputGroup>
           <InputGroupAddon>
