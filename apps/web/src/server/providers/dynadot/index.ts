@@ -1,7 +1,9 @@
 import { z } from 'zod'
 
 import {
+  countRejection,
   parseDomain,
+  parseField,
   parseMoneyCents,
   parseNonnegativeInteger,
   ResponseTooLargeError,
@@ -12,7 +14,9 @@ import {
   type NormalizedListing,
   type ProviderAdapter,
   ProviderError,
-  type ProviderPage
+  type ProviderErrorOptions,
+  type ProviderPage,
+  type RejectionReasons
 } from '../types'
 
 const stringOrNumber = (maximumLength: number) =>
@@ -102,14 +106,12 @@ export type DynadotProviderErrorCode =
   | 'dynadot_response_error'
   | 'dynadot_rate_limited'
   | 'dynadot_api_error'
+  | 'dynadot_too_many_rejected'
 
 export class DynadotProviderError extends ProviderError {
   declare readonly code: DynadotProviderErrorCode
 
-  constructor(
-    code: DynadotProviderErrorCode,
-    options?: { transient?: boolean; retryAfterMs?: number | null }
-  ) {
+  constructor(code: DynadotProviderErrorCode, options?: ProviderErrorOptions) {
     super(code, options)
     this.name = 'DynadotProviderError'
   }
@@ -162,42 +164,47 @@ function parseNullableTimestamp(value: string | number | undefined) {
 }
 
 function normalizeAuction(auction: z.infer<typeof dynadotAuctionSchema>): DynadotListing {
-  const domainName = parseDomain(auction.domain)
+  const domainName = parseField('domain', () => parseDomain(auction.domain))
 
   return {
     provider: 'dynadot',
-    externalId: parseRequiredString(auction.auction_id),
+    externalId: parseField('auction_id', () => parseRequiredString(auction.auction_id)),
     domainName,
     auctionUrl: `https://www.dynadot.com/market/auction/${encodeURIComponent(domainName)}`,
-    auctionType: parseRequiredString(auction.auction_type).toUpperCase(),
-    currency: parseRequiredString(auction.currency).toUpperCase(),
-    currentBidCents: parseMoneyCents(auction.current_bid_price),
-    bidCount: parseNonnegativeInteger(auction.bids),
-    bidderCount: parseNonnegativeInteger(auction.bidders),
-    startsAt: parseNullableTimestamp(auction.start_time_stamp),
-    endsAt: parseTimestamp(auction.end_time_stamp),
-    ageYears: parseNullableInteger(auction.age),
-    inboundLinks: parseNullableInteger(auction.links),
-    visitors: parseNullableInteger(auction.visitors),
-    appraisalCents: parseNullableMoney(auction.dyna_appraisal),
-    renewalPriceCents: parseNullableMoney(auction.renewal_price)
+    auctionType: parseField('auction_type', () =>
+      parseRequiredString(auction.auction_type).toUpperCase()
+    ),
+    currency: parseField('currency', () => parseRequiredString(auction.currency).toUpperCase()),
+    currentBidCents: parseField('current_bid_price', () =>
+      parseMoneyCents(auction.current_bid_price)
+    ),
+    bidCount: parseField('bids', () => parseNonnegativeInteger(auction.bids)),
+    bidderCount: parseField('bidders', () => parseNonnegativeInteger(auction.bidders)),
+    startsAt: parseField('start_time_stamp', () =>
+      parseNullableTimestamp(auction.start_time_stamp)
+    ),
+    endsAt: parseField('end_time_stamp', () => parseTimestamp(auction.end_time_stamp)),
+    ageYears: parseField('age', () => parseNullableInteger(auction.age)),
+    inboundLinks: parseField('links', () => parseNullableInteger(auction.links)),
+    visitors: parseField('visitors', () => parseNullableInteger(auction.visitors)),
+    appraisalCents: parseField('dyna_appraisal', () => parseNullableMoney(auction.dyna_appraisal)),
+    renewalPriceCents: parseField('renewal_price', () => parseNullableMoney(auction.renewal_price))
   }
 }
 
 function normalizePage(auctions: unknown[]): DynadotPage {
   const listings: DynadotListing[] = []
+  const rejections: RejectionReasons = {}
   for (const auction of auctions) {
-    const parsed = dynadotAuctionSchema.safeParse(auction)
-    if (!parsed.success) continue
     try {
-      listings.push(normalizeAuction(parsed.data))
-    } catch {
-      // Counted as rejected below.
+      listings.push(normalizeAuction(dynadotAuctionSchema.parse(auction)))
+    } catch (error) {
+      countRejection(rejections, error)
     }
   }
   const rejected = auctions.length - listings.length
   if (rejected > auctions.length * MAX_REJECTED_RATIO) {
-    throw new Error('too_many_rejected_auctions')
+    throw new DynadotProviderError('dynadot_too_many_rejected', { rejections })
   }
   return { listings, received: auctions.length, rejected }
 }
@@ -263,10 +270,9 @@ export async function fetchDynadotPage({
       if (error instanceof ResponseTooLargeError) {
         throw new DynadotProviderError('dynadot_response_too_large')
       }
-      if (signal.aborted) {
-        throw new DynadotProviderError('dynadot_network_error', { transient: true })
-      }
-      throw new DynadotProviderError('dynadot_parse_error')
+      // The body stopped partway: an abort, or a dropped connection. The
+      // whole body may arrive when the request is repeated.
+      throw new DynadotProviderError('dynadot_network_error', { transient: true })
     }
 
     let body: unknown
@@ -280,15 +286,14 @@ export async function fetchDynadotPage({
       throw errorResponse(failed.data.Response.Error ?? '', pageIndex)
     }
 
+    let auctions: unknown[]
     try {
-      const parsed = dynadotResponseSchema.parse(body)
-      if (parsed.auction_list.length > pageSize) {
-        throw new Error('page_size_exceeded')
-      }
-      return normalizePage(parsed.auction_list)
+      auctions = dynadotResponseSchema.parse(body).auction_list
     } catch {
       throw new DynadotProviderError('dynadot_response_error')
     }
+    if (auctions.length > pageSize) throw new DynadotProviderError('dynadot_response_error')
+    return normalizePage(auctions)
   } finally {
     clearTimeout(timeout)
   }

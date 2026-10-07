@@ -202,7 +202,7 @@ describe('fetchDynadotPage', () => {
     ).rejects.toMatchObject({ code: 'dynadot_response_too_large' })
   })
 
-  it('sanitizes body stream failures, including aborts', async () => {
+  it('retries a body that fails mid-stream, including an abort', async () => {
     await expect(
       fetchDynadotPage({
         apiKey: 'invented-key',
@@ -217,7 +217,7 @@ describe('fetchDynadotPage', () => {
             })
           )
       })
-    ).rejects.toMatchObject({ code: 'dynadot_parse_error' })
+    ).rejects.toEqual(new DynadotProviderError('dynadot_network_error', { transient: true }))
 
     const abortController = new AbortController()
     await expect(
@@ -264,105 +264,7 @@ describe('fetchDynadotPage', () => {
 
   it.each([
     ['status', { status: 'failed', auction_list: [] }],
-    ['shape', { status: 'success', auction_list: {} }],
-    [
-      'core field',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, bidders: undefined }]
-      }
-    ],
-    [
-      'domain',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: 'bad_label.example' }]
-      }
-    ],
-    [
-      'unparseable internationalized domain',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: 'té st.example' }]
-      }
-    ],
-    [
-      'empty domain',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: '' }]
-      }
-    ],
-    [
-      'single-label domain',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: 'localhost' }]
-      }
-    ],
-    [
-      'overlong domain',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: `${'a'.repeat(250)}.com` }]
-      }
-    ],
-    [
-      'empty identity',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, auction_id: '  ' }]
-      }
-    ],
-    [
-      'overlong identity',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, auction_id: 'x'.repeat(257) }]
-      }
-    ],
-    [
-      'trailing dot',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, domain: 'example.com.' }]
-      }
-    ],
-    [
-      'fractional cent',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, current_bid_price: '1.001' }]
-      }
-    ],
-    [
-      'unsafe money',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, current_bid_price: '9007199254740991' }]
-      }
-    ],
-    [
-      'invalid integer',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, bids: '1.5' }]
-      }
-    ],
-    [
-      'timestamp',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, end_time_stamp: 0 }]
-      }
-    ],
-    [
-      'out-of-range timestamp',
-      {
-        status: 'success',
-        auction_list: [{ ...validItem, end_time_stamp: '9007199254740991' }]
-      }
-    ]
+    ['shape', { status: 'success', auction_list: {} }]
   ])('rejects a malformed provider %s', async (_label, body) => {
     await expect(
       fetchDynadotPage({
@@ -373,6 +275,40 @@ describe('fetchDynadotPage', () => {
       })
     ).rejects.toMatchObject({ code: 'dynadot_response_error' })
   })
+
+  it.each([
+    ['core field', { bidders: undefined }, 'bidders: invalid_union'],
+    ['domain', { domain: 'bad_label.example' }, 'domain: invalid_domain'],
+    ['unparseable internationalized domain', { domain: 'té st.example' }, 'domain: invalid_domain'],
+    ['empty domain', { domain: '' }, 'domain: invalid_domain'],
+    ['single-label domain', { domain: 'localhost' }, 'domain: invalid_domain'],
+    ['overlong domain', { domain: `${'a'.repeat(250)}.com` }, 'domain: too_big'],
+    ['empty identity', { auction_id: '  ' }, 'auction_id: invalid_string'],
+    ['overlong identity', { auction_id: 'x'.repeat(257) }, 'auction_id: too_big'],
+    ['trailing dot', { domain: 'example.com.' }, 'domain: invalid_domain'],
+    ['fractional cent', { current_bid_price: '1.001' }, 'current_bid_price: invalid_decimal'],
+    ['unsafe money', { current_bid_price: '9007199254740991' }, 'current_bid_price: invalid_money'],
+    ['invalid integer', { bids: '1.5' }, 'bids: invalid_integer'],
+    ['timestamp', { end_time_stamp: 0 }, 'end_time_stamp: invalid_timestamp'],
+    [
+      'out-of-range timestamp',
+      { end_time_stamp: '9007199254740991' },
+      'end_time_stamp: invalid_timestamp'
+    ]
+  ])(
+    'rejects an auction with a malformed %s and names the field',
+    async (_label, fields, reason) => {
+      await expect(
+        fetchDynadotPage({
+          apiKey: 'invented-key',
+          pageIndex: 1,
+          pageSize: 10,
+          fetchImpl: async () =>
+            jsonResponse({ status: 'success', auction_list: [{ ...validItem, ...fields }] })
+        })
+      ).rejects.toMatchObject({ code: 'dynadot_too_many_rejected', rejections: { [reason]: 1 } })
+    }
+  )
 
   it('skips and counts an invalid auction without failing the page', async () => {
     const auctions = Array.from({ length: 10 }, (_, index) => ({
@@ -395,11 +331,13 @@ describe('fetchDynadotPage', () => {
     expect(page.listings).toHaveLength(9)
   })
 
-  it('fails the page when more than a tenth of its auctions are invalid', async () => {
+  it('fails the page when more than a tenth of its auctions are invalid, with the reasons', async () => {
+    // The #73 case: renewal prices Dynadot wrote in a new format.
     const auctions = Array.from({ length: 10 }, (_, index) => ({
       ...validItem,
       auction_id: index + 1,
-      domain: index < 2 ? `bad_${index}.example` : `valid-${index}.example`
+      domain: index < 1 ? `bad_${index}.example` : `valid-${index}.example`,
+      renewal_price: index > 7 ? 'n/a' : '12.00'
     }))
 
     await expect(
@@ -409,7 +347,11 @@ describe('fetchDynadotPage', () => {
         pageSize: 10,
         fetchImpl: async () => jsonResponse({ status: 'success', auction_list: auctions })
       })
-    ).rejects.toMatchObject({ code: 'dynadot_response_error' })
+    ).rejects.toEqual(
+      new DynadotProviderError('dynadot_too_many_rejected', {
+        rejections: { 'domain: invalid_domain': 1, 'renewal_price: invalid_decimal': 2 }
+      })
+    )
   })
 
   it('stores internationalized domain names in punycode', async () => {

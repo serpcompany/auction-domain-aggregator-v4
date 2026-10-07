@@ -1,0 +1,879 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "7de65bbe-1688-4145-adc7-8907ed132e04",
+  "prevId": "1b5f429b-bad4-4b9b-8cc9-ad546e534885",
+  "tables": {
+    "ahrefs_requests": {
+      "name": "ahrefs_requests",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "requested_at": {
+          "name": "requested_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain_count": {
+          "name": "domain_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "outcome": {
+          "name": "outcome",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cool_down_until": {
+          "name": "cool_down_until",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "ahrefs_requests_cool_down_until_idx": {
+          "name": "ahrefs_requests_cool_down_until_idx",
+          "columns": [
+            "cool_down_until"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ahrefs_requests_domain_count_positive": {
+          "name": "ahrefs_requests_domain_count_positive",
+          "value": "\"ahrefs_requests\".\"domain_count\" >= 1"
+        }
+      }
+    },
+    "auction_listings": {
+      "name": "auction_listings",
+      "columns": {
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_id": {
+          "name": "external_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "domain_name": {
+          "name": "domain_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "auction_url": {
+          "name": "auction_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "auction_type": {
+          "name": "auction_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "current_bid_cents": {
+          "name": "current_bid_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "bid_count": {
+          "name": "bid_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "bidder_count": {
+          "name": "bidder_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "starts_at": {
+          "name": "starts_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "ends_at": {
+          "name": "ends_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "age_years": {
+          "name": "age_years",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "inbound_links": {
+          "name": "inbound_links",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "visitors": {
+          "name": "visitors",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "appraisal_cents": {
+          "name": "appraisal_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "renewal_price_cents": {
+          "name": "renewal_price_cents",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tld": {
+          "name": "tld",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "generated": {
+            "as": "(lower(substr(\"domain_name\", length(rtrim(\"domain_name\", replace(\"domain_name\", '.', ''))) + 1)))",
+            "type": "virtual"
+          }
+        },
+        "domain_length": {
+          "name": "domain_length",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "generated": {
+            "as": "(length(\"domain_name\"))",
+            "type": "virtual"
+          }
+        }
+      },
+      "indexes": {
+        "auction_listings_status_provider_idx": {
+          "name": "auction_listings_status_provider_idx",
+          "columns": [
+            "status",
+            "provider"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_domain_name_idx": {
+          "name": "auction_listings_domain_name_idx",
+          "columns": [
+            "domain_name"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_ends_at_idx": {
+          "name": "auction_listings_ends_at_idx",
+          "columns": [
+            "ends_at"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_current_bid_cents_idx": {
+          "name": "auction_listings_current_bid_cents_idx",
+          "columns": [
+            "current_bid_cents"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_bid_count_idx": {
+          "name": "auction_listings_bid_count_idx",
+          "columns": [
+            "bid_count"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_age_years_idx": {
+          "name": "auction_listings_age_years_idx",
+          "columns": [
+            "age_years"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_tld_status_ends_at_idx": {
+          "name": "auction_listings_tld_status_ends_at_idx",
+          "columns": [
+            "tld",
+            "status",
+            "ends_at"
+          ],
+          "isUnique": false
+        },
+        "auction_listings_domain_length_status_ends_at_idx": {
+          "name": "auction_listings_domain_length_status_ends_at_idx",
+          "columns": [
+            "domain_length",
+            "status",
+            "ends_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "auction_listings_domain_name_domains_name_fk": {
+          "name": "auction_listings_domain_name_domains_name_fk",
+          "tableFrom": "auction_listings",
+          "tableTo": "domains",
+          "columnsFrom": [
+            "domain_name"
+          ],
+          "columnsTo": [
+            "name"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "auction_listings_provider_external_id_pk": {
+          "columns": [
+            "provider",
+            "external_id"
+          ],
+          "name": "auction_listings_provider_external_id_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "auction_listings_status_check": {
+          "name": "auction_listings_status_check",
+          "value": "\"auction_listings\".\"status\" in ('active', 'inactive')"
+        },
+        "auction_listings_current_bid_cents_nonnegative": {
+          "name": "auction_listings_current_bid_cents_nonnegative",
+          "value": "\"auction_listings\".\"current_bid_cents\" >= 0"
+        },
+        "auction_listings_bid_count_nonnegative": {
+          "name": "auction_listings_bid_count_nonnegative",
+          "value": "\"auction_listings\".\"bid_count\" >= 0"
+        },
+        "auction_listings_bidder_count_nonnegative": {
+          "name": "auction_listings_bidder_count_nonnegative",
+          "value": "\"auction_listings\".\"bidder_count\" is null or \"auction_listings\".\"bidder_count\" >= 0"
+        },
+        "auction_listings_age_years_nonnegative": {
+          "name": "auction_listings_age_years_nonnegative",
+          "value": "\"auction_listings\".\"age_years\" is null or \"auction_listings\".\"age_years\" >= 0"
+        },
+        "auction_listings_inbound_links_nonnegative": {
+          "name": "auction_listings_inbound_links_nonnegative",
+          "value": "\"auction_listings\".\"inbound_links\" is null or \"auction_listings\".\"inbound_links\" >= 0"
+        },
+        "auction_listings_visitors_nonnegative": {
+          "name": "auction_listings_visitors_nonnegative",
+          "value": "\"auction_listings\".\"visitors\" is null or \"auction_listings\".\"visitors\" >= 0"
+        },
+        "auction_listings_dynadot_appraisal_cents_nonnegative": {
+          "name": "auction_listings_dynadot_appraisal_cents_nonnegative",
+          "value": "\"auction_listings\".\"appraisal_cents\" is null or \"auction_listings\".\"appraisal_cents\" >= 0"
+        },
+        "auction_listings_renewal_price_cents_nonnegative": {
+          "name": "auction_listings_renewal_price_cents_nonnegative",
+          "value": "\"auction_listings\".\"renewal_price_cents\" is null or \"auction_listings\".\"renewal_price_cents\" >= 0"
+        }
+      }
+    },
+    "domain_metrics": {
+      "name": "domain_metrics",
+      "columns": {
+        "domain_name": {
+          "name": "domain_name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "retry_after": {
+          "name": "retry_after",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "domain_metrics_domain_name_domains_name_fk": {
+          "name": "domain_metrics_domain_name_domains_name_fk",
+          "tableFrom": "domain_metrics",
+          "tableTo": "domains",
+          "columnsFrom": [
+            "domain_name"
+          ],
+          "columnsTo": [
+            "name"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "domain_metrics_domain_name_metric_pk": {
+          "columns": [
+            "domain_name",
+            "metric"
+          ],
+          "name": "domain_metrics_domain_name_metric_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "domain_metrics_metric_check": {
+          "name": "domain_metrics_metric_check",
+          "value": "\"domain_metrics\".\"metric\" in ('ahrefs_dr')"
+        },
+        "domain_metrics_status_check": {
+          "name": "domain_metrics_status_check",
+          "value": "\"domain_metrics\".\"status\" in ('ok', 'not_found', 'omitted', 'pending')"
+        },
+        "domain_metrics_value_check": {
+          "name": "domain_metrics_value_check",
+          "value": "(\"domain_metrics\".\"status\" = 'ok' and \"domain_metrics\".\"value\" between 0 and 100) or (\"domain_metrics\".\"status\" <> 'ok' and \"domain_metrics\".\"value\" is null)"
+        },
+        "domain_metrics_retry_after_check": {
+          "name": "domain_metrics_retry_after_check",
+          "value": "(\"domain_metrics\".\"status\" in ('ok', 'not_found')) = (\"domain_metrics\".\"retry_after\" is null)"
+        }
+      }
+    },
+    "domain_seo_metrics": {
+      "name": "domain_seo_metrics",
+      "columns": {
+        "domain_name": {
+          "name": "domain_name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source": {
+          "name": "source",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "majestic_tf": {
+          "name": "majestic_tf",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "majestic_cf": {
+          "name": "majestic_cf",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "majestic_backlinks": {
+          "name": "majestic_backlinks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "majestic_ref_domains": {
+          "name": "majestic_ref_domains",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "semrush_as": {
+          "name": "semrush_as",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "semrush_ref_domains": {
+          "name": "semrush_ref_domains",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "semrush_backlinks": {
+          "name": "semrush_backlinks",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "domain_seo_metrics_majestic_tf_idx": {
+          "name": "domain_seo_metrics_majestic_tf_idx",
+          "columns": [
+            "majestic_tf"
+          ],
+          "isUnique": false
+        },
+        "domain_seo_metrics_majestic_cf_idx": {
+          "name": "domain_seo_metrics_majestic_cf_idx",
+          "columns": [
+            "majestic_cf"
+          ],
+          "isUnique": false
+        },
+        "domain_seo_metrics_majestic_ref_domains_idx": {
+          "name": "domain_seo_metrics_majestic_ref_domains_idx",
+          "columns": [
+            "majestic_ref_domains"
+          ],
+          "isUnique": false
+        },
+        "domain_seo_metrics_semrush_as_idx": {
+          "name": "domain_seo_metrics_semrush_as_idx",
+          "columns": [
+            "semrush_as"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "domain_seo_metrics_domain_name_domains_name_fk": {
+          "name": "domain_seo_metrics_domain_name_domains_name_fk",
+          "tableFrom": "domain_seo_metrics",
+          "tableTo": "domains",
+          "columnsFrom": [
+            "domain_name"
+          ],
+          "columnsTo": [
+            "name"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "domain_seo_metrics_majestic_tf_range": {
+          "name": "domain_seo_metrics_majestic_tf_range",
+          "value": "\"domain_seo_metrics\".\"majestic_tf\" is null or \"domain_seo_metrics\".\"majestic_tf\" between 0 and 100"
+        },
+        "domain_seo_metrics_majestic_cf_range": {
+          "name": "domain_seo_metrics_majestic_cf_range",
+          "value": "\"domain_seo_metrics\".\"majestic_cf\" is null or \"domain_seo_metrics\".\"majestic_cf\" between 0 and 100"
+        },
+        "domain_seo_metrics_majestic_backlinks_nonnegative": {
+          "name": "domain_seo_metrics_majestic_backlinks_nonnegative",
+          "value": "\"domain_seo_metrics\".\"majestic_backlinks\" is null or \"domain_seo_metrics\".\"majestic_backlinks\" >= 0"
+        },
+        "domain_seo_metrics_majestic_ref_domains_nonnegative": {
+          "name": "domain_seo_metrics_majestic_ref_domains_nonnegative",
+          "value": "\"domain_seo_metrics\".\"majestic_ref_domains\" is null or \"domain_seo_metrics\".\"majestic_ref_domains\" >= 0"
+        },
+        "domain_seo_metrics_semrush_as_range": {
+          "name": "domain_seo_metrics_semrush_as_range",
+          "value": "\"domain_seo_metrics\".\"semrush_as\" is null or \"domain_seo_metrics\".\"semrush_as\" between 0 and 100"
+        },
+        "domain_seo_metrics_semrush_ref_domains_nonnegative": {
+          "name": "domain_seo_metrics_semrush_ref_domains_nonnegative",
+          "value": "\"domain_seo_metrics\".\"semrush_ref_domains\" is null or \"domain_seo_metrics\".\"semrush_ref_domains\" >= 0"
+        },
+        "domain_seo_metrics_semrush_backlinks_nonnegative": {
+          "name": "domain_seo_metrics_semrush_backlinks_nonnegative",
+          "value": "\"domain_seo_metrics\".\"semrush_backlinks\" is null or \"domain_seo_metrics\".\"semrush_backlinks\" >= 0"
+        }
+      }
+    },
+    "domains": {
+      "name": "domains",
+      "columns": {
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "ingestion_run_seen_pages": {
+      "name": "ingestion_run_seen_pages",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "run_id": {
+          "name": "run_id",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "external_ids": {
+          "name": "external_ids",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "ingestion_run_seen_pages_run_id_idx": {
+          "name": "ingestion_run_seen_pages_run_id_idx",
+          "columns": [
+            "run_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "ingestion_run_seen_pages_run_id_ingestion_runs_id_fk": {
+          "name": "ingestion_run_seen_pages_run_id_ingestion_runs_id_fk",
+          "tableFrom": "ingestion_run_seen_pages",
+          "tableTo": "ingestion_runs",
+          "columnsFrom": [
+            "run_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "ingestion_runs": {
+      "name": "ingestion_runs",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "integer",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": true
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "started_at": {
+          "name": "started_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "completed_at": {
+          "name": "completed_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "pages_fetched": {
+          "name": "pages_fetched",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "next_page": {
+          "name": "next_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 1
+        },
+        "records_fetched": {
+          "name": "records_fetched",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "records_upserted": {
+          "name": "records_upserted",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "records_inactivated": {
+          "name": "records_inactivated",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "records_rejected": {
+          "name": "records_rejected",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false,
+          "default": 0
+        },
+        "error_code": {
+          "name": "error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "failed_page": {
+          "name": "failed_page",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "rejection_reasons": {
+          "name": "rejection_reasons",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "ingestion_runs_provider_started_at_idx": {
+          "name": "ingestion_runs_provider_started_at_idx",
+          "columns": [
+            "provider",
+            "started_at"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "ingestion_runs_status_check": {
+          "name": "ingestion_runs_status_check",
+          "value": "\"ingestion_runs\".\"status\" in ('running', 'succeeded', 'failed')"
+        },
+        "ingestion_runs_pages_fetched_nonnegative": {
+          "name": "ingestion_runs_pages_fetched_nonnegative",
+          "value": "\"ingestion_runs\".\"pages_fetched\" >= 0"
+        },
+        "ingestion_runs_next_page_positive": {
+          "name": "ingestion_runs_next_page_positive",
+          "value": "\"ingestion_runs\".\"next_page\" >= 1"
+        },
+        "ingestion_runs_records_fetched_nonnegative": {
+          "name": "ingestion_runs_records_fetched_nonnegative",
+          "value": "\"ingestion_runs\".\"records_fetched\" >= 0"
+        },
+        "ingestion_runs_records_upserted_nonnegative": {
+          "name": "ingestion_runs_records_upserted_nonnegative",
+          "value": "\"ingestion_runs\".\"records_upserted\" >= 0"
+        },
+        "ingestion_runs_records_inactivated_nonnegative": {
+          "name": "ingestion_runs_records_inactivated_nonnegative",
+          "value": "\"ingestion_runs\".\"records_inactivated\" >= 0"
+        },
+        "ingestion_runs_records_rejected_nonnegative": {
+          "name": "ingestion_runs_records_rejected_nonnegative",
+          "value": "\"ingestion_runs\".\"records_rejected\" >= 0"
+        }
+      }
+    },
+    "listing_facets": {
+      "name": "listing_facets",
+      "columns": {
+        "facet": {
+          "name": "facet",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value": {
+          "name": "value",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "latest_ends_at": {
+          "name": "latest_ends_at",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {},
+      "compositePrimaryKeys": {
+        "listing_facets_facet_value_pk": {
+          "columns": [
+            "facet",
+            "value"
+          ],
+          "name": "listing_facets_facet_value_pk"
+        }
+      },
+      "uniqueConstraints": {},
+      "checkConstraints": {
+        "listing_facets_facet_check": {
+          "name": "listing_facets_facet_check",
+          "value": "\"listing_facets\".\"facet\" in ('source', 'auction_type', 'tld')"
+        }
+      }
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

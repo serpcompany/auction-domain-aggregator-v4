@@ -152,9 +152,30 @@ describe('GoDaddy record normalization', () => {
     expect(page.listings).toHaveLength(valid.length)
   })
 
-  it('fails a page where more than a tenth of the records are invalid', () => {
-    expect(() => normalizeGodaddyRecords([record, record, { ...record, price: 'x' }])).toThrow(
-      new GodaddyProviderError('godaddy_response_error')
+  it('fails a page where more than a tenth of the records are invalid, naming the fields', () => {
+    let caught: unknown
+    try {
+      normalizeGodaddyRecords([
+        record,
+        { ...record, price: 'x' },
+        { ...record, price: '1.001' },
+        { ...record, link: 'not a url' },
+        { ...record, auctionType: 'Other' },
+        { ...record, numberOfBids: undefined }
+      ])
+    } catch (error) {
+      caught = error
+    }
+    expect(caught).toEqual(
+      new GodaddyProviderError('godaddy_too_many_rejected', {
+        rejections: {
+          'price: invalid_decimal': 2,
+          // The URL parser's own message is not kept.
+          'link: invalid': 1,
+          'auctionType: invalid_value': 1,
+          'numberOfBids: missing': 1
+        }
+      })
     )
   })
 })

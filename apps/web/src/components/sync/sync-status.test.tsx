@@ -24,6 +24,7 @@ function run(overrides: Partial<IngestionRun>): IngestionRun {
     recordsRejected: 0,
     errorCode: null,
     failedPage: null,
+    rejectionReasons: null,
     ...overrides
   }
 }

@@ -578,9 +578,9 @@ describe('provider sync workflow', () => {
     const { run, steps, stores, nonRetryable, bucket } = setup({
       zip: await feedZip(records)
     })
-    await expect(run('godaddy')).rejects.toThrow('godaddy_response_error')
-    expect(nonRetryable).toHaveBeenCalledWith('godaddy_response_error')
-    expect(stores.get('godaddy')!.failures).toEqual(['godaddy_response_error'])
+    await expect(run('godaddy')).rejects.toThrow('godaddy_too_many_rejected')
+    expect(nonRetryable).toHaveBeenCalledWith('godaddy_too_many_rejected')
+    expect(stores.get('godaddy')!.failures).toEqual(['godaddy_too_many_rejected'])
     expect(steps.names().at(-1)).toBe('delete staged pages')
     expect(bucket.objects.size).toBe(0)
   })
@@ -610,7 +610,7 @@ describe('provider sync workflow', () => {
       price: 'invalid'
     }))
     const failed = setup({ zip: await feedZip(invalid), bucket: stuck() })
-    await expect(failed.run('godaddy')).rejects.toThrow('godaddy_response_error')
+    await expect(failed.run('godaddy')).rejects.toThrow('godaddy_too_many_rejected')
   })
 
   it('retries a run that could not be started, then reports sync_failed', async () => {

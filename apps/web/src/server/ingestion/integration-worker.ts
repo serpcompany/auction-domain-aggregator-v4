@@ -134,7 +134,8 @@ async function proveReconciliationSafety(
     recordsInactivated: 0,
     recordsRejected: 3,
     errorCode: 'sync_reconciliation_guard',
-    failedPage: 7
+    failedPage: 7,
+    rejectionReasons: null
   })
   const [failedRun] = await database
     .select({
@@ -261,7 +262,8 @@ async function proveProviderIsolation(database: ReturnType<typeof drizzle<typeof
     recordsInactivated: 0,
     recordsRejected: 0,
     errorCode: 'sync_failed',
-    failedPage: null
+    failedPage: null,
+    rejectionReasons: null
   })
   await database.delete(auctionListings).where(eq(auctionListings.provider, 'dropcatch'))
 }
@@ -609,7 +611,8 @@ async function proveGodaddyFeedStorage(database: ReturnType<typeof drizzle<typeo
     recordsInactivated: 0,
     recordsRejected: 0,
     errorCode: 'sync_failed',
-    failedPage: null
+    failedPage: null,
+    rejectionReasons: null
   })
   await database.delete(auctionListings).where(eq(auctionListings.provider, 'godaddy'))
 }
@@ -790,7 +793,8 @@ async function proveCloudFeedSync(
     `cloud_feed_facets_rebuilt: ${beforeSync.sources.join('+')} -> ${afterSync.sources.join('+')}`
   )
 
-  // More than a tenth of the first page is invalid: the run fails on page 1.
+  // More than a tenth of the first page is invalid: the run fails on page 1
+  // and records why.
   const invalid = records.map((record, index) =>
     index < 200 ? inventedFeedRecord(index, 'not money') : record
   )
@@ -808,13 +812,14 @@ async function proveCloudFeedSync(
       and(eq(auctionListings.status, 'active'), like(auctionListings.domainName, 'cloud-feed-%'))
     )
   assertIntegration(
-    failed.error === 'godaddy_response_error' &&
+    failed.error === 'godaddy_too_many_rejected' &&
       failed.stagedObjects === 2 &&
       failed.steps.at(-1) === 'delete staged pages' &&
       (await cloudFeedObjects(env.FEED_PAGES)) === 0 &&
       failedRun?.status === 'failed' &&
-      failedRun.errorCode === 'godaddy_response_error' &&
+      failedRun.errorCode === 'godaddy_too_many_rejected' &&
       failedRun.failedPage === 1 &&
+      JSON.stringify(failedRun.rejectionReasons) === '{"price: invalid_decimal":200}' &&
       stillActive?.value === 2_500,
     'cloud_feed_failure_contained'
   )
@@ -939,7 +944,8 @@ async function runProof(env: IntegrationEnv) {
     recordsInactivated: 0,
     recordsRejected: 0,
     errorCode: 'sync_failed',
-    failedPage: null
+    failedPage: null,
+    rejectionReasons: null
   })
   const [activeAfterFailure] = await database
     .select({ value: count() })
