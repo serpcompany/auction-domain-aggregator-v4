@@ -47,6 +47,7 @@ describe('AuctionsPage', () => {
     const region = screen.getByRole('region', { name: 'Domain results' })
     expect(region).toHaveAttribute('tabindex', '0')
     expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Domain results' })).toBeInTheDocument()
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument()
     expect(screen.queryByText(/out of date/)).not.toBeInTheDocument()
   })

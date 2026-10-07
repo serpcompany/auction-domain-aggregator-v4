@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { type FormEvent, useEffect, useRef, useState, useTransition } from 'react'
 
-import { ColumnsMenu } from '@/components/auctions/columns-menu'
+import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
 import { FacetedFilter, FacetTrigger } from '@/components/auctions/faceted-filter'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
@@ -17,6 +17,7 @@ import {
   InputGroupText
 } from '@/components/ui/input-group'
 import { Kbd } from '@/components/ui/kbd'
+import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { Popover, PopoverContent } from '@/components/ui/popover'
 import {
   type AuctionSource,
@@ -25,12 +26,14 @@ import {
   DOMAIN_TABLE_ENDING_WINDOWS,
   type DomainTableEndingWindow,
   type DomainTableFilters,
+  type DomainTableSort,
   formatMoney,
   formatProvider,
   hasActiveDomainTableFilters,
-  parseDomainTableFilters
+  parseDomainTableFilters,
+  type SortDirection
 } from '@/domain/domain-table'
-import { buildFiltersPageHref } from '@/domain/filter-form'
+import { buildFiltersPageHref, countFiltersBySection } from '@/domain/filter-form'
 import type { ColumnKey } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
 
@@ -196,6 +199,53 @@ function EndsFilter({
   )
 }
 
+// Phones sort from a list instead of column headers.
+const SORT_OPTIONS: Array<[DomainTableSort, SortDirection, string]> = [
+  ['endsAt', 'asc', 'Ends soonest'],
+  ['price', 'asc', 'Price: low to high'],
+  ['price', 'desc', 'Price: high to low'],
+  ['bids', 'desc', 'Most bids'],
+  ['appraisal', 'desc', 'Highest appraisal'],
+  ['age', 'desc', 'Oldest'],
+  ['domainRating', 'desc', 'Highest Ahrefs DR'],
+  ['majesticTf', 'desc', 'Highest Trust Flow'],
+  ['semrushAs', 'desc', 'Highest Authority Score'],
+  ['domain', 'asc', 'Domain A–Z']
+]
+
+function SortSelect({
+  filters,
+  onChange
+}: {
+  filters: DomainTableFilters
+  onChange: (sort: DomainTableSort, direction: SortDirection) => void
+}) {
+  const current = `${filters.sort}:${filters.direction}`
+  const listed = SORT_OPTIONS.some(([sort, direction]) => `${sort}:${direction}` === current)
+  return (
+    <NativeSelect
+      size="sm"
+      aria-label="Sort"
+      value={current}
+      onChange={event => {
+        const [sort, direction] = event.target.value.split(':') as [DomainTableSort, SortDirection]
+        onChange(sort, direction)
+      }}
+    >
+      {listed ? null : (
+        <NativeSelectOption value={current}>
+          Sorted by {filters.sort} ({filters.direction === 'asc' ? 'ascending' : 'descending'})
+        </NativeSelectOption>
+      )}
+      {SORT_OPTIONS.map(([sort, direction, label]) => (
+        <NativeSelectOption key={`${sort}:${direction}`} value={`${sort}:${direction}`}>
+          {label}
+        </NativeSelectOption>
+      ))}
+    </NativeSelect>
+  )
+}
+
 export function AuctionsToolbar({
   filters,
   sources,
@@ -214,6 +264,7 @@ export function AuctionsToolbar({
   const apply = (overrides: Partial<DomainTableFilters>) =>
     startTransition(() => router.push(buildDomainTableHref(filters, { ...overrides, page: 1 })))
   const advanced = countAdvancedDomainTableFilters(filters)
+  const active = Object.values(countFiltersBySection(filters)).reduce((sum, n) => sum + n, 0)
 
   return (
     <div className="flex flex-wrap items-center gap-2" aria-busy={pending || undefined}>
@@ -223,48 +274,77 @@ export function AuctionsToolbar({
         query={filters.query}
         onSearch={query => apply({ query: parseDomainTableFilters({ q: query }).query })}
       />
-      <FacetedFilter
-        title="Source"
-        options={sources.map(value => ({ value, label: formatProvider(value) }))}
-        selected={filters.sources}
-        onChange={values => apply({ sources: values as AuctionSource[] })}
-      />
-      <FacetedFilter
-        title="TLD"
-        options={tlds.map(value => ({ value, label: `.${value}` }))}
-        selected={filters.tlds}
-        onChange={values => apply({ tlds: values })}
-        searchable
-        footer={`${tlds.length.toLocaleString('en-US')} TLDs in the inventory`}
-      />
-      <MaxBidFilter filters={filters} onApply={priceMaxCents => apply({ priceMaxCents })} />
-      <EndsFilter value={filters.endingWithin} onChange={endingWithin => apply({ endingWithin })} />
-      <Link
-        prefetch={false}
-        href={buildFiltersPageHref(filters)}
-        className={buttonVariants({ variant: 'outline', size: 'sm' })}
-      >
-        <ListFilterIcon aria-hidden="true" />
-        All filters
-        {advanced > 0 ? (
-          <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-            {advanced}
-          </Badge>
-        ) : null}
-      </Link>
-      {hasActiveDomainTableFilters(filters) ? (
+      <div className="hidden flex-wrap items-center gap-2 md:flex">
+        <FacetedFilter
+          title="Source"
+          options={sources.map(value => ({ value, label: formatProvider(value) }))}
+          selected={filters.sources}
+          onChange={values => apply({ sources: values as AuctionSource[] })}
+        />
+        <FacetedFilter
+          title="TLD"
+          options={tlds.map(value => ({ value, label: `.${value}` }))}
+          selected={filters.tlds}
+          onChange={values => apply({ tlds: values })}
+          searchable
+          footer={`${tlds.length.toLocaleString('en-US')} TLDs in the inventory`}
+        />
+        <MaxBidFilter filters={filters} onApply={priceMaxCents => apply({ priceMaxCents })} />
+        <EndsFilter
+          value={filters.endingWithin}
+          onChange={endingWithin => apply({ endingWithin })}
+        />
         <Link
           prefetch={false}
-          href={buildDomainTableHref(parseDomainTableFilters({}), {
-            sort: filters.sort,
-            direction: filters.direction
-          })}
-          className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          href={buildFiltersPageHref(filters)}
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
         >
-          Reset
-          <XIcon aria-hidden="true" />
+          <ListFilterIcon aria-hidden="true" />
+          All filters
+          {advanced > 0 ? (
+            <Badge variant="secondary" className="rounded-sm px-1 font-normal">
+              {advanced}
+            </Badge>
+          ) : null}
         </Link>
-      ) : null}
+        {hasActiveDomainTableFilters(filters) ? (
+          <Link
+            prefetch={false}
+            href={buildDomainTableHref(parseDomainTableFilters({}), {
+              sort: filters.sort,
+              direction: filters.direction
+            })}
+            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
+          >
+            Reset
+            <XIcon aria-hidden="true" />
+          </Link>
+        ) : null}
+      </div>
+      <div className="flex items-center gap-2 md:hidden">
+        <Link
+          prefetch={false}
+          href={buildFiltersPageHref(filters)}
+          className={buttonVariants({ variant: 'outline', size: 'sm' })}
+        >
+          <ListFilterIcon aria-hidden="true" />
+          Filters
+          {active > 0 ? (
+            <Badge variant="secondary" className="rounded-sm px-1 font-normal">
+              {active}
+            </Badge>
+          ) : null}
+        </Link>
+        <SortSelect
+          filters={filters}
+          onChange={(sort, direction) =>
+            startTransition(() =>
+              router.push(buildDomainTableHref(filters, { sort, direction, page: 1 }))
+            )
+          }
+        />
+        <FieldsDrawer visibleColumns={visibleColumns} />
+      </div>
       <p
         className={cn(
           'ml-auto text-sm text-muted-foreground tabular-nums',
@@ -274,7 +354,9 @@ export function AuctionsToolbar({
         <span className="font-medium text-foreground">{total.toLocaleString('en-US')}</span>{' '}
         {total === 1 ? 'listing' : 'listings'}
       </p>
-      <ColumnsMenu visibleColumns={visibleColumns} />
+      <div className="hidden md:block">
+        <ColumnsMenu visibleColumns={visibleColumns} />
+      </div>
     </div>
   )
 }

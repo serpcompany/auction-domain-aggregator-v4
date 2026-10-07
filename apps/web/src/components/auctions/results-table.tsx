@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type * as React from 'react'
 
 import { EnrichVisibleDomainRatings } from '@/components/auctions/enrich-visible-domain-ratings'
+import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
 import {
   Table,
   TableBody,
@@ -273,6 +274,9 @@ export function ResultsTable({
                 {groupLabel(group)}
               </TableHead>
             ))}
+            <TableHead scope="col" rowSpan={rowSpan} className={cn(headClass, 'w-10')}>
+              <span className="sr-only">Details</span>
+            </TableHead>
           </TableRow>
           {groups.length > 0 ? (
             <TableRow className="hover:bg-transparent">
@@ -324,6 +328,9 @@ export function ResultsTable({
                   {cellContent(column.key, row, now)}
                 </TableCell>
               ))}
+              <TableCell className="px-1">
+                <ListingDetailsTrigger row={row} />
+              </TableCell>
             </TableRow>
           ))}
         </TableBody>

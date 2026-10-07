@@ -159,4 +159,33 @@ describe('AuctionsToolbar', () => {
       '/?sort=price&direction=desc&page=1'
     )
   })
+
+  it('gives phones a Filters link counting every filter and a sort list', () => {
+    renderToolbar({ tld: 'com', bidsMin: '5' })
+
+    expect(screen.getByRole('link', { name: 'Filters 2' })).toHaveAttribute(
+      'href',
+      '/filters/?tld=com&bidsMin=5&sort=price&direction=desc&page=1'
+    )
+    const sort = screen.getByRole('combobox', { name: 'Sort' })
+    expect(sort).toHaveValue('price:desc')
+    fireEvent.change(sort, { target: { value: 'domainRating:desc' } })
+    expect(push).toHaveBeenLastCalledWith(
+      '/?tld=com&bidsMin=5&sort=domainRating&direction=desc&page=1'
+    )
+    expect(screen.getByRole('button', { name: 'Fields shown' })).toBeInTheDocument()
+  })
+
+  it('names a sort the list does not offer', () => {
+    renderToolbar({ sort: 'links', direction: 'asc' })
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveDisplayValue(
+      'Sorted by links (ascending)'
+    )
+    cleanup()
+    renderToolbar({ sort: 'visitors', direction: 'desc' })
+    expect(screen.getByRole('combobox', { name: 'Sort' })).toHaveDisplayValue(
+      'Sorted by visitors (descending)'
+    )
+    expect(screen.getByRole('link', { name: 'Filters' })).toBeInTheDocument()
+  })
 })
