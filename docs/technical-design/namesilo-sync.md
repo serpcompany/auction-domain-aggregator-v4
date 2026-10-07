@@ -1,6 +1,6 @@
 # NameSilo synchronization
 
-Status: Implemented and unit-tested; the first real local sync is pending
+Status: Implemented. Local syncs call NameSilo; deployed syncs replay a recording made from GitHub Actions
 
 Last updated: 2026-10-07
 
@@ -18,6 +18,12 @@ Facts verified with the owner's key on 2026-10-07 (#83):
 - A deep page takes about 2.5 seconds and is about 224 KB.
 - Expired auctions are `typeId=3`, `statusId=2`: over 215,000, about 440 pages. Customer auctions are `typeId=1`, `statusId=9`: a few thousand. `typeId=2` is offers and counter-offers, not auctions, and is never requested.
 - Some active expired auctions report an end time in the past, as far back as 2025. They are stored anyway; the table hides ended auctions.
+
+## Deployed syncs replay a recording
+
+NameSilo's Cloudflare zone answers 403 to every request from a Cloudflare Worker, whatever its headers: a rule on Worker subrequests (`cf.worker.upstream_zone`), so nothing in the request can clear it (#104). A GitHub-hosted runner reaches the same endpoint normally. So the `NameSilo recording` workflow (`.github/workflows/namesilo-recording.yml`, daily at 13:45 UTC and on demand) runs `apps/web/scripts/record-namesilo.ts`. The script drives this same adapter, paced as usual, with a fetch that keeps each successful `listAuctions` body. A transient error is retried up to four times. It uploads one object per request, `<typeId>-<statusId>-<page>.json`, under `feed-pages/namesilo-recording/<yyyymmddhhmmss>/` in both environments' `FEED_PAGES` buckets through the Cloudflare API, and writes `feed-pages/namesilo-recording/latest.json` (`{ prefix, recordedAt }`) last, so a sync never sees an incomplete recording. The key, request URLs, and bodies are never printed. The bucket's `feed-pages/` lifecycle rule expires recordings after 2 days.
+
+A NameSilo instance first runs a `find recorded responses` step. When the manifest names a recording no more than 26 hours old, the adapter replays it (`apps/web/src/server/ingestion/namesilo-recording.ts`) with no pacing, and a request the recording lacks answers 404 (`namesilo_http_error`). Production's 15:30 UTC sync replays that day's recording, and Staging's 11:30 UTC sync the next day replays the same one. Without a fresh recording, as in local development or after the job stops for two days, the adapter calls NameSilo, which fails deployed with the 403 above.
 
 ## Pages
 

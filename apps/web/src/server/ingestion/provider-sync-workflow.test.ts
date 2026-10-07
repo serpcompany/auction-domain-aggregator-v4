@@ -4,6 +4,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GODADDY_FEED_ENTRY, GODADDY_FEED_URL } from '../providers/godaddy'
 import type { AuctionProvider, NormalizedListing } from '../providers/types'
 import type { FeedPageBucket } from './feed-pages'
+import { NAMESILO_RECORDING_MANIFEST } from './namesilo-recording'
 import {
   CLEANUP_STEP,
   fixedErrorCode,
@@ -292,6 +293,56 @@ describe('provider sync workflow', () => {
     expect(steps.names()).toEqual(['start run', 'sync pages, segment 1'])
     expect(nonRetryable).toHaveBeenCalledWith('dynadot_http_error')
     expect(stores.get('dynadot')?.failures).toEqual(['dynadot_http_error'])
+  })
+
+  it('replays a fresh NameSilo recording instead of calling NameSilo', async () => {
+    const live = vi.fn(async () => new Response('blocked', { status: 403 }))
+    vi.stubGlobal('fetch', live)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const bucket = memoryBucket()
+    const put = (key: string, value: unknown) =>
+      bucket.bucket.put(key, new TextEncoder().encode(JSON.stringify(value)))
+    const prefix = 'feed-pages/namesilo-recording/20261007134500/'
+    await put(NAMESILO_RECORDING_MANIFEST, { prefix, recordedAt: new Date().toISOString() })
+    await put(`${prefix}1-9-1.json`, { reply: { code: 300, body: [] } })
+    await put(`${prefix}3-2-1.json`, {
+      reply: {
+        code: 300,
+        body: [
+          {
+            id: 9001,
+            domain: 'invented-example.com',
+            typeId: 3,
+            openingBid: 1,
+            currentBid: 12.5,
+            bidsQuantity: 4,
+            hasBids: true,
+            domainCreatedOn: '2010-10-28 08:00:00',
+            auctionEndsOnUtc: '2026-10-28 07:00:00',
+            url: 'https://www.namesilo.com/auctions/invented-example.com',
+            visits: 31
+          }
+        ]
+      }
+    })
+    const recorded = setup({ env: { NAMESILO_API_KEY: 'invented-test-key' }, bucket })
+    await expect(recorded.run('namesilo')).resolves.toMatchObject({
+      status: 'succeeded',
+      pagesFetched: 2,
+      recordsFetched: 1,
+      recordsUpserted: 1
+    })
+    expect(recorded.steps.names()).toEqual([
+      'find recorded responses',
+      'start run',
+      'sync pages, segment 1'
+    ])
+    expect(live).not.toHaveBeenCalled()
+
+    // Without a recording, as in local development, it calls NameSilo.
+    const direct = setup({ env: { NAMESILO_API_KEY: 'invented-test-key' } })
+    await expect(direct.run('namesilo')).rejects.toThrow('namesilo_http_error')
+    expect(live).toHaveBeenCalledOnce()
   })
 
   it('waits as long as the provider asks before running the segment again', async () => {
