@@ -2,7 +2,7 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must remain accurate while implementation proceeds.
 
-Maintain this plan according to `docs/plans/PLANS.md` from the repository root.
+Maintain this plan according to `docs/plans/README.md` from the repository root.
 
 ## Purpose / Big Picture
 

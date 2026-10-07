@@ -2,7 +2,7 @@
 
 This ExecPlan is a living document. The sections `Progress`, `Surprises & Discoveries`, `Decision Log`, and `Outcomes & Retrospective` must remain accurate while implementation proceeds.
 
-Maintain this plan according to `docs/plans/PLANS.md` from the repository root.
+Maintain this plan according to `docs/plans/README.md` from the repository root.
 
 ## Purpose / Big Picture
 
@@ -13,7 +13,7 @@ The repository will also have a fast verification loop: formatting, linting, str
 ## Progress
 
 - [x] (2026-07-13 08:20Z) Researched the current Next.js-on-Cloudflare, D1, Drizzle, shadcn/ui, and testing paths and audited the repository constraints.
-- [x] (2026-07-13 08:20Z) Authored this initial ExecPlan and aligned `AGENTS.md` and `docs/plans/PLANS.md` with the repository's ExecPlan convention.
+- [x] (2026-07-13 08:20Z) Authored this initial ExecPlan and aligned `AGENTS.md` and `docs/plans/README.md` with the repository's ExecPlan convention.
 - [x] (2026-07-13 08:37Z) Generated a temporary Cloudflare Next.js scaffold, integrated it without overwriting existing repository knowledge or user changes, and independently verified frozen install, build, Node development, and workerd preview behavior.
 - [x] (2026-07-13 08:49Z) Pinned the actual pnpm/Node expectations and established passing formatting, linting, strict TypeScript, unit-test, 100-percent coverage, and package-script conventions, including a proven deliberate formatting failure.
 - [x] (2026-07-13 08:58Z) Configured the local-only D1 binding and server-only Drizzle access boundary; `/api/health` executed `SELECT 1` and returned the exact success payload under both Next development and workerd preview.
