@@ -135,9 +135,9 @@ export async function activeListingCount(database: TestDatabase) {
   return row.value
 }
 
-// The Dynadot inventory the integration proof built before its read-model
-// checks: a first run of three listings, an interrupted run that failed, a
-// successful run that reconciled two of them away, and an identical repeat.
+// The Dynadot inventory the read-model and storage tests start from: a first run of three
+// listings, an interrupted run that failed, a successful run that reconciled two of them away,
+// and an identical repeat.
 export async function seedProofInventory(database: TestDatabase) {
   const storage = createD1IngestionStorage(database, 'dynadot')
   const firstRun = await storage.startRun(STARTED_AT)

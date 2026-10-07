@@ -64,7 +64,10 @@ describe('ingestion Worker', () => {
   })
 
   it('starts one instance per provider for a Cron Trigger firing', async () => {
-    const create = vi.fn(async () => ({}) as WorkflowInstance)
+    const create = vi.fn(
+      async (_options: WorkflowInstanceCreateOptions<ProviderSyncParams>) =>
+        ({}) as WorkflowInstance
+    )
     await worker.scheduled(
       createScheduledController({ scheduledTime: new Date('2026-07-13T15:30:00.000Z') }),
       { PROVIDER_SYNC: { create } as unknown as Workflow<ProviderSyncParams> } as SyncWorkerEnv
