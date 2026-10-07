@@ -21,7 +21,7 @@ import {
 // Worker (local D1, R2, and Workflows only). The instance is created and
 // polled through Wrangler's local-only explorer API.
 //
-// Usage: node --env-file-if-exists=.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
+// Usage: node --env-file-if-exists=../../.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
 const PROVIDER = implementedProvider(process.argv[2] ?? '');
 
 const HOST = '127.0.0.1';
