@@ -1,8 +1,8 @@
-import { configDefaults, defineConfig } from 'vitest/config';
+import { configDefaults, defineConfig } from 'vitest/config'
 
 export default defineConfig({
   resolve: {
-    tsconfigPaths: true,
+    tsconfigPaths: true
   },
   test: {
     exclude: [...configDefaults.exclude, 'e2e/**', '.claude/**'],
@@ -20,19 +20,15 @@ export default defineConfig({
         'src/server/ingestion/feed-stage.ts',
         'src/server/ingestion/feed-pages.ts',
         'src/server/ingestion/provider-sync-workflow.ts',
-        'src/server/ingestion/local-runner.ts',
+        'src/server/ingestion/local-runner.ts'
       ],
-      exclude: [
-        'src/components/ui/**',
-        '**/*.{test,spec}.{ts,tsx}',
-        '**/*.d.ts',
-      ],
+      exclude: ['src/components/ui/**', '**/*.{test,spec}.{ts,tsx}', '**/*.d.ts'],
       thresholds: {
         statements: 100,
         branches: 100,
         functions: 100,
-        lines: 100,
-      },
-    },
-  },
-});
+        lines: 100
+      }
+    }
+  }
+})

@@ -1,18 +1,18 @@
-import { createDynadotAdapter } from './dynadot';
+import { createDynadotAdapter } from './dynadot'
 import {
   createGodaddyAdapter,
   GODADDY_FEED_ENTRY,
   GODADDY_FEED_URL,
   GODADDY_MAX_PAGES,
   GODADDY_PAGE_BYTE_LIMIT,
-  GODADDY_PAGE_SIZE,
-} from './godaddy';
-import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types';
+  GODADDY_PAGE_SIZE
+} from './godaddy'
+import type { AuctionProvider, FeedPageSource, ProviderAdapter } from './types'
 
 // Every credential an adapter may read from the ingestion worker env.
-export type ProviderSecretName = 'DYNADOT_API_PRODUCTION_KEY';
+export type ProviderSecretName = 'DYNADOT_API_PRODUCTION_KEY'
 
-export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>;
+export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>
 
 // A provider that publishes one zipped JSON file instead of a paged API. The
 // ingestion Workflow downloads `url`, splits the `field` array of archive
@@ -20,37 +20,35 @@ export type ProviderSecrets = Partial<Record<ProviderSecretName, string>>;
 // a source for those pages. `maxPages` and `maxPageBytes` are the adapter's
 // limits for reading them back.
 export type FileFeed = {
-  url: string;
-  entry: string;
-  field: string;
-  pageSize: number;
-  maxPages: number;
-  maxPageBytes: number;
-};
+  url: string
+  entry: string
+  field: string
+  pageSize: number
+  maxPages: number
+  maxPageBytes: number
+}
 
 export type AdapterContext = {
-  secrets: ProviderSecrets;
+  secrets: ProviderSecrets
   // Staged pages, for a provider with a file feed.
-  feedPages?: FeedPageSource;
-};
+  feedPages?: FeedPageSource
+}
 
 type ProviderRegistration = {
   // Names of the secrets the adapter needs, read from the worker env.
-  secretNames: readonly ProviderSecretName[];
-  fileFeed?: FileFeed;
-  createAdapter(context: AdapterContext): ProviderAdapter;
-};
+  secretNames: readonly ProviderSecretName[]
+  fileFeed?: FileFeed
+  createAdapter(context: AdapterContext): ProviderAdapter
+}
 
 // Providers with an implemented adapter. Adding a provider means adding an
 // adapter and an entry here; the sync service, storage, and Workflow stay
 // unchanged.
-export const PROVIDER_REGISTRY: Partial<
-  Record<AuctionProvider, ProviderRegistration>
-> = {
+export const PROVIDER_REGISTRY: Partial<Record<AuctionProvider, ProviderRegistration>> = {
   dynadot: {
     secretNames: ['DYNADOT_API_PRODUCTION_KEY'],
     createAdapter: ({ secrets }) =>
-      createDynadotAdapter({ apiKey: secrets.DYNADOT_API_PRODUCTION_KEY! }),
+      createDynadotAdapter({ apiKey: secrets.DYNADOT_API_PRODUCTION_KEY! })
   },
   // GoDaddy's public inventory files need no credentials.
   godaddy: {
@@ -61,15 +59,12 @@ export const PROVIDER_REGISTRY: Partial<
       field: 'data',
       pageSize: GODADDY_PAGE_SIZE,
       maxPages: GODADDY_MAX_PAGES,
-      maxPageBytes: GODADDY_PAGE_BYTE_LIMIT,
+      maxPageBytes: GODADDY_PAGE_BYTE_LIMIT
     },
-    createAdapter: ({ feedPages }) =>
-      createGodaddyAdapter({ pages: feedPages }),
-  },
-};
+    createAdapter: ({ feedPages }) => createGodaddyAdapter({ pages: feedPages })
+  }
+}
 
 export function implementedProvider(value: string): AuctionProvider | null {
-  return Object.hasOwn(PROVIDER_REGISTRY, value)
-    ? (value as AuctionProvider)
-    : null;
+  return Object.hasOwn(PROVIDER_REGISTRY, value) ? (value as AuctionProvider) : null
 }

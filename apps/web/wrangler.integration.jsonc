@@ -10,14 +10,14 @@
       "database_name": "auction-domain-aggregator-integration-local",
       "database_id": "integration-only-do-not-deploy",
       "migrations_dir": "drizzle",
-      "remote": false,
-    },
+      "remote": false
+    }
   ],
   "r2_buckets": [
     {
       "binding": "FEED_PAGES",
       "bucket_name": "auction-domain-aggregator-integration-feed-pages-local",
-      "remote": false,
-    },
-  ],
+      "remote": false
+    }
+  ]
 }

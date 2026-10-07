@@ -1,5 +1,5 @@
-import type { ChildProcess } from 'node:child_process';
-import { rmSync } from 'node:fs';
+import type { ChildProcess } from 'node:child_process'
+import { rmSync } from 'node:fs'
 
 const ALLOWED_CHILD_ENV = [
   'PATH',
@@ -19,17 +19,13 @@ const ALLOWED_CHILD_ENV = [
   'COREPACK_HOME',
   'PNPM_HOME',
   'XDG_CACHE_HOME',
-  'XDG_CONFIG_HOME',
-] as const;
+  'XDG_CONFIG_HOME'
+] as const
 
-export function createChildEnvironment(
-  source: Record<string, string | undefined>,
-) {
+export function createChildEnvironment(source: Record<string, string | undefined>) {
   return Object.fromEntries(
-    ALLOWED_CHILD_ENV.flatMap((name) =>
-      source[name] === undefined ? [] : [[name, source[name]]],
-    ),
-  ) as NodeJS.ProcessEnv;
+    ALLOWED_CHILD_ENV.flatMap(name => (source[name] === undefined ? [] : [[name, source[name]]]))
+  ) as NodeJS.ProcessEnv
 }
 
 export async function fetchWithTimeout(
@@ -37,45 +33,43 @@ export async function fetchWithTimeout(
   input: string,
   init: RequestInit,
   timeoutMs: number,
-  errorCode: string,
+  errorCode: string
 ) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), timeoutMs);
-  const signal = init.signal
-    ? AbortSignal.any([init.signal, controller.signal])
-    : controller.signal;
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), timeoutMs)
+  const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal
   try {
-    return await fetchImpl(input, { ...init, signal });
+    return await fetchImpl(input, { ...init, signal })
   } catch {
-    throw new Error(errorCode);
+    throw new Error(errorCode)
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout)
   }
 }
 
-type SignalName = 'SIGINT' | 'SIGTERM';
+type SignalName = 'SIGINT' | 'SIGTERM'
 
 type ProcessTarget = {
-  once(signal: SignalName, listener: () => void): unknown;
-  off(signal: SignalName, listener: () => void): unknown;
-  exit(code: number): never | void;
-};
+  once(signal: SignalName, listener: () => void): unknown
+  off(signal: SignalName, listener: () => void): unknown
+  exit(code: number): never | void
+}
 
 export function killChildProcessGroup(
   child: ChildProcess,
   signal: NodeJS.Signals = 'SIGTERM',
-  platform = process.platform,
+  platform = process.platform
 ) {
-  if (!child.pid || child.exitCode !== null) return;
+  if (!child.pid || child.exitCode !== null) return
   if (platform !== 'win32') {
     try {
-      process.kill(-child.pid, signal);
-      return;
+      process.kill(-child.pid, signal)
+      return
     } catch {
       // Fall back to the direct child when it is not a process-group leader.
     }
   }
-  child.kill(signal);
+  child.kill(signal)
 }
 
 export function installSignalCleanup({
@@ -83,44 +77,43 @@ export function installSignalCleanup({
   temporaryDirectory,
   processTarget = process,
   killChild = killChildProcessGroup,
-  removeDirectory = (path: string) =>
-    rmSync(path, { recursive: true, force: true }),
+  removeDirectory = (path: string) => rmSync(path, { recursive: true, force: true })
 }: {
   // Omitted while the runner prepares work before starting the child; pass
   // it later with `attachChild`.
-  child?: ChildProcess;
-  temporaryDirectory: string;
-  processTarget?: ProcessTarget;
-  killChild?: (child: ChildProcess) => void;
-  removeDirectory?: (path: string) => void;
+  child?: ChildProcess
+  temporaryDirectory: string
+  processTarget?: ProcessTarget
+  killChild?: (child: ChildProcess) => void
+  removeDirectory?: (path: string) => void
 }) {
-  let cleaned = false;
-  let attached = child;
+  let cleaned = false
+  let attached = child
   const cleanup = () => {
-    if (cleaned) return;
-    cleaned = true;
-    if (attached) killChild(attached);
-    removeDirectory(temporaryDirectory);
-  };
+    if (cleaned) return
+    cleaned = true
+    if (attached) killChild(attached)
+    removeDirectory(temporaryDirectory)
+  }
   const onInterrupt = () => {
-    cleanup();
-    processTarget.exit(130);
-  };
+    cleanup()
+    processTarget.exit(130)
+  }
   const onTerminate = () => {
-    cleanup();
-    processTarget.exit(143);
-  };
-  processTarget.once('SIGINT', onInterrupt);
-  processTarget.once('SIGTERM', onTerminate);
+    cleanup()
+    processTarget.exit(143)
+  }
+  processTarget.once('SIGINT', onInterrupt)
+  processTarget.once('SIGTERM', onTerminate)
 
   return {
     cleanup,
     attachChild(next: ChildProcess) {
-      attached = next;
+      attached = next
     },
     unregister() {
-      processTarget.off('SIGINT', onInterrupt);
-      processTarget.off('SIGTERM', onTerminate);
-    },
-  };
+      processTarget.off('SIGINT', onInterrupt)
+      processTarget.off('SIGTERM', onTerminate)
+    }
+  }
 }

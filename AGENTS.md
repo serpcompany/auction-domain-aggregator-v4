@@ -23,6 +23,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - The app worker's own secrets (currently `AHREFS_API_KEY`, an Ahrefs APIv3 key) go in `apps/web/.dev.vars` for local development. OpenNext does not bundle that file. Deployed workers use `wrangler secret put`.
 - Never put credentials in `.env*` files: `opennextjs-cloudflare build` inlines their values into the Worker bundle. `preview`, `deploy`, and `upload` refuse to continue if the built bundle contains non-public env variables.
 - UI follows the SERP web UI rules summarized in `docs/technical-design/technology-stack.md`: stock shadcn first, tokens only, and a check at 1440px and 390px.
+- The app follows the SERP web stack (`serpcompany/serp`, `docs/engineering/standards/web-stack/`) with one recorded exception: local development runs `next dev --webpack` instead of Turbopack, because webpack is the verified bundler for the large local D1 inventory.
 - Prefer small changes with an observable result. Do not add speculative infrastructure or abstractions before the product needs them.
 
 ## Local development
@@ -41,7 +42,9 @@ Prerequisites are Node.js 22 (22.12 or newer, below 23; `apps/web/.node-version`
 - `corepack pnpm db:check`: validate the generated migration history.
 - `corepack pnpm db:migrate:local`: apply migrations to local D1 only; it is safe to rerun.
 - `corepack pnpm sync <provider>`: migrate local D1, then run that provider's `provider-sync` Workflow (the same code the daily Cron Trigger starts) in a temporary local `wrangler dev` of the ingestion Worker on ports 8790 and 9330, with local D1, R2, and Workflows. `dynadot` (alias `sync:dynadot`) reads its key from `.secrets/providers.env`. `godaddy` needs no credentials: the Workflow downloads GoDaddy's public inventory file (about 37 MB zipped, 450 MB unzipped) and stages it in local R2, about 2 to 3 minutes end to end. Do not edit `apps/web/src/` while it runs: Wrangler's reload orphans the running instance. GoDaddy content is licensed for the owner's internal use only.
-- `corepack pnpm check:quick`: run formatting, linting, type checks, and unit tests.
+- `corepack pnpm check:quick`: run Biome (format and lint, read-only), type checks, the migration-history check, and unit tests.
+- `corepack pnpm format`: format with Biome. `corepack pnpm exec biome check --write` also applies safe lint fixes and sorts imports.
+- `corepack pnpm test`: run the unit and component tests with coverage.
 - `corepack pnpm test:integration`: run the provider-free proof against an isolated temporary local D1/workerd instance.
 - `corepack pnpm test:e2e`: build OpenNext and run browser acceptance against deterministic fixtures in an isolated temporary local D1/workerd instance.
 - `corepack pnpm benchmark:filters`: time whole table requests through `queryDomainListingsWithDatabase` (the page's read path) against the populated local D1 inventory, without loading credentials or printing rows.

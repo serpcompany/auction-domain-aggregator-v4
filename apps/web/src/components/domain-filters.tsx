@@ -1,19 +1,12 @@
-'use client';
+'use client'
 
-import Link from 'next/link';
-import { SlidersHorizontal } from 'lucide-react';
-import { useRef, useState, type FormEvent } from 'react';
-
-import {
-  countAdvancedDomainTableFilters,
-  formatProvider,
-  hasActiveDomainTableFilters,
-  type DomainTableFilters,
-} from '@/domain/domain-table';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Badge } from '@/components/ui/badge';
-import { Button, buttonVariants } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
+import { SlidersHorizontal } from 'lucide-react'
+import Link from 'next/link'
+import { type FormEvent, useRef, useState } from 'react'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button, buttonVariants } from '@/components/ui/button'
+import { Checkbox } from '@/components/ui/checkbox'
 import {
   Combobox,
   ComboboxChip,
@@ -24,30 +17,30 @@ import {
   ComboboxItem,
   ComboboxList,
   ComboboxValue,
-  useComboboxAnchor,
-} from '@/components/ui/combobox';
+  useComboboxAnchor
+} from '@/components/ui/combobox'
 import {
   Field,
   FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldLegend,
-  FieldSet,
-} from '@/components/ui/field';
-import { Input } from '@/components/ui/input';
+  FieldSet
+} from '@/components/ui/field'
+import { Input } from '@/components/ui/input'
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
-  InputGroupText,
-} from '@/components/ui/input-group';
+  InputGroupText
+} from '@/components/ui/input-group'
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+  SelectValue
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetClose,
@@ -56,22 +49,28 @@ import {
   SheetFooter,
   SheetHeader,
   SheetTitle,
-  SheetTrigger,
-} from '@/components/ui/sheet';
-import { cn } from '@/lib/utils';
+  SheetTrigger
+} from '@/components/ui/sheet'
+import {
+  countAdvancedDomainTableFilters,
+  type DomainTableFilters,
+  formatProvider,
+  hasActiveDomainTableFilters
+} from '@/domain/domain-table'
+import { cn } from '@/lib/utils'
 
-const FORM_ID = 'domain-filters';
-const MAX_INTEGER = String(Number.MAX_SAFE_INTEGER);
-const MAX_MONEY = '9999999999999.99';
-const ANY_TIME = 'any';
+const FORM_ID = 'domain-filters'
+const MAX_INTEGER = String(Number.MAX_SAFE_INTEGER)
+const MAX_MONEY = '9999999999999.99'
+const ANY_TIME = 'any'
 
 function titleCase(value: string) {
-  return value.charAt(0).toUpperCase() + value.slice(1);
+  return value.charAt(0).toUpperCase() + value.slice(1)
 }
 
 function majorMoney(cents?: number) {
-  if (cents === undefined) return '';
-  return (cents / 100).toFixed(2).replace(/\.00$/, '');
+  if (cents === undefined) return ''
+  return (cents / 100).toFixed(2).replace(/\.00$/, '')
 }
 
 const endingOptions = [
@@ -80,11 +79,11 @@ const endingOptions = [
   ['6h', 'Next 6 hours'],
   ['24h', 'Next 24 hours'],
   ['3d', 'Next 3 days'],
-  ['7d', 'Next 7 days'],
-] as const;
-const endingLabels: Record<string, string> = Object.fromEntries(endingOptions);
+  ['7d', 'Next 7 days']
+] as const
+const endingLabels: Record<string, string> = Object.fromEntries(endingOptions)
 
-type Option = { value: string; label: string };
+type Option = { value: string; label: string }
 
 // A multi-value filter built from the stock combobox. Base UI submits one
 // hidden input per selected value, so the GET form receives repeated params.
@@ -95,24 +94,24 @@ function MultiSelectField({
   options,
   defaultValues,
   placeholder,
-  form,
+  form
 }: {
-  id: string;
-  label: string;
-  name: string;
-  options: Option[];
-  defaultValues: string[];
-  placeholder: string;
-  form?: string;
+  id: string
+  label: string
+  name: string
+  options: Option[]
+  defaultValues: string[]
+  placeholder: string
+  form?: string
 }) {
-  const anchor = useComboboxAnchor();
+  const anchor = useComboboxAnchor()
   // Keep selected values visible even when the facet no longer lists them.
-  const labels = new Map(options.map((option) => [option.value, option.label]));
+  const labels = new Map(options.map(option => [option.value, option.label]))
   const items = [
-    ...options.map((option) => option.value),
-    ...defaultValues.filter((value) => !labels.has(value)),
-  ];
-  const labelFor = (value: string) => labels.get(value) ?? value;
+    ...options.map(option => option.value),
+    ...defaultValues.filter(value => !labels.has(value))
+  ]
+  const labelFor = (value: string) => labels.get(value) ?? value
 
   return (
     <Field>
@@ -129,7 +128,7 @@ function MultiSelectField({
           <ComboboxValue>
             {(values: string[]) => (
               <>
-                {values.map((value) => (
+                {values.map(value => (
                   <ComboboxChip key={value}>{labelFor(value)}</ComboboxChip>
                 ))}
                 <ComboboxChipsInput
@@ -153,7 +152,7 @@ function MultiSelectField({
         </ComboboxContent>
       </Combobox>
     </Field>
-  );
+  )
 }
 
 function NumberField({
@@ -162,14 +161,14 @@ function NumberField({
   name,
   defaultValue,
   money = false,
-  max,
+  max
 }: {
-  id: string;
-  label: string;
-  name: string;
-  defaultValue?: number;
-  money?: boolean;
-  max?: string | number;
+  id: string
+  label: string
+  name: string
+  defaultValue?: number
+  money?: boolean
+  max?: string | number
 }) {
   const inputProps = {
     id,
@@ -182,18 +181,14 @@ function NumberField({
     inputMode: money ? ('decimal' as const) : ('numeric' as const),
     autoComplete: 'off',
     defaultValue:
-      defaultValue === undefined
-        ? undefined
-        : money
-          ? majorMoney(defaultValue)
-          : defaultValue,
-  };
+      defaultValue === undefined ? undefined : money ? majorMoney(defaultValue) : defaultValue
+  }
   return (
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {money ? <MoneyInput {...inputProps} /> : <Input {...inputProps} />}
     </Field>
-  );
+  )
 }
 
 function MoneyInput(props: React.ComponentProps<typeof InputGroupInput>) {
@@ -204,34 +199,29 @@ function MoneyInput(props: React.ComponentProps<typeof InputGroupInput>) {
       </InputGroupAddon>
       <InputGroupInput {...props} />
     </InputGroup>
-  );
+  )
 }
 
 function EndingSelect({
   id,
   value,
   onValueChange,
-  submit,
+  submit
 }: {
-  id: string;
-  value: string;
-  onValueChange: (value: string) => void;
-  submit: boolean;
+  id: string
+  value: string
+  onValueChange: (value: string) => void
+  submit: boolean
 }) {
   return (
     <Select
       value={value || ANY_TIME}
-      onValueChange={(next) =>
-        onValueChange(next === ANY_TIME ? '' : String(next))
-      }
+      onValueChange={next => onValueChange(next === ANY_TIME ? '' : String(next))}
       // "Any time" submits nothing, so the URL stays canonical.
       name={submit && value ? 'endingWithin' : undefined}
       items={endingLabels}
     >
-      <SelectTrigger
-        id={id}
-        className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-8"
-      >
+      <SelectTrigger id={id} className="w-full data-[size=default]:h-11 sm:data-[size=default]:h-8">
         <SelectValue />
       </SelectTrigger>
       <SelectContent>
@@ -242,15 +232,11 @@ function EndingSelect({
         ))}
       </SelectContent>
     </Select>
-  );
+  )
 }
 
 // Advanced values submit through hidden inputs while the sheet is closed.
-function PreservedAdvancedFilters({
-  filters,
-}: {
-  filters: DomainTableFilters;
-}) {
+function PreservedAdvancedFilters({ filters }: { filters: DomainTableFilters }) {
   const scalar: Array<[string, string | number | undefined]> = [
     ['domainLengthMin', filters.domainLengthMin],
     ['domainLengthMax', filters.domainLengthMax],
@@ -260,15 +246,11 @@ function PreservedAdvancedFilters({
     ['noDigits', filters.noDigits ? '1' : undefined],
     [
       'priceMin',
-      filters.priceMinCents === undefined
-        ? undefined
-        : majorMoney(filters.priceMinCents),
+      filters.priceMinCents === undefined ? undefined : majorMoney(filters.priceMinCents)
     ],
     [
       'renewalMax',
-      filters.renewalMaxCents === undefined
-        ? undefined
-        : majorMoney(filters.renewalMaxCents),
+      filters.renewalMaxCents === undefined ? undefined : majorMoney(filters.renewalMaxCents)
     ],
     ['bidsMin', filters.bidsMin],
     ['visitorsMin', filters.visitorsMin],
@@ -279,33 +261,29 @@ function PreservedAdvancedFilters({
     ['semrushAsMin', filters.semrushAsMin],
     [
       'appraisalMin',
-      filters.appraisalMinCents === undefined
-        ? undefined
-        : majorMoney(filters.appraisalMinCents),
-    ],
-  ];
+      filters.appraisalMinCents === undefined ? undefined : majorMoney(filters.appraisalMinCents)
+    ]
+  ]
   return (
     <>
-      {filters.auctionTypes.map((type) => (
+      {filters.auctionTypes.map(type => (
         <input key={type} type="hidden" name="type" value={type} />
       ))}
       {scalar.map(([name, value]) =>
-        value === undefined ? null : (
-          <input key={name} type="hidden" name={name} value={value} />
-        ),
+        value === undefined ? null : <input key={name} type="hidden" name={name} value={value} />
       )}
     </>
-  );
+  )
 }
 
 function RangeFields({
   legend,
   minimum,
-  maximum,
+  maximum
 }: {
-  legend: string;
-  minimum: React.ComponentProps<typeof NumberField>;
-  maximum: React.ComponentProps<typeof NumberField>;
+  legend: string
+  minimum: React.ComponentProps<typeof NumberField>
+  maximum: React.ComponentProps<typeof NumberField>
 }) {
   return (
     <FieldSet>
@@ -315,44 +293,33 @@ function RangeFields({
         <NumberField {...maximum} />
       </div>
     </FieldSet>
-  );
+  )
 }
 
-function FilterGroup({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <FieldSet className="min-w-0 rounded-xl border bg-card p-4">
       <FieldLegend>{title}</FieldLegend>
       <FieldGroup className="gap-4">{children}</FieldGroup>
     </FieldSet>
-  );
+  )
 }
 
 function CheckboxField({
   name,
   label,
-  defaultChecked,
+  defaultChecked
 }: {
-  name: string;
-  label: string;
-  defaultChecked: boolean;
+  name: string
+  label: string
+  defaultChecked: boolean
 }) {
   return (
     <FieldLabel className="min-h-11 w-full rounded-lg border px-3">
-      <Checkbox
-        form={FORM_ID}
-        name={name}
-        value="1"
-        defaultChecked={defaultChecked}
-      />
+      <Checkbox form={FORM_ID} name={name} value="1" defaultChecked={defaultChecked} />
       {label}
     </FieldLabel>
-  );
+  )
 }
 
 function DomainFilterGroup({ filters }: { filters: DomainTableFilters }) {
@@ -365,14 +332,14 @@ function DomainFilterGroup({ filters }: { filters: DomainTableFilters }) {
           label: 'Minimum length',
           name: 'domainLengthMin',
           defaultValue: filters.domainLengthMin,
-          max: 253,
+          max: 253
         }}
         maximum={{
           id: 'domain-length-max',
           label: 'Maximum length',
           name: 'domainLengthMax',
           defaultValue: filters.domainLengthMax,
-          max: 253,
+          max: 253
         }}
       />
       <RangeFields
@@ -381,29 +348,21 @@ function DomainFilterGroup({ filters }: { filters: DomainTableFilters }) {
           id: 'age-min',
           label: 'Minimum age',
           name: 'ageMin',
-          defaultValue: filters.ageMin,
+          defaultValue: filters.ageMin
         }}
         maximum={{
           id: 'age-max',
           label: 'Maximum age',
           name: 'ageMax',
-          defaultValue: filters.ageMax,
+          defaultValue: filters.ageMax
         }}
       />
       <div className="grid gap-2 sm:grid-cols-2">
-        <CheckboxField
-          name="noHyphens"
-          label="No hyphens"
-          defaultChecked={filters.noHyphens}
-        />
-        <CheckboxField
-          name="noDigits"
-          label="No digits"
-          defaultChecked={filters.noDigits}
-        />
+        <CheckboxField name="noHyphens" label="No hyphens" defaultChecked={filters.noHyphens} />
+        <CheckboxField name="noDigits" label="No digits" defaultChecked={filters.noDigits} />
       </div>
     </FilterGroup>
-  );
+  )
 }
 
 function AuctionFilterGroup({
@@ -412,14 +371,14 @@ function AuctionFilterGroup({
   priceMax,
   setPriceMax,
   endingWithin,
-  setEndingWithin,
+  setEndingWithin
 }: {
-  filters: DomainTableFilters;
-  auctionTypeOptions: Option[];
-  priceMax: string;
-  setPriceMax: (value: string) => void;
-  endingWithin: string;
-  setEndingWithin: (value: string) => void;
+  filters: DomainTableFilters
+  auctionTypeOptions: Option[]
+  priceMax: string
+  setPriceMax: (value: string) => void
+  endingWithin: string
+  setEndingWithin: (value: string) => void
 }) {
   return (
     <FilterGroup title="Auction">
@@ -443,9 +402,7 @@ function AuctionFilterGroup({
             money
           />
           <Field>
-            <FieldLabel htmlFor="advanced-price-max">
-              Maximum current bid
-            </FieldLabel>
+            <FieldLabel htmlFor="advanced-price-max">Maximum current bid</FieldLabel>
             <MoneyInput
               id="advanced-price-max"
               form={FORM_ID}
@@ -457,7 +414,7 @@ function AuctionFilterGroup({
               inputMode="decimal"
               autoComplete="off"
               value={priceMax}
-              onChange={(event) => setPriceMax(event.target.value)}
+              onChange={event => setPriceMax(event.target.value)}
             />
           </Field>
         </div>
@@ -480,12 +437,10 @@ function AuctionFilterGroup({
           onValueChange={setEndingWithin}
           submit={false}
         />
-        <FieldDescription>
-          Shared with the quick Ending filter.
-        </FieldDescription>
+        <FieldDescription>Shared with the quick Ending filter.</FieldDescription>
       </Field>
     </FilterGroup>
-  );
+  )
 }
 
 function ActivityFilterGroup({ filters }: { filters: DomainTableFilters }) {
@@ -512,7 +467,7 @@ function ActivityFilterGroup({ filters }: { filters: DomainTableFilters }) {
         />
       </div>
     </FilterGroup>
-  );
+  )
 }
 
 function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
@@ -526,7 +481,7 @@ function ValueFilterGroup({ filters }: { filters: DomainTableFilters }) {
         money
       />
     </FilterGroup>
-  );
+  )
 }
 
 function MetricsFilterGroup({ filters }: { filters: DomainTableFilters }) {
@@ -562,113 +517,108 @@ function MetricsFilterGroup({ filters }: { filters: DomainTableFilters }) {
         />
       </div>
       <FieldDescription>
-        Majestic and Semrush values come from the GoDaddy auction feed. Domains
-        without them are excluded once a minimum is set.
+        Majestic and Semrush values come from the GoDaddy auction feed. Domains without them are
+        excluded once a minimum is set.
       </FieldDescription>
     </FilterGroup>
-  );
+  )
 }
 
 function formNumber(data: FormData, name: string) {
-  const value = data.get(name);
-  if (!value) return undefined;
-  return Number(value);
+  const value = data.get(name)
+  if (!value) return undefined
+  return Number(value)
 }
 
 const rangeRules = [
   {
     minimum: 'domainLengthMin',
     maximum: 'domainLengthMax',
-    label: 'domain length',
+    label: 'domain length'
   },
   { minimum: 'ageMin', maximum: 'ageMax', label: 'domain age' },
-  { minimum: 'priceMin', maximum: 'priceMax', label: 'current bid' },
-] as const;
+  { minimum: 'priceMin', maximum: 'priceMax', label: 'current bid' }
+] as const
 
 function RangeErrorMessage({ message }: { message: string }) {
   return (
     <Alert variant="destructive" role="alert">
       <AlertDescription>{message}</AlertDescription>
     </Alert>
-  );
+  )
 }
 
 export function DomainFilters({
   filters,
   sources,
   auctionTypes,
-  tlds,
+  tlds
 }: {
-  filters: DomainTableFilters;
-  sources: string[];
-  auctionTypes: string[];
-  tlds: string[];
+  filters: DomainTableFilters
+  sources: string[]
+  auctionTypes: string[]
+  tlds: string[]
 }) {
-  const [priceMax, setPriceMax] = useState(majorMoney(filters.priceMaxCents));
-  const [endingWithin, setEndingWithin] = useState<string>(
-    filters.endingWithin ?? '',
-  );
-  const [advancedOpen, setAdvancedOpen] = useState(false);
-  const [rangeError, setRangeError] = useState<string>();
-  const sharedDraftAtOpen = useRef({ priceMax, endingWithin });
-  const advancedCount = countAdvancedDomainTableFilters(filters);
-  const sourceOptions = sources.map((source) => ({
+  const [priceMax, setPriceMax] = useState(majorMoney(filters.priceMaxCents))
+  const [endingWithin, setEndingWithin] = useState<string>(filters.endingWithin ?? '')
+  const [advancedOpen, setAdvancedOpen] = useState(false)
+  const [rangeError, setRangeError] = useState<string>()
+  const sharedDraftAtOpen = useRef({ priceMax, endingWithin })
+  const advancedCount = countAdvancedDomainTableFilters(filters)
+  const sourceOptions = sources.map(source => ({
     value: source,
-    label: formatProvider(source),
-  }));
-  const auctionTypeOptions = auctionTypes.map((type) => ({
+    label: formatProvider(source)
+  }))
+  const auctionTypeOptions = auctionTypes.map(type => ({
     value: type,
-    label: titleCase(type),
-  }));
-  const tldOptions = tlds.map((tld) => ({ value: tld, label: `.${tld}` }));
+    label: titleCase(type)
+  }))
+  const tldOptions = tlds.map(tld => ({ value: tld, label: `.${tld}` }))
 
   const clearRangeError = () => {
-    setRangeError(undefined);
-    document
-      .querySelectorAll(
-        `[form="${FORM_ID}"][aria-invalid="true"], #${FORM_ID} [aria-invalid="true"]`,
-      )
-      .forEach((element) => element.removeAttribute('aria-invalid'));
-  };
+    setRangeError(undefined)
+    for (const element of document.querySelectorAll(
+      `[form="${FORM_ID}"][aria-invalid="true"], #${FORM_ID} [aria-invalid="true"]`
+    )) {
+      element.removeAttribute('aria-invalid')
+    }
+  }
 
   const validateRanges = (event: FormEvent<HTMLFormElement>) => {
-    clearRangeError();
-    const data = new FormData(event.currentTarget);
-    const invalid = rangeRules.find((rule) => {
-      const minimum = formNumber(data, rule.minimum);
-      const maximum = formNumber(data, rule.maximum);
-      return (
-        minimum !== undefined && maximum !== undefined && minimum > maximum
-      );
-    });
-    if (!invalid) return;
+    clearRangeError()
+    const data = new FormData(event.currentTarget)
+    const invalid = rangeRules.find(rule => {
+      const minimum = formNumber(data, rule.minimum)
+      const maximum = formNumber(data, rule.maximum)
+      return minimum !== undefined && maximum !== undefined && minimum > maximum
+    })
+    if (!invalid) return
 
-    event.preventDefault();
+    event.preventDefault()
     setRangeError(
-      `Minimum ${invalid.label} cannot exceed maximum ${invalid.label}. Lower the minimum or raise the maximum.`,
-    );
+      `Minimum ${invalid.label} cannot exceed maximum ${invalid.label}. Lower the minimum or raise the maximum.`
+    )
     const visibleInput = (name: string) =>
       [
         ...document.querySelectorAll<HTMLInputElement>(
-          `[name="${name}"][form="${FORM_ID}"], #${FORM_ID} [name="${name}"]`,
-        ),
-      ].find((input) => input.type !== 'hidden');
-    const target =
-      visibleInput(invalid.minimum) ?? visibleInput(invalid.maximum);
-    target?.setAttribute('aria-invalid', 'true');
-    target?.focus();
-  };
+          `[name="${name}"][form="${FORM_ID}"], #${FORM_ID} [name="${name}"]`
+        )
+      ].find(input => input.type !== 'hidden')
+    const target = visibleInput(invalid.minimum) ?? visibleInput(invalid.maximum)
+    target?.setAttribute('aria-invalid', 'true')
+    target?.focus()
+  }
 
   const setAdvancedSheetOpen = (open: boolean) => {
     if (open) {
-      sharedDraftAtOpen.current = { priceMax, endingWithin };
+      sharedDraftAtOpen.current = { priceMax, endingWithin }
     } else {
-      setPriceMax(sharedDraftAtOpen.current.priceMax);
-      setEndingWithin(sharedDraftAtOpen.current.endingWithin);
-      clearRangeError();
+      setPriceMax(sharedDraftAtOpen.current.priceMax)
+      setEndingWithin(sharedDraftAtOpen.current.endingWithin)
+      clearRangeError()
     }
-    setAdvancedOpen(open);
-  };
+    setAdvancedOpen(open)
+  }
 
   return (
     <form
@@ -684,9 +634,7 @@ export function DomainFilters({
       <input type="hidden" name="sort" value={filters.sort} />
       <input type="hidden" name="direction" value={filters.direction} />
       {!advancedOpen ? <PreservedAdvancedFilters filters={filters} /> : null}
-      {rangeError && !advancedOpen ? (
-        <RangeErrorMessage message={rangeError} />
-      ) : null}
+      {rangeError && !advancedOpen ? <RangeErrorMessage message={rangeError} /> : null}
 
       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-[minmax(14rem,1.5fr)_minmax(12rem,1fr)_minmax(12rem,1fr)_10rem_11rem] xl:items-end">
         <Field className="md:col-span-2 xl:col-span-1">
@@ -731,7 +679,7 @@ export function DomainFilters({
             autoComplete="off"
             value={priceMax}
             disabled={advancedOpen}
-            onChange={(event) => setPriceMax(event.target.value)}
+            onChange={event => setPriceMax(event.target.value)}
           />
         </Field>
         <Field>
@@ -764,8 +712,7 @@ export function DomainFilters({
               <SheetHeader className="border-b px-6 pr-14">
                 <SheetTitle>More filters</SheetTitle>
                 <SheetDescription>
-                  Narrow the current inventory. Changes run only when you apply
-                  the form.
+                  Narrow the current inventory. Changes run only when you apply the form.
                 </SheetDescription>
               </SheetHeader>
               {rangeError ? (
@@ -789,13 +736,7 @@ export function DomainFilters({
               </div>
               <SheetFooter className="flex-row justify-end border-t px-6 sm:[&>*]:max-w-48">
                 <SheetClose
-                  render={
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="h-11 flex-1"
-                    />
-                  }
+                  render={<Button type="button" variant="outline" className="h-11 flex-1" />}
                 >
                   Dismiss
                 </SheetClose>
@@ -814,7 +755,7 @@ export function DomainFilters({
               href="/"
               className={cn(
                 buttonVariants({ variant: 'ghost' }),
-                'h-11 flex-1 sm:h-8 xl:flex-none',
+                'h-11 flex-1 sm:h-8 xl:flex-none'
               )}
             >
               Clear all
@@ -823,5 +764,5 @@ export function DomainFilters({
         </div>
       </div>
     </form>
-  );
+  )
 }

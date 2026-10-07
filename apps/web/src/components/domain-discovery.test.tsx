@@ -1,70 +1,61 @@
-import {
-  cleanup,
-  fireEvent,
-  render,
-  screen,
-  waitFor,
-  within,
-} from '@testing-library/react';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { DomainDiscovery } from '@/components/domain-discovery';
-import { DomainResultsTable } from '@/components/domain-results-table';
-import { parseDomainTableFilters } from '@/domain/domain-table';
-import type { DomainListingsResult } from '@/server/queries/domain-listings';
+import { DomainDiscovery } from '@/components/domain-discovery'
+import { DomainResultsTable } from '@/components/domain-results-table'
+import { parseDomainTableFilters } from '@/domain/domain-table'
+import type { DomainListingsResult } from '@/server/queries/domain-listings'
 
-const now = new Date('2026-07-13T10:00:00.000Z');
+const now = new Date('2026-07-13T10:00:00.000Z')
 
 vi.mock('next/navigation', () => ({
-  useRouter: () => ({ refresh: vi.fn() }),
-}));
+  useRouter: () => ({ refresh: vi.fn() })
+}))
 
-afterEach(cleanup);
+afterEach(cleanup)
 
 // Stock shadcn combobox and select helpers. Base UI opens the combobox from
 // the keyboard and selects a select item on a full pointer sequence.
 function comboboxChips(label: string, container: HTMLElement = document.body) {
-  const input = within(container).getByRole('combobox', { name: label });
+  const input = within(container).getByRole('combobox', { name: label })
   return [
-    ...input
-      .closest('[data-slot=combobox-chips]')!
-      .querySelectorAll('[data-slot=combobox-chip]'),
-  ].map((chip) => chip.textContent);
+    ...input.closest('[data-slot=combobox-chips]')!.querySelectorAll('[data-slot=combobox-chip]')
+  ].map(chip => chip.textContent)
 }
 
 async function toggleComboboxOption(
   label: string,
   option: string,
-  container: HTMLElement = document.body,
+  container: HTMLElement = document.body
 ) {
-  const input = within(container).getByRole('combobox', { name: label });
-  input.focus();
-  fireEvent.keyDown(input, { key: 'ArrowDown' });
-  fireEvent.click(await screen.findByRole('option', { name: option }));
-  fireEvent.keyDown(input, { key: 'Escape' });
+  const input = within(container).getByRole('combobox', { name: label })
+  input.focus()
+  fireEvent.keyDown(input, { key: 'ArrowDown' })
+  fireEvent.click(await screen.findByRole('option', { name: option }))
+  fireEvent.keyDown(input, { key: 'Escape' })
 }
 
 async function chooseSelectOption(trigger: HTMLElement, option: string) {
-  fireEvent.click(trigger);
-  const item = await screen.findByRole('option', { name: option });
-  fireEvent.pointerDown(item, { pointerType: 'mouse' });
-  fireEvent.mouseDown(item);
-  fireEvent.pointerUp(item, { pointerType: 'mouse' });
-  fireEvent.mouseUp(item);
-  fireEvent.click(item);
-  await waitFor(() => expect(trigger).toHaveTextContent(option));
+  fireEvent.click(trigger)
+  const item = await screen.findByRole('option', { name: option })
+  fireEvent.pointerDown(item, { pointerType: 'mouse' })
+  fireEvent.mouseDown(item)
+  fireEvent.pointerUp(item, { pointerType: 'mouse' })
+  fireEvent.mouseUp(item)
+  fireEvent.click(item)
+  await waitFor(() => expect(trigger).toHaveTextContent(option))
 }
 beforeAll(() => {
   // DR enrichment requests from the results table; covered separately.
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => Response.json({ status: 'ok', stored: 0 })),
-  );
+    vi.fn(async () => Response.json({ status: 'ok', stored: 0 }))
+  )
   Object.defineProperty(window, 'PointerEvent', {
     configurable: true,
-    value: MouseEvent,
-  });
-});
+    value: MouseEvent
+  })
+})
 
 const rows: DomainListingsResult['rows'] = [
   {
@@ -99,8 +90,8 @@ const rows: DomainListingsResult['rows'] = [
       semrushAs: 33,
       semrushRefDomains: 9,
       semrushBacklinks: 50,
-      updatedAt: new Date('2026-10-05T00:00:00.000Z'),
-    },
+      updatedAt: new Date('2026-10-05T00:00:00.000Z')
+    }
   },
   {
     provider: 'other-provider',
@@ -126,9 +117,9 @@ const rows: DomainListingsResult['rows'] = [
     hasDigit: false,
     domainRating: null,
     domainRatingFetched: false,
-    seoMetrics: null,
-  },
-];
+    seoMetrics: null
+  }
+]
 
 describe('DomainDiscovery', () => {
   it('renders real table semantics, controls, external links, and next navigation', () => {
@@ -136,8 +127,8 @@ describe('DomainDiscovery', () => {
       q: 'garden',
       source: 'dynadot',
       sort: 'endsAt',
-      direction: 'asc',
-    });
+      direction: 'asc'
+    })
     render(
       <DomainDiscovery
         filters={filters}
@@ -148,45 +139,32 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot', 'other-provider'],
           auctionTypes: ['expired'],
           tlds: ['com', 'net'],
-          latestSuccessfulSync: new Date('2026-07-13T09:58:00.000Z'),
+          latestSuccessfulSync: new Date('2026-07-13T09:58:00.000Z')
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Domain discovery' }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Domain contains')).toHaveValue('garden');
-    expect(comboboxChips('Auction source')).toEqual(['Dynadot']);
+    expect(screen.getByRole('heading', { level: 1, name: 'Domain discovery' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Domain contains')).toHaveValue('garden')
+    expect(comboboxChips('Auction source')).toEqual(['Dynadot'])
     expect(
       [...document.querySelectorAll('input[name="source"]')].map(
-        (input) => (input as HTMLInputElement).value,
-      ),
-    ).toEqual(['dynadot']);
-    expect(
-      screen.getByRole('button', { name: 'Apply filters' }),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Clear all' })).toHaveAttribute(
+        input => (input as HTMLInputElement).value
+      )
+    ).toEqual(['dynadot'])
+    expect(screen.getByRole('button', { name: 'Apply filters' })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Clear all' })).toHaveAttribute('href', '/')
+    expect(screen.getByRole('link', { name: 'Remove Search: garden filter' })).toHaveAttribute(
       'href',
-      '/',
-    );
-    expect(
-      screen.getByRole('link', { name: 'Remove Search: garden filter' }),
-    ).toHaveAttribute(
-      'href',
-      '/?source=dynadot&sort=endsAt&direction=asc&page=1',
-    );
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
-      'Synced 2 minutes ago',
-    );
-    expect(
-      screen.queryByText(/inventory is out of date/i),
-    ).not.toBeInTheDocument();
+      '/?source=dynadot&sort=endsAt&direction=asc&page=1'
+    )
+    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('Synced 2 minutes ago')
+    expect(screen.queryByText(/inventory is out of date/i)).not.toBeInTheDocument()
 
-    const table = screen.getByRole('table');
-    expect(within(table).getAllByRole('row')).toHaveLength(3);
-    expect(within(table).getAllByRole('columnheader')).toHaveLength(11);
+    const table = screen.getByRole('table')
+    expect(within(table).getAllByRole('row')).toHaveLength(3)
+    expect(within(table).getAllByRole('columnheader')).toHaveLength(11)
     for (const heading of [
       'Domain',
       'Auction',
@@ -195,64 +173,53 @@ describe('DomainDiscovery', () => {
       'Ends',
       'Age',
       'Links',
-      'Appraisal',
+      'Appraisal'
     ]) {
-      expect(
-        within(table).getByRole('columnheader', { name: heading }),
-      ).toBeInTheDocument();
+      expect(within(table).getByRole('columnheader', { name: heading })).toBeInTheDocument()
     }
-    expect(
-      within(table).getByRole('columnheader', { name: /Ends/ }),
-    ).toHaveAttribute('aria-sort', 'ascending');
-    expect(
-      within(table).getByRole('link', {
-        name: 'garden-example.com (opens auction in a new tab)',
-      }),
-    ).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(within(table).getByRole('columnheader', { name: /Ends/ })).toHaveAttribute(
+      'aria-sort',
+      'ascending'
+    )
     expect(
       within(table).getByRole('link', {
-        name: 'garden-example.com (opens auction in a new tab)',
-      }),
-    ).toHaveAttribute('target', '_blank');
-    expect(within(table).getByText('Dynadot')).toBeInTheDocument();
-    expect(within(table).getByText('Other Provider')).toBeInTheDocument();
-    expect(within(table).getByText('12 years')).toBeInTheDocument();
-    expect(within(table).getByText('.com')).toBeInTheDocument();
-    expect(within(table).getByText('18 characters')).toBeInTheDocument();
-    expect(within(table).getAllByText('hyphen')).toHaveLength(2);
-    expect(within(table).getByText('$12.50')).toBeInTheDocument();
-    expect(within(table).getByText('$12 renewal')).toBeInTheDocument();
-    expect(within(table).getByText('3 bids')).toBeInTheDocument();
-    expect(within(table).getByText('0 bids')).toBeInTheDocument();
-    expect(within(table).queryByText(/bidder/)).not.toBeInTheDocument();
-    expect(within(table).getByLabelText('20 visitors')).toHaveTextContent(
-      '20 visitors',
-    );
-    expect(within(table).getByText('1d 2h')).toBeInTheDocument();
-    expect(within(table).getByText('Jul 14, 12:00 UTC')).toBeInTheDocument();
-    const endTime = within(table).getByText('1d 2h').closest('time');
-    expect(endTime).toHaveAttribute('datetime', '2026-07-14T12:00:00.000Z');
-    expect(endTime?.querySelector('div')).toBeNull();
-    expect(within(table).getByLabelText('50 inbound links')).toHaveTextContent(
-      '50',
-    );
-    expect(within(table).getByText('Dynadot appraisal')).toBeInTheDocument();
+        name: 'garden-example.com (opens auction in a new tab)'
+      })
+    ).toHaveAttribute('rel', 'noopener noreferrer')
     expect(
-      within(table).getByLabelText('Domain age not collected'),
-    ).toHaveTextContent('—');
+      within(table).getByRole('link', {
+        name: 'garden-example.com (opens auction in a new tab)'
+      })
+    ).toHaveAttribute('target', '_blank')
+    expect(within(table).getByText('Dynadot')).toBeInTheDocument()
+    expect(within(table).getByText('Other Provider')).toBeInTheDocument()
+    expect(within(table).getByText('12 years')).toBeInTheDocument()
+    expect(within(table).getByText('.com')).toBeInTheDocument()
+    expect(within(table).getByText('18 characters')).toBeInTheDocument()
+    expect(within(table).getAllByText('hyphen')).toHaveLength(2)
+    expect(within(table).getByText('$12.50')).toBeInTheDocument()
+    expect(within(table).getByText('$12 renewal')).toBeInTheDocument()
+    expect(within(table).getByText('3 bids')).toBeInTheDocument()
+    expect(within(table).getByText('0 bids')).toBeInTheDocument()
+    expect(within(table).queryByText(/bidder/)).not.toBeInTheDocument()
+    expect(within(table).getByLabelText('20 visitors')).toHaveTextContent('20 visitors')
+    expect(within(table).getByText('1d 2h')).toBeInTheDocument()
+    expect(within(table).getByText('Jul 14, 12:00 UTC')).toBeInTheDocument()
+    const endTime = within(table).getByText('1d 2h').closest('time')
+    expect(endTime).toHaveAttribute('datetime', '2026-07-14T12:00:00.000Z')
+    expect(endTime?.querySelector('div')).toBeNull()
+    expect(within(table).getByLabelText('50 inbound links')).toHaveTextContent('50')
+    expect(within(table).getByText('Dynadot appraisal')).toBeInTheDocument()
+    expect(within(table).getByLabelText('Domain age not collected')).toHaveTextContent('—')
     // A stored DR renders rounded; an unrequested one is "not collected".
-    const drHeader = within(table).getByRole('columnheader', { name: /^DR/ });
+    const drHeader = within(table).getByRole('columnheader', { name: /^DR/ })
     const attribution = within(drHeader).getByRole('link', {
-      name: 'Domain Rating by Ahrefs',
-    });
-    expect(attribution).toHaveAttribute('href', 'https://ahrefs.com/');
-    expect(attribution).toHaveAttribute('target', '_blank');
-    expect(
-      within(table).getByTitle('Domain Rating by Ahrefs'),
-    ).toHaveTextContent('42');
-    expect(
-      within(table).getAllByLabelText('Ahrefs Domain Rating not collected'),
-    ).toHaveLength(1);
+      name: 'Domain Rating by Ahrefs'
+    })
+    expect(attribution).toHaveAttribute('href', 'https://ahrefs.com/')
+    expect(attribution).toHaveAttribute('target', '_blank')
+    expect(within(table).getByTitle('Domain Rating by Ahrefs')).toHaveTextContent('42')
+    expect(within(table).getAllByLabelText('Ahrefs Domain Rating not collected')).toHaveLength(1)
     for (const [heading, sort] of [
       ['Domain', 'domain'],
       ['Auction', 'source'],
@@ -261,41 +228,31 @@ describe('DomainDiscovery', () => {
       ['Ends', 'endsAt'],
       ['Age', 'age'],
       ['Links', 'links'],
-      ['Appraisal', 'appraisal'],
+      ['Appraisal', 'appraisal']
     ]) {
-      const sortLink = within(table).getByRole('link', { name: heading });
-      const url = new URL(
-        sortLink.getAttribute('href')!,
-        'https://example.test',
-      );
-      expect(url.searchParams.get('q')).toBe('garden');
-      expect(url.searchParams.getAll('source')).toEqual(['dynadot']);
-      expect(url.searchParams.get('sort')).toBe(sort);
-      expect(url.searchParams.get('direction')).toBe(
-        sort === 'endsAt' ? 'desc' : 'asc',
-      );
-      expect(url.searchParams.get('page')).toBe('1');
+      const sortLink = within(table).getByRole('link', { name: heading })
+      const url = new URL(sortLink.getAttribute('href')!, 'https://example.test')
+      expect(url.searchParams.get('q')).toBe('garden')
+      expect(url.searchParams.getAll('source')).toEqual(['dynadot'])
+      expect(url.searchParams.get('sort')).toBe(sort)
+      expect(url.searchParams.get('direction')).toBe(sort === 'endsAt' ? 'desc' : 'asc')
+      expect(url.searchParams.get('page')).toBe('1')
     }
 
-    expect(screen.getByText('Showing 1–50 of 51')).toBeInTheDocument();
-    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
-    expect(
-      screen.getByRole('link', { name: 'Go to next page' }),
-    ).toHaveAttribute(
+    expect(screen.getByText('Showing 1–50 of 51')).toBeInTheDocument()
+    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByRole('link', { name: 'Go to next page' })).toHaveAttribute(
       'href',
-      '/?q=garden&source=dynadot&sort=endsAt&direction=asc&page=2',
-    );
-  });
+      '/?q=garden&source=dynadot&sort=endsAt&direction=asc&page=2'
+    )
+  })
 
   it('renders previous navigation, a descending sort, and singular count', () => {
     const filters = parseDomainTableFilters({
       sort: 'domain',
       direction: 'desc',
-      page: '2',
-    });
+      page: '2'
+    })
     render(
       <DomainDiscovery
         filters={filters}
@@ -306,30 +263,21 @@ describe('DomainDiscovery', () => {
           sources: [],
           auctionTypes: [],
           tlds: [],
-          latestSuccessfulSync: null,
+          latestSuccessfulSync: null
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(
-      screen.getByRole('region', { name: '1 active listing' }),
-    ).toBeInTheDocument();
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
-      'No successful sync yet',
-    );
-    expect(
-      screen.getByRole('columnheader', { name: 'Domain' }),
-    ).toHaveAttribute('aria-sort', 'descending');
-    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
-    expect(screen.getByLabelText('Go to next page')).toHaveAttribute(
-      'aria-disabled',
-      'true',
-    );
-  });
+    expect(screen.getByRole('region', { name: '1 active listing' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('No successful sync yet')
+    expect(screen.getByRole('columnheader', { name: 'Domain' })).toHaveAttribute(
+      'aria-sort',
+      'descending'
+    )
+    expect(screen.getByLabelText('Go to previous page')).toHaveAttribute('aria-disabled', 'true')
+    expect(screen.getByLabelText('Go to next page')).toHaveAttribute('aria-disabled', 'true')
+  })
 
   it('warns when the inventory is stale', () => {
     render(
@@ -342,19 +290,15 @@ describe('DomainDiscovery', () => {
           sources: [],
           auctionTypes: [],
           tlds: [],
-          latestSuccessfulSync: new Date(now.getTime() - 2 * 86_400_000),
+          latestSuccessfulSync: new Date(now.getTime() - 2 * 86_400_000)
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(screen.getByRole('status')).toHaveTextContent(
-      /inventory is out of date/i,
-    );
-    expect(screen.getByLabelText('Data freshness')).toHaveTextContent(
-      'Synced 2 days ago',
-    );
-  });
+    expect(screen.getByRole('status')).toHaveTextContent(/inventory is out of date/i)
+    expect(screen.getByLabelText('Data freshness')).toHaveTextContent('Synced 2 days ago')
+  })
 
   it('opens every outbound link in a new tab', () => {
     const { container } = render(
@@ -367,28 +311,28 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com', 'net'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    const outbound = [
-      ...container.querySelectorAll<HTMLAnchorElement>('a[href]'),
-    ].filter((link) => /^https?:\/\//.test(link.getAttribute('href')!));
-    expect(outbound.length).toBeGreaterThan(0);
+    const outbound = [...container.querySelectorAll<HTMLAnchorElement>('a[href]')].filter(link =>
+      /^https?:\/\//.test(link.getAttribute('href')!)
+    )
+    expect(outbound.length).toBeGreaterThan(0)
     for (const link of outbound) {
-      expect(link).toHaveAttribute('target', '_blank');
-      expect(link.getAttribute('rel')).toContain('noopener');
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link.getAttribute('rel')).toContain('noopener')
     }
-  });
+  })
 
   it('keeps unlisted selections visible and omits an "Any time" ending', async () => {
     render(
       <DomainDiscovery
         filters={parseDomainTableFilters({
           source: 'namejet',
-          endingWithin: '6h',
+          endingWithin: '6h'
         })}
         result={{
           rows,
@@ -397,29 +341,29 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
     // The facet no longer lists NameJet, but the active selection stays.
-    expect(comboboxChips('Auction source')).toEqual(['namejet']);
+    expect(comboboxChips('Auction source')).toEqual(['namejet'])
 
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
-    expect(new FormData(form).getAll('endingWithin')).toEqual(['6h']);
-    await chooseSelectOption(screen.getByLabelText('Ending'), 'Any time');
-    expect(new FormData(form).getAll('endingWithin')).toEqual([]);
-  });
+      name: 'Domain filters'
+    }) as HTMLFormElement
+    expect(new FormData(form).getAll('endingWithin')).toEqual(['6h'])
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Any time')
+    expect(new FormData(form).getAll('endingWithin')).toEqual([])
+  })
 
   it('shows feed metrics truthfully and keeps metric filters on submit', async () => {
     render(
       <DomainDiscovery
         filters={parseDomainTableFilters({
           majesticTfMin: '10',
-          semrushAsMin: '20',
+          semrushAsMin: '20'
         })}
         result={{
           rows,
@@ -428,50 +372,40 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    const table = screen.getByRole('table');
-    expect(within(table).getByTitle('Majestic Trust Flow')).toHaveTextContent(
-      'TF 12',
-    );
+    const table = screen.getByRole('table')
+    expect(within(table).getByTitle('Majestic Trust Flow')).toHaveTextContent('TF 12')
+    expect(within(table).getByTitle('Majestic Citation Flow')).toHaveTextContent('CF —')
+    expect(within(table).getByText('1 ref. domain')).toBeInTheDocument()
+    expect(within(table).getByTitle('Semrush Authority Score')).toHaveTextContent('33')
     expect(
-      within(table).getByTitle('Majestic Citation Flow'),
-    ).toHaveTextContent('CF —');
-    expect(within(table).getByText('1 ref. domain')).toBeInTheDocument();
+      within(table).getByLabelText('Majestic Trust and Citation Flow not collected')
+    ).toBeInTheDocument()
     expect(
-      within(table).getByTitle('Semrush Authority Score'),
-    ).toHaveTextContent('33');
-    expect(
-      within(table).getByLabelText(
-        'Majestic Trust and Citation Flow not collected',
-      ),
-    ).toBeInTheDocument();
-    expect(
-      within(table).getByLabelText('Semrush Authority Score not collected'),
-    ).toBeInTheDocument();
+      within(table).getByLabelText('Semrush Authority Score not collected')
+    ).toBeInTheDocument()
 
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
+      name: 'Domain filters'
+    }) as HTMLFormElement
     // Closed sheet: the active metric filters still submit.
-    expect(new FormData(form).get('majesticTfMin')).toBe('10');
-    expect(new FormData(form).get('semrushAsMin')).toBe('20');
+    expect(new FormData(form).get('majesticTfMin')).toBe('10')
+    expect(new FormData(form).get('semrushAsMin')).toBe('20')
 
-    fireEvent.click(screen.getByRole('button', { name: /More filters/ }));
-    const dialog = await screen.findByRole('dialog', { name: 'More filters' });
-    const metrics = within(dialog).getByRole('group', { name: 'Metrics' });
-    expect(within(metrics).getByLabelText('Minimum Trust Flow')).toHaveValue(
-      10,
-    );
+    fireEvent.click(screen.getByRole('button', { name: /More filters/ }))
+    const dialog = await screen.findByRole('dialog', { name: 'More filters' })
+    const metrics = within(dialog).getByRole('group', { name: 'Metrics' })
+    expect(within(metrics).getByLabelText('Minimum Trust Flow')).toHaveValue(10)
     fireEvent.change(within(metrics).getByLabelText('Minimum Citation Flow'), {
-      target: { value: '15' },
-    });
-    expect(new FormData(form).get('majesticCfMin')).toBe('15');
-  });
+      target: { value: '15' }
+    })
+    expect(new FormData(form).get('majesticCfMin')).toBe('15')
+  })
 
   it('distinguishes a domain Ahrefs has no rating for from one not fetched yet', () => {
     render(
@@ -481,24 +415,22 @@ describe('DomainDiscovery', () => {
             ...rows[1]!,
             domainRating: null,
             domainRatingFetched: true,
-            seoMetrics: { ...rows[0]!.seoMetrics!, majesticRefDomains: null },
-          },
+            seoMetrics: { ...rows[0]!.seoMetrics!, majesticRefDomains: null }
+          }
         ]}
         filters={parseDomainTableFilters({})}
         now={now}
-      />,
-    );
+      />
+    )
 
-    const table = screen.getByRole('table');
-    expect(
-      within(table).getByText('No Ahrefs Domain Rating'),
-    ).toBeInTheDocument();
+    const table = screen.getByRole('table')
+    expect(within(table).getByText('No Ahrefs Domain Rating')).toBeInTheDocument()
     // Flow is shown without a referring-domain line when the feed omits it.
-    expect(within(table).queryByText(/ref\. domain/)).not.toBeInTheDocument();
+    expect(within(table).queryByText(/ref\. domain/)).not.toBeInTheDocument()
     expect(
-      within(table).queryByLabelText('Ahrefs Domain Rating not collected'),
-    ).not.toBeInTheDocument();
-  });
+      within(table).queryByLabelText('Ahrefs Domain Rating not collected')
+    ).not.toBeInTheDocument()
+  })
 
   it('renders a useful empty state and zero range', async () => {
     render(
@@ -511,28 +443,20 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(
-      screen.getByRole('heading', { level: 2, name: 'No domains found' }),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole('table')).not.toBeInTheDocument();
-    expect(
-      screen.getByRole('region', { name: '0 active listings' }),
-    ).toBeInTheDocument();
-    expect(screen.getByText('Showing 0–0 of 0')).toBeInTheDocument();
-    expect(
-      screen.queryByRole('link', { name: 'Clear all' }),
-    ).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
-    expect(
-      await screen.findByRole('dialog', { name: 'More filters' }),
-    ).toBeInTheDocument();
-  });
+    expect(screen.getByRole('heading', { level: 2, name: 'No domains found' })).toBeInTheDocument()
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+    expect(screen.getByRole('region', { name: '0 active listings' })).toBeInTheDocument()
+    expect(screen.getByText('Showing 0–0 of 0')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Clear all' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'More filters' }))
+    expect(await screen.findByRole('dialog', { name: 'More filters' })).toBeInTheDocument()
+  })
 
   it('offers one clear path when any filter produces an empty result', () => {
     render(
@@ -545,19 +469,15 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(
-      screen.getByText(/No listings match all applied filters\./),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'Clear all filters' }),
-    ).toHaveAttribute('href', '/');
-  });
+    expect(screen.getByText(/No listings match all applied filters\./)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Clear all filters' })).toHaveAttribute('href', '/')
+  })
 
   it('renders deterministic urgency text and every derived domain marker', () => {
     const endingRows: DomainListingsResult['rows'] = [
@@ -570,50 +490,50 @@ describe('DomainDiscovery', () => {
         hasDigit: true,
         bidCount: 1,
         bidderCount: 1,
-        endsAt: new Date('2026-07-13T10:48:00.000Z'),
+        endsAt: new Date('2026-07-13T10:48:00.000Z')
       },
       {
         ...rows[0],
         externalId: 'warning',
         domainName: 'warning.com',
         hasHyphen: false,
-        endsAt: new Date('2026-07-13T12:14:00.000Z'),
+        endsAt: new Date('2026-07-13T12:14:00.000Z')
       },
       {
         ...rows[0],
         externalId: 'ended',
         domainName: 'ended.com',
         hasHyphen: false,
-        endsAt: new Date('2026-07-13T09:48:00.000Z'),
-      },
-    ];
+        endsAt: new Date('2026-07-13T09:48:00.000Z')
+      }
+    ]
     render(
       <DomainResultsTable
         rows={endingRows}
         filters={parseDomainTableFilters({ sort: 'price', direction: 'asc' })}
         now={now}
-      />,
-    );
+      />
+    )
 
     const resultsRegion = screen.getByRole('region', {
-      name: 'Domain results',
-    });
-    expect(resultsRegion).toHaveAttribute('tabindex', '0');
-    expect(resultsRegion).toHaveClass('focus-visible:ring-2');
+      name: 'Domain results'
+    })
+    expect(resultsRegion).toHaveAttribute('tabindex', '0')
+    expect(resultsRegion).toHaveClass('focus-visible:ring-2')
 
-    expect(screen.getByText('48m')).toHaveClass('text-destructive');
-    expect(screen.getByText('2h 14m')).toHaveClass('text-warning-foreground');
-    expect(screen.getByText('Ended 12m ago')).toHaveClass('text-destructive');
-    expect(screen.getByText('digits')).toBeInTheDocument();
-    expect(screen.getByText('1 bid')).toBeInTheDocument();
+    expect(screen.getByText('48m')).toHaveClass('text-destructive')
+    expect(screen.getByText('2h 14m')).toHaveClass('text-warning-foreground')
+    expect(screen.getByText('Ended 12m ago')).toHaveClass('text-destructive')
+    expect(screen.getByText('digits')).toBeInTheDocument()
+    expect(screen.getByText('1 bid')).toBeInTheDocument()
     expect(screen.getByRole('columnheader', { name: 'Price' })).toHaveAttribute(
       'aria-sort',
-      'ascending',
-    );
-  });
+      'ascending'
+    )
+  })
 
   it('keeps an unbroken maximum-length query chip inside its container', () => {
-    const query = 'x'.repeat(253);
+    const query = 'x'.repeat(253)
     render(
       <DomainDiscovery
         filters={parseDomainTableFilters({ q: query })}
@@ -624,20 +544,20 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
     const chip = screen.getByRole('link', {
-      name: `Remove Search: ${query} filter`,
-    });
-    expect(chip).toHaveClass('max-w-full', 'min-w-0');
-    expect(chip).toHaveAttribute('title', `Search: ${query}`);
-    expect(chip.querySelector('span')).toHaveClass('min-w-0', 'truncate');
-    expect(chip.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
-  });
+      name: `Remove Search: ${query} filter`
+    })
+    expect(chip).toHaveClass('max-w-full', 'min-w-0')
+    expect(chip).toHaveAttribute('title', `Search: ${query}`)
+    expect(chip.querySelector('span')).toHaveClass('min-w-0', 'truncate')
+    expect(chip.querySelector('svg')).toHaveAttribute('aria-hidden', 'true')
+  })
 
   it('renders the clamped page returned by the query', () => {
     render(
@@ -650,18 +570,19 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    expect(screen.getByText('Showing 51–51 of 51')).toBeInTheDocument();
-    expect(screen.getByText('Page 2')).toBeInTheDocument();
-    expect(
-      screen.getByRole('link', { name: 'Go to previous page' }),
-    ).toHaveAttribute('href', '/?sort=endsAt&direction=asc&page=1');
-  });
+    expect(screen.getByText('Showing 51–51 of 51')).toBeInTheDocument()
+    expect(screen.getByText('Page 2')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Go to previous page' })).toHaveAttribute(
+      'href',
+      '/?sort=endsAt&direction=asc&page=1'
+    )
+  })
 
   it('renders repeated quick selections and accessible grouped advanced filters', async () => {
     const filters = parseDomainTableFilters({
@@ -681,8 +602,8 @@ describe('DomainDiscovery', () => {
       bidsMin: '5',
       visitorsMin: '10',
       linksMin: '20',
-      appraisalMin: '1000',
-    });
+      appraisalMin: '1000'
+    })
     render(
       <DomainDiscovery
         filters={filters}
@@ -693,106 +614,91 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot', 'godaddy'],
           auctionTypes: ['expired', 'closeout'],
           tlds: ['com', 'net', 'org'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
+      name: 'Domain filters'
+    }) as HTMLFormElement
     expect(
       [...form.querySelectorAll('input[name="source"]')].map(
-        (input) => (input as HTMLInputElement).value,
-      ),
-    ).toEqual(['dynadot', 'godaddy']);
+        input => (input as HTMLInputElement).value
+      )
+    ).toEqual(['dynadot', 'godaddy'])
     expect(
       [...form.querySelectorAll('input[name="tld"]')].map(
-        (input) => (input as HTMLInputElement).value,
-      ),
-    ).toEqual(['com', 'org']);
-    expect(form.querySelector('input[name="priceMin"]')).toHaveValue('10.25');
-    expect(form.querySelector('input[name="renewalMax"]')).toHaveValue('18.50');
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
+        input => (input as HTMLInputElement).value
+      )
+    ).toEqual(['com', 'org'])
+    expect(form.querySelector('input[name="priceMin"]')).toHaveValue('10.25')
+    expect(form.querySelector('input[name="renewalMax"]')).toHaveValue('18.50')
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(500)
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours')
     fireEvent.change(screen.getByLabelText('Max current bid'), {
-      target: { value: '450' },
-    });
-    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 6 hours');
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(450);
-    expect(screen.getByText('TLD: .com, .org')).toBeInTheDocument();
+      target: { value: '450' }
+    })
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 6 hours')
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(450)
+    expect(screen.getByText('TLD: .com, .org')).toBeInTheDocument()
 
-    const more = screen.getByRole('button', { name: /More filters 11/ });
-    expect(more).toHaveAttribute('aria-expanded', 'false');
-    fireEvent.click(more);
+    const more = screen.getByRole('button', { name: /More filters 11/ })
+    expect(more).toHaveAttribute('aria-expanded', 'false')
+    fireEvent.click(more)
 
     const dialog = await screen.findByRole('dialog', {
-      name: 'More filters',
-    });
-    expect(more).toHaveAttribute('aria-expanded', 'true');
+      name: 'More filters'
+    })
+    expect(more).toHaveAttribute('aria-expanded', 'true')
     for (const group of ['Domain', 'Auction', 'Activity', 'Value']) {
-      expect(
-        within(dialog).getByRole('group', { name: group }),
-      ).toBeInTheDocument();
+      expect(within(dialog).getByRole('group', { name: group })).toBeInTheDocument()
     }
-    expect(within(dialog).getByLabelText('Minimum length')).toHaveValue(8);
-    expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(
-      450,
-    );
-    expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent(
-      'Next 6 hours',
-    );
+    expect(within(dialog).getByLabelText('Minimum length')).toHaveValue(8)
+    expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(450)
+    expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent('Next 6 hours')
     fireEvent.change(within(dialog).getByLabelText('Maximum current bid'), {
-      target: { value: '425' },
-    });
-    await chooseSelectOption(
-      within(dialog).getByLabelText('Ending window'),
-      'Next 3 days',
-    );
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(425);
-    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 3 days');
-    expect(comboboxChips('Auction type', dialog)).toEqual(['Expired']);
-    expect(
-      within(dialog).getByRole('checkbox', { name: 'No digits' }),
-    ).toBeChecked();
+      target: { value: '425' }
+    })
+    await chooseSelectOption(within(dialog).getByLabelText('Ending window'), 'Next 3 days')
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(425)
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 3 days')
+    expect(comboboxChips('Auction type', dialog)).toEqual(['Expired'])
+    expect(within(dialog).getByRole('checkbox', { name: 'No digits' })).toBeChecked()
     fireEvent.change(within(dialog).getByLabelText('Minimum bids'), {
-      target: { value: '7' },
-    });
-    fireEvent.click(
-      within(dialog).getByRole('checkbox', { name: 'No digits' }),
-    );
-    await toggleComboboxOption('Auction type', 'Closeout', dialog);
+      target: { value: '7' }
+    })
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: 'No digits' }))
+    await toggleComboboxOption('Auction type', 'Closeout', dialog)
 
-    const portalSubmission = new FormData(form);
-    expect(portalSubmission.getAll('bidsMin')).toEqual(['7']);
-    expect(portalSubmission.getAll('noDigits')).toEqual([]);
-    expect(portalSubmission.getAll('noHyphens')).toEqual(['1']);
-    expect(portalSubmission.getAll('type')).toEqual(['expired', 'closeout']);
-    expect(portalSubmission.getAll('priceMin')).toEqual(['10.25']);
-    expect(portalSubmission.getAll('renewalMax')).toEqual(['18.50']);
-    expect(portalSubmission.getAll('endingWithin')).toEqual(['3d']);
-    expect(
-      within(dialog).getByRole('button', { name: 'Dismiss' }),
-    ).toBeInTheDocument();
-  });
+    const portalSubmission = new FormData(form)
+    expect(portalSubmission.getAll('bidsMin')).toEqual(['7'])
+    expect(portalSubmission.getAll('noDigits')).toEqual([])
+    expect(portalSubmission.getAll('noHyphens')).toEqual(['1'])
+    expect(portalSubmission.getAll('type')).toEqual(['expired', 'closeout'])
+    expect(portalSubmission.getAll('priceMin')).toEqual(['10.25'])
+    expect(portalSubmission.getAll('renewalMax')).toEqual(['18.50'])
+    expect(portalSubmission.getAll('endingWithin')).toEqual(['3d'])
+    expect(within(dialog).getByRole('button', { name: 'Dismiss' })).toBeInTheDocument()
+  })
 
   it.each([
     {
       label: 'domain length',
       minimumLabel: 'Minimum length',
-      maximumLabel: 'Maximum length',
+      maximumLabel: 'Maximum length'
     },
     {
       label: 'domain age',
       minimumLabel: 'Minimum age',
-      maximumLabel: 'Maximum age',
+      maximumLabel: 'Maximum age'
     },
     {
       label: 'current bid',
       minimumLabel: 'Minimum current bid',
-      maximumLabel: 'Maximum current bid',
-    },
+      maximumLabel: 'Maximum current bid'
+    }
   ])(
     'announces and focuses a reversed $label range, then accepts its correction',
     async ({ label, minimumLabel, maximumLabel }) => {
@@ -806,43 +712,43 @@ describe('DomainDiscovery', () => {
             sources: ['dynadot'],
             auctionTypes: ['expired'],
             tlds: ['com'],
-            latestSuccessfulSync: now,
+            latestSuccessfulSync: now
           }}
           now={now}
-        />,
-      );
+        />
+      )
       const form = screen.getByRole('form', {
-        name: 'Domain filters',
-      }) as HTMLFormElement;
-      fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
+        name: 'Domain filters'
+      }) as HTMLFormElement
+      fireEvent.click(screen.getByRole('button', { name: 'More filters' }))
       const dialog = await screen.findByRole('dialog', {
-        name: 'More filters',
-      });
-      const minimum = within(dialog).getByLabelText(minimumLabel);
-      const maximum = within(dialog).getByLabelText(maximumLabel);
+        name: 'More filters'
+      })
+      const minimum = within(dialog).getByLabelText(minimumLabel)
+      const maximum = within(dialog).getByLabelText(maximumLabel)
 
-      fireEvent.change(minimum, { target: { value: '20' } });
-      fireEvent.change(maximum, { target: { value: '10' } });
-      expect(fireEvent.submit(form)).toBe(false);
+      fireEvent.change(minimum, { target: { value: '20' } })
+      fireEvent.change(maximum, { target: { value: '10' } })
+      expect(fireEvent.submit(form)).toBe(false)
       expect(screen.getByRole('alert')).toHaveTextContent(
-        `Minimum ${label} cannot exceed maximum ${label}. Lower the minimum or raise the maximum.`,
-      );
-      expect(minimum).toHaveAttribute('aria-invalid', 'true');
-      expect(minimum).toHaveFocus();
+        `Minimum ${label} cannot exceed maximum ${label}. Lower the minimum or raise the maximum.`
+      )
+      expect(minimum).toHaveAttribute('aria-invalid', 'true')
+      expect(minimum).toHaveFocus()
 
-      fireEvent.change(maximum, { target: { value: '30' } });
-      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
-      expect(minimum).not.toHaveAttribute('aria-invalid');
-      expect(fireEvent.submit(form)).toBe(true);
-      const corrected = new FormData(form);
-      expect(corrected.get((minimum as HTMLInputElement).name)).toBe('20');
+      fireEvent.change(maximum, { target: { value: '30' } })
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+      expect(minimum).not.toHaveAttribute('aria-invalid')
+      expect(fireEvent.submit(form)).toBe(true)
+      const corrected = new FormData(form)
+      expect(corrected.get((minimum as HTMLInputElement).name)).toBe('20')
       if ((maximum as HTMLInputElement).name) {
-        expect(corrected.get((maximum as HTMLInputElement).name)).toBe('30');
+        expect(corrected.get((maximum as HTMLInputElement).name)).toBe('30')
       } else {
-        expect(corrected.get('priceMax')).toBe('30');
+        expect(corrected.get('priceMax')).toBe('30')
       }
-    },
-  );
+    }
+  )
 
   it('validates a preserved minimum price from the closed advanced sheet', () => {
     render(
@@ -855,24 +761,24 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
-    const maximum = screen.getByLabelText('Max current bid');
-    fireEvent.change(maximum, { target: { value: '50' } });
+      name: 'Domain filters'
+    }) as HTMLFormElement
+    const maximum = screen.getByLabelText('Max current bid')
+    fireEvent.change(maximum, { target: { value: '50' } })
 
-    expect(fireEvent.submit(form)).toBe(false);
+    expect(fireEvent.submit(form)).toBe(false)
     expect(screen.getByRole('alert')).toHaveTextContent(
-      'Minimum current bid cannot exceed maximum current bid.',
-    );
-    expect(maximum).toHaveAttribute('aria-invalid', 'true');
-    expect(maximum).toHaveFocus();
-  });
+      'Minimum current bid cannot exceed maximum current bid.'
+    )
+    expect(maximum).toHaveAttribute('aria-invalid', 'true')
+    expect(maximum).toHaveFocus()
+  })
 
   it('uses only the visible maximum-price control for form validity while the sheet is open', async () => {
     render(
@@ -885,56 +791,52 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
-    const quickMaximum = screen.getByLabelText('Max current bid');
-    expect(quickMaximum).toBeEnabled();
+      name: 'Domain filters'
+    }) as HTMLFormElement
+    const quickMaximum = screen.getByLabelText('Max current bid')
+    expect(quickMaximum).toBeEnabled()
 
-    fireEvent.click(screen.getByRole('button', { name: 'More filters' }));
+    fireEvent.click(screen.getByRole('button', { name: 'More filters' }))
     const dialog = await screen.findByRole('dialog', {
-      name: 'More filters',
-    });
-    const advancedMaximum = within(dialog).getByLabelText(
-      'Maximum current bid',
-    ) as HTMLInputElement;
-    expect(quickMaximum).toBeDisabled();
-    expect(advancedMaximum).toBeEnabled();
-    expect(advancedMaximum).toHaveAttribute('form', 'domain-filters');
-    expect(advancedMaximum).toHaveAttribute('name', 'priceMax');
+      name: 'More filters'
+    })
+    const advancedMaximum = within(dialog).getByLabelText('Maximum current bid') as HTMLInputElement
+    expect(quickMaximum).toBeDisabled()
+    expect(advancedMaximum).toBeEnabled()
+    expect(advancedMaximum).toHaveAttribute('form', 'domain-filters')
+    expect(advancedMaximum).toHaveAttribute('name', 'priceMax')
 
     fireEvent.change(advancedMaximum, {
-      target: { value: '10000000000000' },
-    });
-    expect(new FormData(form).getAll('priceMax')).toEqual(['10000000000000']);
-    const advancedInvalid = vi.fn();
-    const quickInvalid = vi.fn();
-    advancedMaximum.addEventListener('invalid', advancedInvalid);
-    quickMaximum.addEventListener('invalid', quickInvalid);
-    expect(advancedMaximum.validity.rangeOverflow).toBe(true);
-    expect(form.checkValidity()).toBe(false);
-    expect(advancedInvalid).toHaveBeenCalled();
-    expect(quickInvalid).not.toHaveBeenCalled();
-    advancedMaximum.focus();
-    expect(advancedMaximum).toHaveFocus();
+      target: { value: '10000000000000' }
+    })
+    expect(new FormData(form).getAll('priceMax')).toEqual(['10000000000000'])
+    const advancedInvalid = vi.fn()
+    const quickInvalid = vi.fn()
+    advancedMaximum.addEventListener('invalid', advancedInvalid)
+    quickMaximum.addEventListener('invalid', quickInvalid)
+    expect(advancedMaximum.validity.rangeOverflow).toBe(true)
+    expect(form.checkValidity()).toBe(false)
+    expect(advancedInvalid).toHaveBeenCalled()
+    expect(quickInvalid).not.toHaveBeenCalled()
+    advancedMaximum.focus()
+    expect(advancedMaximum).toHaveFocus()
 
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }))
     await waitFor(() =>
-      expect(
-        screen.queryByRole('dialog', { name: 'More filters' }),
-      ).not.toBeInTheDocument(),
-    );
-    expect(quickMaximum).toBeEnabled();
-    expect(quickMaximum).toHaveValue(500);
-    expect(document.getElementById('advanced-price-max')).toBeNull();
-    expect(new FormData(form).getAll('priceMax')).toEqual(['500']);
-    expect(form.checkValidity()).toBe(true);
-  });
+      expect(screen.queryByRole('dialog', { name: 'More filters' })).not.toBeInTheDocument()
+    )
+    expect(quickMaximum).toBeEnabled()
+    expect(quickMaximum).toHaveValue(500)
+    expect(document.getElementById('advanced-price-max')).toBeNull()
+    expect(new FormData(form).getAll('priceMax')).toEqual(['500'])
+    expect(form.checkValidity()).toBe(true)
+  })
 
   it('discards every advanced-sheet draft on Dismiss and Escape', async () => {
     render(
@@ -945,7 +847,7 @@ describe('DomainDiscovery', () => {
           priceMax: '500',
           endingWithin: '24h',
           bidsMin: '2',
-          noDigits: '1',
+          noDigits: '1'
         })}
         result={{
           rows,
@@ -954,70 +856,57 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired', 'closeout'],
           tlds: ['com'],
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
     const open = async () => {
-      fireEvent.click(screen.getByRole('button', { name: /More filters/ }));
-      return screen.findByRole('dialog', { name: 'More filters' });
-    };
+      fireEvent.click(screen.getByRole('button', { name: /More filters/ }))
+      return screen.findByRole('dialog', { name: 'More filters' })
+    }
     const editEveryKind = async (dialog: HTMLElement) => {
       fireEvent.change(within(dialog).getByLabelText('Maximum current bid'), {
-        target: { value: '75' },
-      });
-      await chooseSelectOption(
-        within(dialog).getByLabelText('Ending window'),
-        'Next 3 days',
-      );
+        target: { value: '75' }
+      })
+      await chooseSelectOption(within(dialog).getByLabelText('Ending window'), 'Next 3 days')
       fireEvent.change(within(dialog).getByLabelText('Minimum current bid'), {
-        target: { value: '20' },
-      });
+        target: { value: '20' }
+      })
       fireEvent.change(within(dialog).getByLabelText('Minimum bids'), {
-        target: { value: '8' },
-      });
-      fireEvent.click(
-        within(dialog).getByRole('checkbox', { name: 'No digits' }),
-      );
-      await toggleComboboxOption('Auction type', 'Expired', dialog);
-      expect(comboboxChips('Auction type', dialog)).toEqual([]);
-    };
+        target: { value: '8' }
+      })
+      fireEvent.click(within(dialog).getByRole('checkbox', { name: 'No digits' }))
+      await toggleComboboxOption('Auction type', 'Expired', dialog)
+      expect(comboboxChips('Auction type', dialog)).toEqual([])
+    }
     const expectBaseline = (dialog: HTMLElement) => {
-      expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(
-        500,
-      );
-      expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent(
-        'Next 24 hours',
-      );
-      expect(within(dialog).getByLabelText('Minimum current bid')).toHaveValue(
-        10,
-      );
-      expect(within(dialog).getByLabelText('Minimum bids')).toHaveValue(2);
-      expect(
-        within(dialog).getByRole('checkbox', { name: 'No digits' }),
-      ).toBeChecked();
-      expect(comboboxChips('Auction type', dialog)).toEqual(['Expired']);
-    };
+      expect(within(dialog).getByLabelText('Maximum current bid')).toHaveValue(500)
+      expect(within(dialog).getByLabelText('Ending window')).toHaveTextContent('Next 24 hours')
+      expect(within(dialog).getByLabelText('Minimum current bid')).toHaveValue(10)
+      expect(within(dialog).getByLabelText('Minimum bids')).toHaveValue(2)
+      expect(within(dialog).getByRole('checkbox', { name: 'No digits' })).toBeChecked()
+      expect(comboboxChips('Auction type', dialog)).toEqual(['Expired'])
+    }
 
-    let dialog = await open();
-    await editEveryKind(dialog);
-    fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }));
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
-    dialog = await open();
-    expectBaseline(dialog);
+    let dialog = await open()
+    await editEveryKind(dialog)
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dismiss' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(500)
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours')
+    dialog = await open()
+    expectBaseline(dialog)
 
-    await editEveryKind(dialog);
-    fireEvent.keyDown(dialog, { key: 'Escape' });
-    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(500);
-    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours');
-    dialog = await open();
-    expectBaseline(dialog);
-  });
+    await editEveryKind(dialog)
+    fireEvent.keyDown(dialog, { key: 'Escape' })
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull())
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(500)
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 24 hours')
+    dialog = await open()
+    expectBaseline(dialog)
+  })
 
   it('remounts URL-derived controls after client navigation without restoring stale filters', async () => {
     const initialFilters = parseDomainTableFilters({
@@ -1027,8 +916,8 @@ describe('DomainDiscovery', () => {
       priceMax: '500',
       endingWithin: '24h',
       noDigits: '1',
-      bidsMin: '5',
-    });
+      bidsMin: '5'
+    })
     const result: DomainListingsResult = {
       rows,
       total: 2,
@@ -1036,20 +925,16 @@ describe('DomainDiscovery', () => {
       sources: ['dynadot', 'godaddy'],
       auctionTypes: ['expired', 'closeout'],
       tlds: ['com', 'net'],
-      latestSuccessfulSync: now,
-    };
-    const view = render(
-      <DomainDiscovery filters={initialFilters} result={result} now={now} />,
-    );
+      latestSuccessfulSync: now
+    }
+    const view = render(<DomainDiscovery filters={initialFilters} result={result} now={now} />)
 
     fireEvent.change(screen.getByLabelText('Max current bid'), {
-      target: { value: '999' },
-    });
-    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 7 days');
-    fireEvent.click(screen.getByRole('button', { name: /More filters 2/ }));
-    expect(
-      await screen.findByRole('dialog', { name: 'More filters' }),
-    ).toBeInTheDocument();
+      target: { value: '999' }
+    })
+    await chooseSelectOption(screen.getByLabelText('Ending'), 'Next 7 days')
+    fireEvent.click(screen.getByRole('button', { name: /More filters 2/ }))
+    expect(await screen.findByRole('dialog', { name: 'More filters' })).toBeInTheDocument()
 
     const navigatedFilters = parseDomainTableFilters({
       source: 'godaddy',
@@ -1058,58 +943,46 @@ describe('DomainDiscovery', () => {
       endingWithin: '1h',
       bidsMin: '2',
       sort: 'price',
-      direction: 'desc',
-    });
-    view.rerender(
-      <DomainDiscovery filters={navigatedFilters} result={result} now={now} />,
-    );
+      direction: 'desc'
+    })
+    view.rerender(<DomainDiscovery filters={navigatedFilters} result={result} now={now} />)
 
-    expect(
-      screen.queryByRole('dialog', { name: 'More filters' }),
-    ).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Domain contains')).toHaveValue('');
-    expect(comboboxChips('Auction source')).toEqual(['GoDaddy']);
-    expect(comboboxChips('TLD')).toEqual(['.net']);
-    expect(screen.getByLabelText('Max current bid')).toHaveValue(25);
-    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 1 hour');
-    expect(
-      screen.getByRole('button', { name: /More filters 1/ }),
-    ).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByRole('dialog', { name: 'More filters' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Domain contains')).toHaveValue('')
+    expect(comboboxChips('Auction source')).toEqual(['GoDaddy'])
+    expect(comboboxChips('TLD')).toEqual(['.net'])
+    expect(screen.getByLabelText('Max current bid')).toHaveValue(25)
+    expect(screen.getByLabelText('Ending')).toHaveTextContent('Next 1 hour')
+    expect(screen.getByRole('button', { name: /More filters 1/ })).toHaveAttribute(
+      'aria-expanded',
+      'false'
+    )
 
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
-    const submitted = new FormData(form);
-    expect(submitted.getAll('source')).toEqual(['godaddy']);
-    expect(submitted.getAll('tld')).toEqual(['net']);
-    expect(submitted.get('priceMax')).toBe('25');
-    expect(submitted.get('endingWithin')).toBe('1h');
-    expect(submitted.get('bidsMin')).toBe('2');
-    expect(submitted.get('sort')).toBe('price');
-    expect(submitted.get('direction')).toBe('desc');
-    expect(submitted.has('noDigits')).toBe(false);
+      name: 'Domain filters'
+    }) as HTMLFormElement
+    const submitted = new FormData(form)
+    expect(submitted.getAll('source')).toEqual(['godaddy'])
+    expect(submitted.getAll('tld')).toEqual(['net'])
+    expect(submitted.get('priceMax')).toBe('25')
+    expect(submitted.get('endingWithin')).toBe('1h')
+    expect(submitted.get('bidsMin')).toBe('2')
+    expect(submitted.get('sort')).toBe('price')
+    expect(submitted.get('direction')).toBe('desc')
+    expect(submitted.has('noDigits')).toBe(false)
 
-    fireEvent.click(screen.getByRole('button', { name: /More filters 1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /More filters 1/ }))
     const navigatedDialog = await screen.findByRole('dialog', {
-      name: 'More filters',
-    });
-    expect(within(navigatedDialog).getByLabelText('Minimum bids')).toHaveValue(
-      2,
-    );
-    expect(
-      within(navigatedDialog).getByLabelText('Minimum length'),
-    ).toHaveValue(null);
-    expect(
-      within(navigatedDialog).getByRole('checkbox', { name: 'No digits' }),
-    ).not.toBeChecked();
-  });
+      name: 'More filters'
+    })
+    expect(within(navigatedDialog).getByLabelText('Minimum bids')).toHaveValue(2)
+    expect(within(navigatedDialog).getByLabelText('Minimum length')).toHaveValue(null)
+    expect(within(navigatedDialog).getByRole('checkbox', { name: 'No digits' })).not.toBeChecked()
+  })
 
   it('offers and submits every TLD option it is given, even hundreds', async () => {
     // The local inventory has 479 active TLDs; the facet once returned 250.
-    const tlds = Array.from(
-      { length: 479 },
-      (_, index) => `t${String(index).padStart(3, '0')}`,
-    );
+    const tlds = Array.from({ length: 479 }, (_, index) => `t${String(index).padStart(3, '0')}`)
     render(
       <DomainDiscovery
         filters={parseDomainTableFilters({})}
@@ -1120,23 +993,23 @@ describe('DomainDiscovery', () => {
           sources: ['dynadot'],
           auctionTypes: ['expired'],
           tlds,
-          latestSuccessfulSync: now,
+          latestSuccessfulSync: now
         }}
         now={now}
-      />,
-    );
+      />
+    )
 
-    const input = screen.getByRole('combobox', { name: 'TLD' });
-    input.focus();
-    fireEvent.keyDown(input, { key: 'ArrowDown' });
-    expect(await screen.findAllByRole('option')).toHaveLength(tlds.length);
-    fireEvent.keyDown(input, { key: 'Escape' });
+    const input = screen.getByRole('combobox', { name: 'TLD' })
+    input.focus()
+    fireEvent.keyDown(input, { key: 'ArrowDown' })
+    expect(await screen.findAllByRole('option')).toHaveLength(tlds.length)
+    fireEvent.keyDown(input, { key: 'Escape' })
 
-    await toggleComboboxOption('TLD', '.t478');
-    expect(comboboxChips('TLD')).toEqual(['.t478']);
+    await toggleComboboxOption('TLD', '.t478')
+    expect(comboboxChips('TLD')).toEqual(['.t478'])
     const form = screen.getByRole('form', {
-      name: 'Domain filters',
-    }) as HTMLFormElement;
-    expect(new FormData(form).getAll('tld')).toEqual(['t478']);
-  });
-});
+      name: 'Domain filters'
+    }) as HTMLFormElement
+    expect(new FormData(form).getAll('tld')).toEqual(['t478'])
+  })
+})

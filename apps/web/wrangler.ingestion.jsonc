@@ -14,11 +14,11 @@
   // workerd; each Workflow step gets this limit (Workers Paid allows up to
   // 300,000). Local workerd does not enforce it.
   "limits": {
-    "cpu_ms": 60000,
+    "cpu_ms": 60000
   },
   // GoDaddy publishes its daily file around 14:30 UTC.
   "triggers": {
-    "crons": ["30 15 * * *"],
+    "crons": ["30 15 * * *"]
   },
   "d1_databases": [
     {
@@ -26,21 +26,21 @@
       "database_name": "auction-domain-aggregator-local",
       "database_id": "local-only-do-not-deploy",
       "migrations_dir": "drizzle",
-      "remote": false,
-    },
+      "remote": false
+    }
   ],
   "r2_buckets": [
     {
       "binding": "FEED_PAGES",
       "bucket_name": "auction-domain-aggregator-feed-pages-local",
-      "remote": false,
-    },
+      "remote": false
+    }
   ],
   "workflows": [
     {
       "name": "provider-sync",
       "binding": "PROVIDER_SYNC",
-      "class_name": "ProviderSyncWorkflow",
-    },
-  ],
+      "class_name": "ProviderSyncWorkflow"
+    }
+  ]
 }

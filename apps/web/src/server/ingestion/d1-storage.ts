@@ -1,35 +1,32 @@
-import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, count, eq, exists, gt, isNull, lt, or, sql } from 'drizzle-orm'
 
-import { refreshListingFacetsQueries } from '../db/listing-facets';
-import { auctionListings, ingestionRuns } from '../db/schema';
-import type { AppDatabase } from '../db/types';
-import type { AuctionProvider, NormalizedListing } from '../providers/types';
-import { SyncError, type IngestionStorage, type RunState } from './sync';
+import { refreshListingFacetsQueries } from '../db/listing-facets'
+import { auctionListings, ingestionRuns } from '../db/schema'
+import type { AppDatabase } from '../db/types'
+import type { AuctionProvider, NormalizedListing } from '../providers/types'
+import { type IngestionStorage, type RunState, SyncError } from './sync'
 
-const DOMAIN_BATCH_SIZE = 100;
-const LISTING_BATCH_SIZE = 25;
-const METRICS_BATCH_SIZE = 100;
+const DOMAIN_BATCH_SIZE = 100
+const LISTING_BATCH_SIZE = 25
+const METRICS_BATCH_SIZE = 100
 
 // Unseen listings whose auction has ended are expected churn. Unseen listings
 // that were still scheduled to run usually mean the provider returned a short
 // or empty page mid-inventory, so a run that would remove many of them fails
 // instead of emptying the table.
-const VANISHED_LISTINGS_MINIMUM = 500;
-const VANISHED_LISTINGS_RATIO = 0.1;
+const VANISHED_LISTINGS_MINIMUM = 500
+const VANISHED_LISTINGS_RATIO = 0.1
 
 export function vanishedListingsLimit(recordsFetched: number) {
-  return Math.max(
-    VANISHED_LISTINGS_MINIMUM,
-    Math.floor(recordsFetched * VANISHED_LISTINGS_RATIO),
-  );
+  return Math.max(VANISHED_LISTINGS_MINIMUM, Math.floor(recordsFetched * VANISHED_LISTINGS_RATIO))
 }
 
 function chunks<T>(values: T[], size: number) {
-  const result: T[][] = [];
+  const result: T[][] = []
   for (let index = 0; index < values.length; index += size) {
-    result.push(values.slice(index, index + size));
+    result.push(values.slice(index, index + size))
   }
-  return result;
+  return result
 }
 
 function listingValues(listing: NormalizedListing, seenAt: Date) {
@@ -52,8 +49,8 @@ function listingValues(listing: NormalizedListing, seenAt: Date) {
     renewalPriceCents: listing.renewalPriceCents,
     status: 'active' as const,
     firstSeenAt: seenAt.getTime(),
-    lastSeenAt: seenAt.getTime(),
-  };
+    lastSeenAt: seenAt.getTime()
+  }
 }
 
 const INSERT_DOMAINS_SQL = `
@@ -65,7 +62,7 @@ const INSERT_DOMAINS_SQL = `
     WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
   )
   ON CONFLICT(name) DO NOTHING
-`;
+`
 
 const UPSERT_LISTINGS_SQL = `
   INSERT INTO auction_listings (
@@ -99,7 +96,7 @@ const UPSERT_LISTINGS_SQL = `
     appraisal_cents = excluded.appraisal_cents,
     renewal_price_cents = excluded.renewal_price_cents,
     status = 'active', last_seen_at = excluded.last_seen_at
-`;
+`
 
 // Feed metrics are refreshed by every sync that carries them: latest wins.
 const UPSERT_SEO_METRICS_SQL = `
@@ -130,18 +127,15 @@ const UPSERT_SEO_METRICS_SQL = `
     semrush_ref_domains = excluded.semrush_ref_domains,
     semrush_backlinks = excluded.semrush_backlinks,
     updated_at = excluded.updated_at
-`;
+`
 
-function runningRunFilter(
-  provider: AuctionProvider,
-  run: Pick<RunState, 'runId' | 'startedAt'>,
-) {
+function runningRunFilter(provider: AuctionProvider, run: Pick<RunState, 'runId' | 'startedAt'>) {
   return and(
     eq(ingestionRuns.id, run.runId),
     eq(ingestionRuns.provider, provider),
     eq(ingestionRuns.status, 'running'),
-    eq(ingestionRuns.startedAt, run.startedAt),
-  );
+    eq(ingestionRuns.startedAt, run.startedAt)
+  )
 }
 
 function runSelection() {
@@ -153,18 +147,18 @@ function runSelection() {
     recordsFetched: ingestionRuns.recordsFetched,
     recordsUpserted: ingestionRuns.recordsUpserted,
     recordsInactivated: ingestionRuns.recordsInactivated,
-    recordsRejected: ingestionRuns.recordsRejected,
-  };
+    recordsRejected: ingestionRuns.recordsRejected
+  }
 }
 
 function requireRun(run: RunState | undefined) {
-  if (!run) throw new SyncError('sync_stale_continuation');
-  return run;
+  if (!run) throw new SyncError('sync_stale_continuation')
+  return run
 }
 
 export function createD1IngestionStorage(
   db: AppDatabase,
-  provider: AuctionProvider,
+  provider: AuctionProvider
 ): IngestionStorage {
   return {
     provider,
@@ -176,21 +170,16 @@ export function createD1IngestionStorage(
           .set({
             status: 'failed',
             completedAt: startedAt,
-            errorCode: 'sync_interrupted',
+            errorCode: 'sync_interrupted'
           })
-          .where(
-            and(
-              eq(ingestionRuns.provider, provider),
-              eq(ingestionRuns.status, 'running'),
-            ),
-          ),
+          .where(and(eq(ingestionRuns.provider, provider), eq(ingestionRuns.status, 'running'))),
         db
           .insert(ingestionRuns)
           .values({ provider, status: 'running', startedAt })
-          .returning(runSelection()),
-      ]);
+          .returning(runSelection())
+      ])
 
-      return requireRun(inserted[0]);
+      return requireRun(inserted[0])
     },
 
     async loadRunningRun(runId) {
@@ -201,92 +190,80 @@ export function createD1IngestionStorage(
           and(
             eq(ingestionRuns.id, runId),
             eq(ingestionRuns.provider, provider),
-            eq(ingestionRuns.status, 'running'),
-          ),
+            eq(ingestionRuns.status, 'running')
+          )
         )
-        .limit(1);
-      return requireRun(run);
+        .limit(1)
+      return requireRun(run)
     },
 
     async upsertListings(run, listings) {
-      if (listings.length === 0) return;
-      if (listings.some((listing) => listing.provider !== provider)) {
-        throw new SyncError('sync_invalid_request');
+      if (listings.length === 0) return
+      if (listings.some(listing => listing.provider !== provider)) {
+        throw new SyncError('sync_invalid_request')
       }
-      const uniqueDomains = [
-        ...new Set(listings.map((listing) => listing.domainName)),
-      ];
-      const domainStatements = chunks(uniqueDomains, DOMAIN_BATCH_SIZE).map(
-        (batch) =>
-          db.$client
-            .prepare(INSERT_DOMAINS_SQL)
-            .bind(
-              run.startedAt.getTime(),
-              JSON.stringify(batch.map((name) => ({ name }))),
-              run.runId,
-              provider,
-              run.startedAt.getTime(),
-            ),
-      );
-      const listingStatements = chunks(listings, LISTING_BATCH_SIZE).map(
-        (batch) =>
-          db.$client
-            .prepare(UPSERT_LISTINGS_SQL)
-            .bind(
-              JSON.stringify(
-                batch.map((listing) => listingValues(listing, run.startedAt)),
-              ),
-              run.runId,
-              provider,
-              run.startedAt.getTime(),
-            ),
-      );
-      const metrics = listings.flatMap((listing) =>
-        listing.seoMetrics
-          ? [{ domainName: listing.domainName, ...listing.seoMetrics }]
-          : [],
-      );
-      const metricStatements = chunks(metrics, METRICS_BATCH_SIZE).map(
-        (batch) =>
-          db.$client
-            .prepare(UPSERT_SEO_METRICS_SQL)
-            .bind(
-              provider,
-              run.startedAt.getTime(),
-              JSON.stringify(batch),
-              run.runId,
-              provider,
-              run.startedAt.getTime(),
-            ),
-      );
+      const uniqueDomains = [...new Set(listings.map(listing => listing.domainName))]
+      const domainStatements = chunks(uniqueDomains, DOMAIN_BATCH_SIZE).map(batch =>
+        db.$client
+          .prepare(INSERT_DOMAINS_SQL)
+          .bind(
+            run.startedAt.getTime(),
+            JSON.stringify(batch.map(name => ({ name }))),
+            run.runId,
+            provider,
+            run.startedAt.getTime()
+          )
+      )
+      const listingStatements = chunks(listings, LISTING_BATCH_SIZE).map(batch =>
+        db.$client
+          .prepare(UPSERT_LISTINGS_SQL)
+          .bind(
+            JSON.stringify(batch.map(listing => listingValues(listing, run.startedAt))),
+            run.runId,
+            provider,
+            run.startedAt.getTime()
+          )
+      )
+      const metrics = listings.flatMap(listing =>
+        listing.seoMetrics ? [{ domainName: listing.domainName, ...listing.seoMetrics }] : []
+      )
+      const metricStatements = chunks(metrics, METRICS_BATCH_SIZE).map(batch =>
+        db.$client
+          .prepare(UPSERT_SEO_METRICS_SQL)
+          .bind(
+            provider,
+            run.startedAt.getTime(),
+            JSON.stringify(batch),
+            run.runId,
+            provider,
+            run.startedAt.getTime()
+          )
+      )
       const results = await db.$client.batch([
         ...domainStatements,
         ...listingStatements,
-        ...metricStatements,
-      ]);
+        ...metricStatements
+      ])
       const listingChanges = results
-        .slice(
-          domainStatements.length,
-          domainStatements.length + listingStatements.length,
-        )
-        .reduce((total, result) => total + (result.meta.changes ?? 0), 0);
+        .slice(domainStatements.length, domainStatements.length + listingStatements.length)
+        .reduce((total, result) => total + (result.meta.changes ?? 0), 0)
       if (listingChanges === 0) {
-        throw new SyncError('sync_stale_continuation');
+        throw new SyncError('sync_stale_continuation')
       }
     },
 
     async finalizeSuccessfulRun(run, finalization) {
-      const runFilter = runningRunFilter(provider, run);
+      const runFilter = runningRunFilter(provider, run)
       const guardedRunningRun = db
         .select({ id: ingestionRuns.id })
         .from(ingestionRuns)
-        .where(runFilter);
+        .where(runFilter)
       const reconciliationFilter = and(
         eq(auctionListings.provider, provider),
         eq(auctionListings.status, 'active'),
         lt(auctionListings.lastSeenAt, run.startedAt),
-        exists(guardedRunningRun),
-      )!;
+        exists(guardedRunningRun)
+      )!
 
       const [vanished] = await db
         .select({ value: count() })
@@ -294,17 +271,11 @@ export function createD1IngestionStorage(
         .where(
           and(
             reconciliationFilter,
-            or(
-              isNull(auctionListings.endsAt),
-              gt(auctionListings.endsAt, finalization.completedAt),
-            ),
-          ),
-        );
-      if (
-        (vanished?.value ?? 0) >
-        vanishedListingsLimit(finalization.recordsFetched)
-      ) {
-        throw new SyncError('sync_reconciliation_guard');
+            or(isNull(auctionListings.endsAt), gt(auctionListings.endsAt, finalization.completedAt))
+          )
+        )
+      if ((vanished?.value ?? 0) > vanishedListingsLimit(finalization.recordsFetched)) {
+        throw new SyncError('sync_reconciliation_guard')
       }
 
       // One atomic batch: record the count, inactivate exactly those rows
@@ -314,13 +285,10 @@ export function createD1IngestionStorage(
         db
           .update(ingestionRuns)
           .set({
-            recordsInactivated: sql`(select count(*) from ${auctionListings} where ${reconciliationFilter})`,
+            recordsInactivated: sql`(select count(*) from ${auctionListings} where ${reconciliationFilter})`
           })
           .where(runFilter),
-        db
-          .update(auctionListings)
-          .set({ status: 'inactive' })
-          .where(reconciliationFilter),
+        db.update(auctionListings).set({ status: 'inactive' }).where(reconciliationFilter),
         db
           .update(ingestionRuns)
           .set({
@@ -331,16 +299,16 @@ export function createD1IngestionStorage(
             recordsUpserted: finalization.recordsUpserted,
             recordsRejected: finalization.recordsRejected,
             errorCode: null,
-            failedPage: null,
+            failedPage: null
           })
           .where(runFilter)
           .returning({ recordsInactivated: ingestionRuns.recordsInactivated }),
-        ...refreshListingFacetsQueries(db),
-      ]);
+        ...refreshListingFacetsQueries(db)
+      ])
       if (!completed[0]) {
-        throw new SyncError('sync_stale_continuation');
+        throw new SyncError('sync_stale_continuation')
       }
-      return completed[0].recordsInactivated;
+      return completed[0].recordsInactivated
     },
 
     async updateRunProgress(run) {
@@ -352,12 +320,12 @@ export function createD1IngestionStorage(
           recordsFetched: run.recordsFetched,
           recordsUpserted: run.recordsUpserted,
           recordsInactivated: run.recordsInactivated,
-          recordsRejected: run.recordsRejected,
+          recordsRejected: run.recordsRejected
         })
         .where(runningRunFilter(provider, run))
-        .returning({ id: ingestionRuns.id });
+        .returning({ id: ingestionRuns.id })
       if (!updated[0]) {
-        throw new SyncError('sync_stale_continuation');
+        throw new SyncError('sync_stale_continuation')
       }
     },
 
@@ -373,13 +341,13 @@ export function createD1IngestionStorage(
           recordsInactivated: completion.recordsInactivated,
           recordsRejected: completion.recordsRejected,
           errorCode: completion.errorCode,
-          failedPage: completion.failedPage,
+          failedPage: completion.failedPage
         })
         .where(runningRunFilter(provider, run))
-        .returning({ id: ingestionRuns.id });
+        .returning({ id: ingestionRuns.id })
       if (!completed[0]) {
-        throw new SyncError('sync_stale_continuation');
+        throw new SyncError('sync_stale_continuation')
       }
-    },
-  };
+    }
+  }
 }

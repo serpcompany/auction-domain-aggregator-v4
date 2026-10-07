@@ -10,12 +10,12 @@
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "assets": {
     "binding": "ASSETS",
-    "directory": ".open-next/assets",
+    "directory": ".open-next/assets"
   },
   "images": {
     // Enable image optimization
     // see https://opennext.js.org/cloudflare/howtos/image
-    "binding": "IMAGES",
+    "binding": "IMAGES"
   },
   "d1_databases": [
     {
@@ -23,21 +23,21 @@
       "database_name": "auction-domain-aggregator-local",
       "database_id": "local-only-do-not-deploy",
       "migrations_dir": "drizzle",
-      "remote": false,
-    },
+      "remote": false
+    }
   ],
   "services": [
     {
       // Self-reference service binding, the service name must match the worker name
       // see https://opennext.js.org/cloudflare/caching
       "binding": "WORKER_SELF_REFERENCE",
-      "service": "auction-domain-aggregator-v4",
-    },
+      "service": "auction-domain-aggregator-v4"
+    }
   ],
   "observability": {
-    "enabled": true,
+    "enabled": true
   },
-  "upload_source_maps": true,
+  "upload_source_maps": true
   /**
    * Smart Placement
    * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement

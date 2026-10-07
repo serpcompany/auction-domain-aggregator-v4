@@ -1,6 +1,6 @@
-import { sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm'
 
-import type { AppDatabase } from './types';
+import type { AppDatabase } from './types'
 
 // Rebuilds `listing_facets` from the whole active inventory, for every
 // provider. Ingestion runs these in the batch that finalizes a successful sync;
@@ -16,11 +16,11 @@ export const REFRESH_LISTING_FACETS_SQL = [
   WHERE status = 'active' GROUP BY lower(auction_type)
   UNION ALL
   SELECT 'tld', tld, max(ends_at) FROM auction_listings
-  WHERE status = 'active' GROUP BY tld`,
-] as const;
+  WHERE status = 'active' GROUP BY tld`
+] as const
 
 // Batch items, so callers can make the rebuild atomic with their own writes.
 export function refreshListingFacetsQueries(db: AppDatabase) {
-  const [clear, rebuild] = REFRESH_LISTING_FACETS_SQL;
-  return [db.run(sql.raw(clear)), db.run(sql.raw(rebuild))] as const;
+  const [clear, rebuild] = REFRESH_LISTING_FACETS_SQL
+  return [db.run(sql.raw(clear)), db.run(sql.raw(rebuild))] as const
 }

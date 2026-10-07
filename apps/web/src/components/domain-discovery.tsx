@@ -1,40 +1,29 @@
-import Link from 'next/link';
-import {
-  ChevronLeft,
-  ChevronRight,
-  Globe,
-  TriangleAlert,
-  X,
-} from 'lucide-react';
-
-import {
-  buildDomainTableHref,
-  formatSyncRecency,
-  getDomainTableFilterChips,
-  hasActiveDomainTableFilters,
-  isInventoryStale,
-  type DomainTableFilters,
-} from '@/domain/domain-table';
-import { DomainFilters } from '@/components/domain-filters';
-import { DomainResultsTable } from '@/components/domain-results-table';
-import type { DomainListingsResult } from '@/server/queries/domain-listings';
-import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
-import { buttonVariants } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
+import { ChevronLeft, ChevronRight, Globe, TriangleAlert, X } from 'lucide-react'
+import Link from 'next/link'
+import { DomainFilters } from '@/components/domain-filters'
+import { DomainResultsTable } from '@/components/domain-results-table'
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert'
+import { buttonVariants } from '@/components/ui/button'
+import { Card } from '@/components/ui/card'
 import {
   Empty,
   EmptyContent,
   EmptyDescription,
   EmptyHeader,
   EmptyMedia,
-  EmptyTitle,
-} from '@/components/ui/empty';
+  EmptyTitle
+} from '@/components/ui/empty'
+import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
 import {
-  Pagination,
-  PaginationContent,
-  PaginationItem,
-} from '@/components/ui/pagination';
-import { cn } from '@/lib/utils';
+  buildDomainTableHref,
+  type DomainTableFilters,
+  formatSyncRecency,
+  getDomainTableFilterChips,
+  hasActiveDomainTableFilters,
+  isInventoryStale
+} from '@/domain/domain-table'
+import { cn } from '@/lib/utils'
+import type { DomainListingsResult } from '@/server/queries/domain-listings'
 
 // Page links are Next links styled as shadcn buttons. The stock
 // PaginationLink renders through a client Button whose attributes differ
@@ -43,11 +32,11 @@ import { cn } from '@/lib/utils';
 function PageLink({
   href,
   label,
-  direction,
+  direction
 }: {
-  href?: string;
-  label: string;
-  direction: 'previous' | 'next';
+  href?: string
+  label: string
+  direction: 'previous' | 'next'
 }) {
   const content =
     direction === 'previous' ? (
@@ -60,13 +49,14 @@ function PageLink({
         Next
         <ChevronRight aria-hidden="true" />
       </>
-    );
-  const className = buttonVariants({ variant: 'ghost', size: 'sm' });
+    )
+  const className = buttonVariants({ variant: 'ghost', size: 'sm' })
   return href ? (
     <Link prefetch={false} href={href} aria-label={label} className={className}>
       {content}
     </Link>
   ) : (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move.
     <span
       aria-label={label}
       aria-disabled="true"
@@ -74,26 +64,25 @@ function PageLink({
     >
       {content}
     </span>
-  );
+  )
 }
 
 export function DomainDiscovery({
   filters,
   result,
-  now,
+  now
 }: {
-  filters: DomainTableFilters;
-  result: DomainListingsResult;
-  now: Date;
+  filters: DomainTableFilters
+  result: DomainListingsResult
+  now: Date
 }) {
-  const effectiveFilters = { ...filters, page: result.page };
-  const firstResult =
-    result.total === 0 ? 0 : (result.page - 1) * filters.pageSize + 1;
-  const lastResult = Math.min(result.page * filters.pageSize, result.total);
-  const hasPrevious = result.page > 1;
-  const hasNext = result.page * filters.pageSize < result.total;
-  const filterChips = getDomainTableFilterChips(filters);
-  const hasActiveFilters = hasActiveDomainTableFilters(filters);
+  const effectiveFilters = { ...filters, page: result.page }
+  const firstResult = result.total === 0 ? 0 : (result.page - 1) * filters.pageSize + 1
+  const lastResult = Math.min(result.page * filters.pageSize, result.total)
+  const hasPrevious = result.page > 1
+  const hasNext = result.page * filters.pageSize < result.total
+  const filterChips = getDomainTableFilterChips(filters)
+  const hasActiveFilters = hasActiveDomainTableFilters(filters)
 
   return (
     <main
@@ -107,18 +96,13 @@ export function DomainDiscovery({
             <p className="mb-2 text-xs font-semibold tracking-[0.16em] text-muted-foreground uppercase">
               Auction inventory
             </p>
-            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">
-              Domain discovery
-            </h1>
+            <h1 className="text-3xl font-semibold tracking-tight sm:text-4xl">Domain discovery</h1>
             <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
-              Search and compare active domain auctions from the local
-              inventory.
+              Search and compare active domain auctions from the local inventory.
             </p>
           </div>
-          <p
-            className="text-sm text-muted-foreground"
-            aria-label="Data freshness"
-          >
+          {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move. */}
+          <p className="text-sm text-muted-foreground" aria-label="Data freshness">
             {formatSyncRecency(result.latestSuccessfulSync, now)}
           </p>
         </header>
@@ -131,8 +115,8 @@ export function DomainDiscovery({
             <TriangleAlert aria-hidden="true" />
             <AlertTitle>The inventory is out of date</AlertTitle>
             <AlertDescription className="text-warning-foreground/90">
-              Auctions that have ended since the last sync are hidden, but
-              prices, bids, and new listings may be stale until the next sync.
+              Auctions that have ended since the last sync are hidden, but prices, bids, and new
+              listings may be stale until the next sync.
             </AlertDescription>
           </Alert>
         ) : null}
@@ -153,7 +137,7 @@ export function DomainDiscovery({
 
             <div className="mt-4 flex flex-col gap-3 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex min-w-0 flex-wrap gap-2">
-                {filterChips.map((chip) => (
+                {filterChips.map(chip => (
                   <Link
                     key={chip.key}
                     prefetch={false}
@@ -162,7 +146,7 @@ export function DomainDiscovery({
                     title={chip.label}
                     className={cn(
                       buttonVariants({ variant: 'outline', size: 'sm' }),
-                      'min-h-11 max-w-full min-w-0 rounded-full sm:min-h-8',
+                      'min-h-11 max-w-full min-w-0 rounded-full sm:min-h-8'
                     )}
                   >
                     <span className="min-w-0 truncate">{chip.label}</span>
@@ -170,15 +154,10 @@ export function DomainDiscovery({
                   </Link>
                 ))}
                 {filterChips.length === 0 ? (
-                  <span className="text-sm text-muted-foreground">
-                    No filters applied
-                  </span>
+                  <span className="text-sm text-muted-foreground">No filters applied</span>
                 ) : null}
               </div>
-              <div
-                id="inventory-heading"
-                className="shrink-0 text-sm text-muted-foreground"
-              >
+              <div id="inventory-heading" className="shrink-0 text-sm text-muted-foreground">
                 <span className="font-semibold text-foreground">
                   {result.total.toLocaleString('en-US')}
                 </span>{' '}
@@ -208,7 +187,7 @@ export function DomainDiscovery({
                     href="/"
                     className={buttonVariants({
                       variant: 'outline',
-                      size: 'sm',
+                      size: 'sm'
                     })}
                   >
                     Clear all filters
@@ -217,23 +196,15 @@ export function DomainDiscovery({
               ) : null}
             </Empty>
           ) : (
-            <DomainResultsTable
-              rows={result.rows}
-              filters={effectiveFilters}
-              now={now}
-            />
+            <DomainResultsTable rows={result.rows} filters={effectiveFilters} now={now} />
           )}
 
           <footer className="flex flex-col gap-3 border-t p-4 text-sm sm:flex-row sm:items-center sm:justify-between">
             <p className="text-muted-foreground" aria-live="polite">
-              Showing {firstResult.toLocaleString('en-US')}–
-              {lastResult.toLocaleString('en-US')} of{' '}
+              Showing {firstResult.toLocaleString('en-US')}–{lastResult.toLocaleString('en-US')} of{' '}
               {result.total.toLocaleString('en-US')}
             </p>
-            <Pagination
-              aria-label="Domain results pages"
-              className="mx-0 w-auto justify-end"
-            >
+            <Pagination aria-label="Domain results pages" className="mx-0 w-auto justify-end">
               <PaginationContent>
                 <PaginationItem>
                   <PageLink
@@ -242,7 +213,7 @@ export function DomainDiscovery({
                     href={
                       hasPrevious
                         ? buildDomainTableHref(filters, {
-                            page: result.page - 1,
+                            page: result.page - 1
                           })
                         : undefined
                     }
@@ -260,7 +231,7 @@ export function DomainDiscovery({
                     href={
                       hasNext
                         ? buildDomainTableHref(filters, {
-                            page: result.page + 1,
+                            page: result.page + 1
                           })
                         : undefined
                     }
@@ -272,5 +243,5 @@ export function DomainDiscovery({
         </Card>
       </div>
     </main>
-  );
+  )
 }

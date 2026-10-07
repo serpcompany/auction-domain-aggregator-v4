@@ -1,21 +1,21 @@
-import { z } from 'zod';
+import { z } from 'zod'
 
 import {
   parseDomain,
   parseMoneyCents,
   parseNonnegativeInteger,
-  readBoundedBody,
   ResponseTooLargeError,
-} from '../normalize';
+  readBoundedBody
+} from '../normalize'
 import {
-  ProviderError,
   type NormalizedListing,
   type ProviderAdapter,
-  type ProviderPage,
-} from '../types';
+  ProviderError,
+  type ProviderPage
+} from '../types'
 
 const stringOrNumber = (maximumLength: number) =>
-  z.union([z.string().max(maximumLength), z.number()]);
+  z.union([z.string().max(maximumLength), z.number()])
 
 const dynadotAuctionSchema = z
   .object({
@@ -32,26 +32,26 @@ const dynadotAuctionSchema = z
     links: stringOrNumber(32).optional(),
     visitors: stringOrNumber(32).optional(),
     dyna_appraisal: stringOrNumber(64).optional(),
-    renewal_price: stringOrNumber(64).optional(),
+    renewal_price: stringOrNumber(64).optional()
   })
-  .passthrough();
+  .passthrough()
 
 // Items are validated one at a time so a single malformed auction is skipped
 // rather than failing the whole page.
 const dynadotResponseSchema = z
   .object({
     status: z.literal('success'),
-    auction_list: z.array(z.unknown()).max(1000),
+    auction_list: z.array(z.unknown()).max(1000)
   })
-  .passthrough();
+  .passthrough()
 
 // A page where more than this share of auctions is invalid indicates a
 // response-format change rather than a few bad records.
-const MAX_REJECTED_RATIO = 0.1;
+const MAX_REJECTED_RATIO = 0.1
 
-export type DynadotPage = Omit<ProviderPage, 'isLastPage'>;
+export type DynadotPage = Omit<ProviderPage, 'isLastPage'>
 
-export type DynadotListing = NormalizedListing & { provider: 'dynadot' };
+export type DynadotListing = NormalizedListing & { provider: 'dynadot' }
 
 export type DynadotProviderErrorCode =
   | 'dynadot_invalid_request'
@@ -59,66 +59,64 @@ export type DynadotProviderErrorCode =
   | 'dynadot_http_error'
   | 'dynadot_parse_error'
   | 'dynadot_response_too_large'
-  | 'dynadot_response_error';
+  | 'dynadot_response_error'
 
 export class DynadotProviderError extends ProviderError {
-  declare readonly code: DynadotProviderErrorCode;
+  declare readonly code: DynadotProviderErrorCode
 
   constructor(code: DynadotProviderErrorCode) {
-    super(code);
-    this.name = 'DynadotProviderError';
+    super(code)
+    this.name = 'DynadotProviderError'
   }
 }
 
 type FetchDynadotPageInput = {
-  apiKey: string;
-  pageIndex: number;
-  pageSize: number;
-  fetchImpl?: typeof fetch;
-  signal?: AbortSignal;
-};
+  apiKey: string
+  pageIndex: number
+  pageSize: number
+  fetchImpl?: typeof fetch
+  signal?: AbortSignal
+}
 
-const RESPONSE_BYTE_LIMIT = 10 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 30_000;
+const RESPONSE_BYTE_LIMIT = 10 * 1024 * 1024
+const REQUEST_TIMEOUT_MS = 30_000
 
 function parseRequiredString(value: string | number) {
-  const parsed = String(value).trim();
-  if (parsed.length === 0) throw new Error('invalid_string');
-  return parsed;
+  const parsed = String(value).trim()
+  if (parsed.length === 0) throw new Error('invalid_string')
+  return parsed
 }
 
 function isNullableSentinel(value: string | number | undefined) {
-  if (value === undefined) return true;
-  const text = String(value).trim();
-  if (text === '' || text === '-') return true;
-  const number = Number(text.replaceAll(',', '').replace(/^\$/, ''));
-  return Number.isFinite(number) && number < 0;
+  if (value === undefined) return true
+  const text = String(value).trim()
+  if (text === '' || text === '-') return true
+  const number = Number(text.replaceAll(',', '').replace(/^\$/, ''))
+  return Number.isFinite(number) && number < 0
 }
 
 function parseNullableMoney(value: string | number | undefined) {
-  return isNullableSentinel(value) ? null : parseMoneyCents(value!);
+  return isNullableSentinel(value) ? null : parseMoneyCents(value!)
 }
 
 function parseNullableInteger(value: string | number | undefined) {
-  return isNullableSentinel(value) ? null : parseNonnegativeInteger(value!);
+  return isNullableSentinel(value) ? null : parseNonnegativeInteger(value!)
 }
 
 function parseTimestamp(value: string | number) {
-  const milliseconds = parseNonnegativeInteger(value);
-  if (milliseconds <= 0) throw new Error('invalid_timestamp');
-  const date = new Date(milliseconds);
-  if (Number.isNaN(date.getTime())) throw new Error('invalid_timestamp');
-  return date;
+  const milliseconds = parseNonnegativeInteger(value)
+  if (milliseconds <= 0) throw new Error('invalid_timestamp')
+  const date = new Date(milliseconds)
+  if (Number.isNaN(date.getTime())) throw new Error('invalid_timestamp')
+  return date
 }
 
 function parseNullableTimestamp(value: string | number | undefined) {
-  return isNullableSentinel(value) ? null : parseTimestamp(value!);
+  return isNullableSentinel(value) ? null : parseTimestamp(value!)
 }
 
-function normalizeAuction(
-  auction: z.infer<typeof dynadotAuctionSchema>,
-): DynadotListing {
-  const domainName = parseDomain(auction.domain);
+function normalizeAuction(auction: z.infer<typeof dynadotAuctionSchema>): DynadotListing {
+  const domainName = parseDomain(auction.domain)
 
   return {
     provider: 'dynadot',
@@ -136,26 +134,26 @@ function normalizeAuction(
     inboundLinks: parseNullableInteger(auction.links),
     visitors: parseNullableInteger(auction.visitors),
     appraisalCents: parseNullableMoney(auction.dyna_appraisal),
-    renewalPriceCents: parseNullableMoney(auction.renewal_price),
-  };
+    renewalPriceCents: parseNullableMoney(auction.renewal_price)
+  }
 }
 
 function normalizePage(auctions: unknown[]): DynadotPage {
-  const listings: DynadotListing[] = [];
+  const listings: DynadotListing[] = []
   for (const auction of auctions) {
-    const parsed = dynadotAuctionSchema.safeParse(auction);
-    if (!parsed.success) continue;
+    const parsed = dynadotAuctionSchema.safeParse(auction)
+    if (!parsed.success) continue
     try {
-      listings.push(normalizeAuction(parsed.data));
+      listings.push(normalizeAuction(parsed.data))
     } catch {
       // Counted as rejected below.
     }
   }
-  const rejected = auctions.length - listings.length;
+  const rejected = auctions.length - listings.length
   if (rejected > auctions.length * MAX_REJECTED_RATIO) {
-    throw new Error('too_many_rejected_auctions');
+    throw new Error('too_many_rejected_auctions')
   }
-  return { listings, received: auctions.length, rejected };
+  return { listings, received: auctions.length, rejected }
 }
 
 export async function fetchDynadotPage({
@@ -163,7 +161,7 @@ export async function fetchDynadotPage({
   pageIndex,
   pageSize,
   fetchImpl = fetch,
-  signal: suppliedSignal,
+  signal: suppliedSignal
 }: FetchDynadotPageInput): Promise<DynadotPage> {
   if (
     apiKey.length === 0 ||
@@ -174,81 +172,78 @@ export async function fetchDynadotPage({
     pageSize < 1 ||
     pageSize > 1000
   ) {
-    throw new DynadotProviderError('dynadot_invalid_request');
+    throw new DynadotProviderError('dynadot_invalid_request')
   }
 
-  const url = new URL('https://api.dynadot.com/api3.json');
+  const url = new URL('https://api.dynadot.com/api3.json')
   url.search = new URLSearchParams({
     key: apiKey,
     command: 'get_open_auctions',
     currency: 'usd',
     type: 'expired',
     count_per_page: String(pageSize),
-    page_index: String(pageIndex),
-  }).toString();
+    page_index: String(pageIndex)
+  }).toString()
 
-  const timeoutController = new AbortController();
-  const timeout = setTimeout(
-    () => timeoutController.abort(),
-    REQUEST_TIMEOUT_MS,
-  );
+  const timeoutController = new AbortController()
+  const timeout = setTimeout(() => timeoutController.abort(), REQUEST_TIMEOUT_MS)
   const signal = suppliedSignal
     ? AbortSignal.any([suppliedSignal, timeoutController.signal])
-    : timeoutController.signal;
+    : timeoutController.signal
   try {
-    let response: Response;
+    let response: Response
     try {
-      response = await fetchImpl(url, { signal });
+      response = await fetchImpl(url, { signal })
     } catch {
-      throw new DynadotProviderError('dynadot_network_error');
+      throw new DynadotProviderError('dynadot_network_error')
     }
 
     if (!response.ok) {
-      throw new DynadotProviderError('dynadot_http_error');
+      throw new DynadotProviderError('dynadot_http_error')
     }
 
-    let text: string;
+    let text: string
     try {
-      text = await readBoundedBody(response, RESPONSE_BYTE_LIMIT);
+      text = await readBoundedBody(response, RESPONSE_BYTE_LIMIT)
     } catch (error) {
       if (error instanceof ResponseTooLargeError) {
-        throw new DynadotProviderError('dynadot_response_too_large');
+        throw new DynadotProviderError('dynadot_response_too_large')
       }
       if (signal.aborted) {
-        throw new DynadotProviderError('dynadot_network_error');
+        throw new DynadotProviderError('dynadot_network_error')
       }
-      throw new DynadotProviderError('dynadot_parse_error');
+      throw new DynadotProviderError('dynadot_parse_error')
     }
 
-    let body: unknown;
+    let body: unknown
     try {
-      body = JSON.parse(text);
+      body = JSON.parse(text)
     } catch {
-      throw new DynadotProviderError('dynadot_parse_error');
+      throw new DynadotProviderError('dynadot_parse_error')
     }
 
     try {
-      const parsed = dynadotResponseSchema.parse(body);
+      const parsed = dynadotResponseSchema.parse(body)
       if (parsed.auction_list.length > pageSize) {
-        throw new Error('page_size_exceeded');
+        throw new Error('page_size_exceeded')
       }
-      return normalizePage(parsed.auction_list);
+      return normalizePage(parsed.auction_list)
     } catch {
-      throw new DynadotProviderError('dynadot_response_error');
+      throw new DynadotProviderError('dynadot_response_error')
     }
   } finally {
-    clearTimeout(timeout);
+    clearTimeout(timeout)
   }
 }
 
-const DYNADOT_PAGE_SIZE = 1000;
+const DYNADOT_PAGE_SIZE = 1000
 
 export function createDynadotAdapter({
   apiKey,
-  fetchImpl,
+  fetchImpl
 }: {
-  apiKey: string;
-  fetchImpl?: typeof fetch;
+  apiKey: string
+  fetchImpl?: typeof fetch
 }): ProviderAdapter {
   return {
     provider: 'dynadot',
@@ -257,10 +252,10 @@ export function createDynadotAdapter({
         apiKey,
         pageIndex,
         pageSize: DYNADOT_PAGE_SIZE,
-        fetchImpl,
-      });
+        fetchImpl
+      })
       // Dynadot has no total count; the first short page is the last one.
-      return { ...page, isLastPage: page.received < DYNADOT_PAGE_SIZE };
-    },
-  };
+      return { ...page, isLastPage: page.received < DYNADOT_PAGE_SIZE }
+    }
+  }
 }

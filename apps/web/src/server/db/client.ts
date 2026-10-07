@@ -1,11 +1,11 @@
-import 'server-only';
+import 'server-only'
 
-import { getCloudflareContext } from '@opennextjs/cloudflare';
-import { drizzle } from 'drizzle-orm/d1';
-import * as schema from './schema';
+import { getCloudflareContext } from '@opennextjs/cloudflare'
+import { drizzle } from 'drizzle-orm/d1'
+import * as schema from './schema'
 
 export function getDb() {
-  const { env } = getCloudflareContext();
+  const { env } = getCloudflareContext()
 
-  return drizzle(env.DB, { schema });
+  return drizzle(env.DB, { schema })
 }

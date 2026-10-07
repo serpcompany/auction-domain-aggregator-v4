@@ -1,19 +1,16 @@
-import { sql } from 'drizzle-orm';
+import { sql } from 'drizzle-orm'
 
-import { getDb } from '@/server/db/client';
+import { getDb } from '@/server/db/client'
 
-export const dynamic = 'force-dynamic';
+export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const db = getDb();
-    await db.run(sql`SELECT 1`);
+    const db = getDb()
+    await db.run(sql`SELECT 1`)
 
-    return Response.json({ status: 'ok', database: 'ok' });
+    return Response.json({ status: 'ok', database: 'ok' })
   } catch {
-    return Response.json(
-      { status: 'unhealthy', database: 'unavailable' },
-      { status: 503 },
-    );
+    return Response.json({ status: 'unhealthy', database: 'unavailable' }, { status: 503 })
   }
 }

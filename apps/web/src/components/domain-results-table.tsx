@@ -1,17 +1,20 @@
-import Link from 'next/link';
-import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink } from 'lucide-react';
-
-import { Badge } from '@/components/ui/badge';
+import { ArrowDown, ArrowUp, ArrowUpDown, ExternalLink } from 'lucide-react'
+import Link from 'next/link'
+import { EnrichVisibleDomainRatings } from '@/components/enrich-visible-domain-ratings'
+import { Badge } from '@/components/ui/badge'
 import {
   Table,
   TableBody,
   TableCell,
   TableHead,
   TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+  TableRow
+} from '@/components/ui/table'
 import {
   buildDomainTableHref,
+  type DomainTableFilters,
+  type DomainTableSort,
+  type EndTimeState,
   formatAbsoluteEndTime,
   formatAge,
   formatAuctionType,
@@ -19,14 +22,10 @@ import {
   formatEndTime,
   formatMoney,
   formatProvider,
-  nextSortDirection,
-  type DomainTableFilters,
-  type DomainTableSort,
-  type EndTimeState,
-} from '@/domain/domain-table';
-import { EnrichVisibleDomainRatings } from '@/components/enrich-visible-domain-ratings';
-import { cn } from '@/lib/utils';
-import type { DomainListingRow } from '@/server/queries/domain-listings';
+  nextSortDirection
+} from '@/domain/domain-table'
+import { cn } from '@/lib/utils'
+import type { DomainListingRow } from '@/server/queries/domain-listings'
 
 const sortableColumns = {
   domain: 'domain',
@@ -36,55 +35,45 @@ const sortableColumns = {
   ends: 'endsAt',
   age: 'age',
   links: 'links',
-  appraisal: 'appraisal',
-} satisfies Record<string, DomainTableSort>;
+  appraisal: 'appraisal'
+} satisfies Record<string, DomainTableSort>
 
 const urgencyClasses: Record<EndTimeState, string> = {
   neutral: 'text-foreground',
   amber: 'text-warning-foreground',
   red: 'font-semibold text-destructive',
-  ended: 'font-semibold text-destructive',
-};
+  ended: 'font-semibold text-destructive'
+}
 
 // Sticky first column: the stock TableHead/TableCell styled through className.
 const stickyColumn =
-  'sticky left-0 w-64 max-w-64 border-r shadow-[4px_0_8px_-7px_color-mix(in_oklab,var(--foreground)_45%,transparent)]';
+  'sticky left-0 w-64 max-w-64 border-r shadow-[4px_0_8px_-7px_color-mix(in_oklab,var(--foreground)_45%,transparent)]'
 
 function SortableHead({
   filters,
   sort,
   children,
   align = 'left',
-  sticky = false,
+  sticky = false
 }: {
-  filters: DomainTableFilters;
-  sort: DomainTableSort;
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-  sticky?: boolean;
+  filters: DomainTableFilters
+  sort: DomainTableSort
+  children: React.ReactNode
+  align?: 'left' | 'right'
+  sticky?: boolean
 }) {
-  const active = filters.sort === sort;
-  const direction = nextSortDirection(filters, sort);
-  const SortIcon = active
-    ? filters.direction === 'asc'
-      ? ArrowUp
-      : ArrowDown
-    : ArrowUpDown;
+  const active = filters.sort === sort
+  const direction = nextSortDirection(filters, sort)
+  const SortIcon = active ? (filters.direction === 'asc' ? ArrowUp : ArrowDown) : ArrowUpDown
 
   return (
     <TableHead
       scope="col"
-      aria-sort={
-        active
-          ? filters.direction === 'asc'
-            ? 'ascending'
-            : 'descending'
-          : 'none'
-      }
+      aria-sort={active ? (filters.direction === 'asc' ? 'ascending' : 'descending') : 'none'}
       className={cn(
         'sticky top-0 z-20 bg-muted text-xs font-semibold tracking-wide uppercase',
         align === 'right' ? 'text-right' : 'text-left',
-        sticky && cn(stickyColumn, 'z-30'),
+        sticky && cn(stickyColumn, 'z-30')
       )}
     >
       <Link
@@ -92,21 +81,18 @@ function SortableHead({
         href={buildDomainTableHref(filters, {
           sort,
           direction,
-          page: 1,
+          page: 1
         })}
         className={cn(
           'inline-flex min-h-11 items-center gap-1.5 rounded-sm px-1.5 transition-colors hover:bg-background/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 sm:min-h-9 motion-reduce:transition-none',
-          align === 'right' && 'justify-end',
+          align === 'right' && 'justify-end'
         )}
       >
         {children}
-        <SortIcon
-          className="size-3.5 text-muted-foreground"
-          aria-hidden="true"
-        />
+        <SortIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
       </Link>
     </TableHead>
-  );
+  )
 }
 
 // Right-aligned, unsortable header for metric columns.
@@ -118,23 +104,20 @@ function StaticHead({ children }: { children: React.ReactNode }) {
     >
       {children}
     </TableHead>
-  );
+  )
 }
 
 function Secondary({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="mt-1 text-xs leading-4 font-normal text-muted-foreground">
-      {children}
-    </div>
-  );
+  return <div className="mt-1 text-xs leading-4 font-normal text-muted-foreground">{children}</div>
 }
 
 function UnknownValue({ label }: { label: string }) {
   return (
+    // biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move.
     <span aria-label={`${label} not collected`} title="Not collected">
       <span aria-hidden="true">—</span>
     </span>
-  );
+  )
 }
 
 function DomainRatingCell({ row }: { row: DomainListingRow }) {
@@ -152,26 +135,19 @@ function DomainRatingCell({ row }: { row: DomainListingRow }) {
           )}
         </span>
       ) : (
-        <span title="Domain Rating by Ahrefs">
-          {Math.round(row.domainRating)}
-        </span>
+        <span title="Domain Rating by Ahrefs">{Math.round(row.domainRating)}</span>
       )}
     </TableCell>
-  );
+  )
 }
 
 function countLabel(value: number, singular: string, plural = `${singular}s`) {
-  return `${value.toLocaleString('en-US')} ${value === 1 ? singular : plural}`;
+  return `${value.toLocaleString('en-US')} ${value === 1 ? singular : plural}`
 }
 
 function DomainCell({ row }: { row: DomainListingRow }) {
   return (
-    <TableCell
-      className={cn(
-        stickyColumn,
-        'z-10 h-16 bg-background group-hover:bg-muted',
-      )}
-    >
+    <TableCell className={cn(stickyColumn, 'z-10 h-16 bg-background group-hover:bg-muted')}>
       <a
         href={row.auctionUrl}
         target="_blank"
@@ -198,7 +174,7 @@ function DomainCell({ row }: { row: DomainListingRow }) {
         ) : null}
       </Secondary>
     </TableCell>
-  );
+  )
 }
 
 function AuctionCell({ row }: { row: DomainListingRow }) {
@@ -207,22 +183,18 @@ function AuctionCell({ row }: { row: DomainListingRow }) {
       <Badge variant="secondary">{formatProvider(row.provider)}</Badge>
       <Secondary>{formatAuctionType(row.auctionType)}</Secondary>
     </TableCell>
-  );
+  )
 }
 
 function PriceCell({ row }: { row: DomainListingRow }) {
   return (
     <TableCell className="h-16 text-right tabular-nums">
-      <div className="font-semibold">
-        {formatMoney(row.currentBidCents, row.currency)}
-      </div>
+      <div className="font-semibold">{formatMoney(row.currentBidCents, row.currency)}</div>
       {row.renewalPriceCents === null ? null : (
-        <Secondary>
-          {formatMoney(row.renewalPriceCents, row.currency)} renewal
-        </Secondary>
+        <Secondary>{formatMoney(row.renewalPriceCents, row.currency)} renewal</Secondary>
       )}
     </TableCell>
-  );
+  )
 }
 
 function InterestCell({ row }: { row: DomainListingRow }) {
@@ -232,36 +204,32 @@ function InterestCell({ row }: { row: DomainListingRow }) {
       {row.visitors === null
         ? null
         : (() => {
-            const visitors = formatCompactCount(row.visitors);
+            const visitors = formatCompactCount(row.visitors)
             return (
               <Secondary>
-                <span
-                  aria-label={`${visitors.full} visitors`}
-                  title={`${visitors.full} visitors`}
-                >
+                {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move. */}
+                <span aria-label={`${visitors.full} visitors`} title={`${visitors.full} visitors`}>
                   {visitors.compact} visitors
                 </span>
               </Secondary>
-            );
+            )
           })()}
     </TableCell>
-  );
+  )
 }
 
 function EndsCell({ row, now }: { row: DomainListingRow; now: Date }) {
-  const endTime = formatEndTime(row.endsAt, now);
+  const endTime = formatEndTime(row.endsAt, now)
   return (
     <TableCell className="h-16 tabular-nums">
       <time className="block" dateTime={row.endsAt.toISOString()}>
-        <span className={cn('block', urgencyClasses[endTime.state])}>
-          {endTime.relative}
-        </span>
+        <span className={cn('block', urgencyClasses[endTime.state])}>{endTime.relative}</span>
         <span className="mt-1 block text-xs leading-4 font-normal text-muted-foreground">
           {formatAbsoluteEndTime(row.endsAt)}
         </span>
       </time>
     </TableCell>
-  );
+  )
 }
 
 function LinksCell({ row }: { row: DomainListingRow }) {
@@ -270,51 +238,45 @@ function LinksCell({ row }: { row: DomainListingRow }) {
       <TableCell className="h-16 text-right">
         <UnknownValue label="Inbound links" />
       </TableCell>
-    );
+    )
   }
-  const links = formatCompactCount(row.inboundLinks);
+  const links = formatCompactCount(row.inboundLinks)
   return (
     <TableCell className="h-16 text-right tabular-nums">
-      <span
-        aria-label={`${links.full} inbound links`}
-        title={`${links.full} inbound links`}
-      >
+      {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move. */}
+      <span aria-label={`${links.full} inbound links`} title={`${links.full} inbound links`}>
         {links.compact}
       </span>
     </TableCell>
-  );
+  )
 }
 
 function MajesticCell({ row }: { row: DomainListingRow }) {
-  const metrics = row.seoMetrics;
+  const metrics = row.seoMetrics
   if (metrics?.majesticTf == null && metrics?.majesticCf == null) {
     return (
       <TableCell className="h-16 text-right">
         <UnknownValue label="Majestic Trust and Citation Flow" />
       </TableCell>
-    );
+    )
   }
-  const flow = (value: number | null) => (value === null ? '—' : value);
+  const flow = (value: number | null) => (value === null ? '—' : value)
   return (
     <TableCell className="h-16 text-right tabular-nums">
       <div className="font-medium">
         <span title="Majestic Trust Flow">TF {flow(metrics.majesticTf)}</span>
         <span aria-hidden="true"> · </span>
-        <span title="Majestic Citation Flow">
-          CF {flow(metrics.majesticCf)}
-        </span>
+        <span title="Majestic Citation Flow">CF {flow(metrics.majesticCf)}</span>
       </div>
       {metrics.majesticRefDomains === null ? null : (
-        <Secondary>
-          {countLabel(metrics.majesticRefDomains, 'ref. domain')}
-        </Secondary>
+        <Secondary>{countLabel(metrics.majesticRefDomains, 'ref. domain')}</Secondary>
       )}
     </TableCell>
-  );
+  )
 }
 
 function SemrushCell({ row }: { row: DomainListingRow }) {
-  const authority = row.seoMetrics?.semrushAs ?? null;
+  const authority = row.seoMetrics?.semrushAs ?? null
   return (
     <TableCell className="h-16 text-right tabular-nums">
       {authority === null ? (
@@ -323,7 +285,7 @@ function SemrushCell({ row }: { row: DomainListingRow }) {
         <span title="Semrush Authority Score">{authority}</span>
       )}
     </TableCell>
-  );
+  )
 }
 
 function AppraisalCell({ row }: { row: DomainListingRow }) {
@@ -333,30 +295,30 @@ function AppraisalCell({ row }: { row: DomainListingRow }) {
         <UnknownValue label={`${formatProvider(row.provider)} appraisal`} />
       ) : (
         <>
-          <div className="font-medium">
-            {formatMoney(row.appraisalCents, row.currency)}
-          </div>
+          <div className="font-medium">{formatMoney(row.appraisalCents, row.currency)}</div>
           <Secondary>{formatProvider(row.provider)} appraisal</Secondary>
         </>
       )}
     </TableCell>
-  );
+  )
 }
 
 export function DomainResultsTable({
   rows,
   filters,
-  now,
+  now
 }: {
-  rows: DomainListingRow[];
-  filters: DomainTableFilters;
-  now: Date;
+  rows: DomainListingRow[]
+  filters: DomainTableFilters
+  now: Date
 }) {
   return (
+    // biome-ignore lint/a11y/useSemanticElements: Replaced by the redesign (#54); kept as is to avoid behavior changes in the tooling move.
     <div
       data-testid="domain-results-scroll-container"
       role="region"
       aria-label="Domain results"
+      // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable to scroll.
       tabIndex={0}
       // This region scrolls both ways so the header and Domain column stay
       // sticky; the stock Table's own scroll wrapper is made a pass-through.
@@ -365,52 +327,28 @@ export function DomainResultsTable({
       <Table className="min-w-[1440px]">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.domain}
-              sticky
-            >
+            <SortableHead filters={filters} sort={sortableColumns.domain} sticky>
               Domain
             </SortableHead>
             <SortableHead filters={filters} sort={sortableColumns.auction}>
               Auction
             </SortableHead>
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.price}
-              align="right"
-            >
+            <SortableHead filters={filters} sort={sortableColumns.price} align="right">
               Price
             </SortableHead>
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.interest}
-              align="right"
-            >
+            <SortableHead filters={filters} sort={sortableColumns.interest} align="right">
               Interest
             </SortableHead>
             <SortableHead filters={filters} sort={sortableColumns.ends}>
               Ends
             </SortableHead>
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.age}
-              align="right"
-            >
+            <SortableHead filters={filters} sort={sortableColumns.age} align="right">
               Age
             </SortableHead>
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.links}
-              align="right"
-            >
+            <SortableHead filters={filters} sort={sortableColumns.links} align="right">
               Links
             </SortableHead>
-            <SortableHead
-              filters={filters}
-              sort={sortableColumns.appraisal}
-              align="right"
-            >
+            <SortableHead filters={filters} sort={sortableColumns.appraisal} align="right">
               Appraisal
             </SortableHead>
             <StaticHead>
@@ -438,7 +376,7 @@ export function DomainResultsTable({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((row) => (
+          {rows.map(row => (
             <TableRow
               key={`${row.provider}:${row.externalId}`}
               className="group focus-within:bg-muted"
@@ -461,10 +399,8 @@ export function DomainResultsTable({
         </TableBody>
       </Table>
       <EnrichVisibleDomainRatings
-        domains={rows
-          .filter((row) => !row.domainRatingFetched)
-          .map((row) => row.domainName)}
+        domains={rows.filter(row => !row.domainRatingFetched).map(row => row.domainName)}
       />
     </div>
-  );
+  )
 }

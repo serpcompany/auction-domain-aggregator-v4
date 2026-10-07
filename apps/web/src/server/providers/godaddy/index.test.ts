@@ -1,12 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest'
 
-import { ResponseTooLargeError } from '../normalize';
-import { PROVIDER_REGISTRY } from '../registry';
-import {
-  createGodaddyAdapter,
-  GodaddyProviderError,
-  normalizeGodaddyRecords,
-} from './index';
+import { ResponseTooLargeError } from '../normalize'
+import { PROVIDER_REGISTRY } from '../registry'
+import { createGodaddyAdapter, GodaddyProviderError, normalizeGodaddyRecords } from './index'
 
 // Invented record in the shape of GoDaddy's public inventory feed.
 const record = {
@@ -30,28 +26,28 @@ const record = {
   semrushReferringDomains: 188,
   semrushBacklinks: 262,
   semrushTopReferringDomains: 'a.example, b.example',
-  semrushCpc: 0.1,
-};
+  semrushCpc: 0.1
+}
 
-type PageOutcome = string | null | Error;
+type PageOutcome = string | null | Error
 
 // A page source that answers each page number from `pages`.
 function adapterFor(pages: Record<number, PageOutcome>) {
   const readPage = vi.fn(async (page: number) => {
-    const outcome = pages[page];
-    if (outcome instanceof Error) throw outcome;
-    return outcome ?? null;
-  });
-  return { readPage, adapter: createGodaddyAdapter({ pages: { readPage } }) };
+    const outcome = pages[page]
+    if (outcome instanceof Error) throw outcome
+    return outcome ?? null
+  })
+  return { readPage, adapter: createGodaddyAdapter({ pages: { readPage } }) }
 }
 
 function pageText(body: unknown) {
-  return JSON.stringify(body);
+  return JSON.stringify(body)
 }
 
 describe('GoDaddy record normalization', () => {
   it('normalizes a bid auction with its feed metrics', () => {
-    const page = normalizeGodaddyRecords([record]);
+    const page = normalizeGodaddyRecords([record])
     expect(page).toEqual({
       received: 1,
       rejected: 0,
@@ -81,12 +77,12 @@ describe('GoDaddy record normalization', () => {
             majesticRefDomains: 21,
             semrushAs: 3,
             semrushRefDomains: 188,
-            semrushBacklinks: 262,
-          },
-        },
-      ],
-    });
-  });
+            semrushBacklinks: 262
+          }
+        }
+      ]
+    })
+  })
 
   it('keeps buy-now listings and treats missing optional fields as unknown', () => {
     const [listing] = normalizeGodaddyRecords([
@@ -97,9 +93,9 @@ describe('GoDaddy record normalization', () => {
         auctionEndTime: '2026-10-05T16:00:00.250Z',
         price: 25,
         domainAge: null,
-        majesticTf: 0,
-      },
-    ]).listings;
+        majesticTf: 0
+      }
+    ]).listings
     expect(listing).toMatchObject({
       externalId: '55',
       domainName: 'xn--bcher-kva.example',
@@ -112,9 +108,9 @@ describe('GoDaddy record normalization', () => {
       seoMetrics: {
         majesticTf: 0,
         majesticCf: null,
-        semrushAs: null,
-      },
-    });
+        semrushAs: null
+      }
+    })
 
     const [withoutMetrics] = normalizeGodaddyRecords([
       {
@@ -123,11 +119,11 @@ describe('GoDaddy record normalization', () => {
         auctionType: 'Bid',
         auctionEndTime: '2026-10-05T16:00:00Z',
         price: '$1',
-        numberOfBids: 0,
-      },
-    ]).listings;
-    expect(withoutMetrics).not.toHaveProperty('seoMetrics');
-  });
+        numberOfBids: 0
+      }
+    ]).listings
+    expect(withoutMetrics).not.toHaveProperty('seoMetrics')
+  })
 
   it('counts each invalid record as rejected', () => {
     const invalid = [
@@ -144,75 +140,73 @@ describe('GoDaddy record normalization', () => {
       { ...record, majesticTf: 101 },
       { ...record, semrushBacklinks: -1 },
       { ...record, domainName: 'no-dot' },
-      'not an object',
-    ];
+      'not an object'
+    ]
     const valid = Array.from({ length: 130 }, (_, index) => ({
       ...record,
-      link: `https://www.godaddy.com/domain-auctions/example-${index + 1}`,
-    }));
-    const page = normalizeGodaddyRecords([...valid, ...invalid]);
-    expect(page.received).toBe(valid.length + invalid.length);
-    expect(page.rejected).toBe(invalid.length);
-    expect(page.listings).toHaveLength(valid.length);
-  });
+      link: `https://www.godaddy.com/domain-auctions/example-${index + 1}`
+    }))
+    const page = normalizeGodaddyRecords([...valid, ...invalid])
+    expect(page.received).toBe(valid.length + invalid.length)
+    expect(page.rejected).toBe(invalid.length)
+    expect(page.listings).toHaveLength(valid.length)
+  })
 
   it('fails a page where more than a tenth of the records are invalid', () => {
-    expect(() =>
-      normalizeGodaddyRecords([record, record, { ...record, price: 'x' }]),
-    ).toThrow(new GodaddyProviderError('godaddy_response_error'));
-  });
-});
+    expect(() => normalizeGodaddyRecords([record, record, { ...record, price: 'x' }])).toThrow(
+      new GodaddyProviderError('godaddy_response_error')
+    )
+  })
+})
 
 describe('GoDaddy adapter', () => {
   it('reads numbered staged pages and reports the marked last page', async () => {
     const { adapter, readPage } = adapterFor({
       1: pageText({ page: 1, isLastPage: false, records: [record] }),
-      2: pageText({ page: 2, isLastPage: true, records: [record] }),
-    });
-    expect(adapter.provider).toBe('godaddy');
+      2: pageText({ page: 2, isLastPage: true, records: [record] })
+    })
+    expect(adapter.provider).toBe('godaddy')
     await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
       received: 1,
       rejected: 0,
-      isLastPage: false,
-    });
+      isLastPage: false
+    })
     await expect(adapter.fetchPage({ pageIndex: 2 })).resolves.toMatchObject({
-      isLastPage: true,
-    });
-    expect(readPage).toHaveBeenLastCalledWith(2, 10 * 1024 * 1024);
-  });
+      isLastPage: true
+    })
+    expect(readPage).toHaveBeenLastCalledWith(2, 10 * 1024 * 1024)
+  })
 
   it('is built by the registry from the staged page source', async () => {
-    const registration = PROVIDER_REGISTRY.godaddy!;
+    const registration = PROVIDER_REGISTRY.godaddy!
     expect(registration.fileFeed).toMatchObject({
       field: 'data',
-      pageSize: 1000,
-    });
-    const withoutPages = registration.createAdapter({ secrets: {} });
+      pageSize: 1000
+    })
+    const withoutPages = registration.createAdapter({ secrets: {} })
     await expect(withoutPages.fetchPage({ pageIndex: 1 })).rejects.toThrow(
-      new GodaddyProviderError('godaddy_invalid_request'),
-    );
-    const readPage = vi.fn(async () =>
-      pageText({ page: 1, isLastPage: true, records: [] }),
-    );
+      new GodaddyProviderError('godaddy_invalid_request')
+    )
+    const readPage = vi.fn(async () => pageText({ page: 1, isLastPage: true, records: [] }))
     const adapter = registration.createAdapter({
       secrets: {},
-      feedPages: { readPage },
-    });
+      feedPages: { readPage }
+    })
     await expect(adapter.fetchPage({ pageIndex: 1 })).resolves.toMatchObject({
       received: 0,
-      isLastPage: true,
-    });
-  });
+      isLastPage: true
+    })
+  })
 
   it('rejects invalid requests without reading', async () => {
-    const { adapter, readPage } = adapterFor({});
+    const { adapter, readPage } = adapterFor({})
     for (const pageIndex of [0, 1001, 1.5]) {
       await expect(adapter.fetchPage({ pageIndex })).rejects.toThrow(
-        new GodaddyProviderError('godaddy_invalid_request'),
-      );
+        new GodaddyProviderError('godaddy_invalid_request')
+      )
     }
-    expect(readPage).not.toHaveBeenCalled();
-  });
+    expect(readPage).not.toHaveBeenCalled()
+  })
 
   it('maps read and envelope failures to fixed codes', async () => {
     const cases: [PageOutcome, string][] = [
@@ -221,28 +215,22 @@ describe('GoDaddy adapter', () => {
       [null, 'godaddy_missing_page'],
       ['{', 'godaddy_parse_error'],
       ['', 'godaddy_parse_error'],
-      [
-        pageText({ page: 2, isLastPage: true, records: [] }),
-        'godaddy_response_error',
-      ],
-      [
-        pageText({ page: 1, isLastPage: true, records: [], extra: 1 }),
-        'godaddy_response_error',
-      ],
+      [pageText({ page: 2, isLastPage: true, records: [] }), 'godaddy_response_error'],
+      [pageText({ page: 1, isLastPage: true, records: [], extra: 1 }), 'godaddy_response_error'],
       [
         pageText({
           page: 1,
           isLastPage: true,
-          records: Array.from({ length: 1001 }, () => record),
+          records: Array.from({ length: 1001 }, () => record)
         }),
-        'godaddy_response_error',
-      ],
-    ];
+        'godaddy_response_error'
+      ]
+    ]
     for (const [outcome, code] of cases) {
-      const { adapter } = adapterFor({ 1: outcome });
+      const { adapter } = adapterFor({ 1: outcome })
       await expect(adapter.fetchPage({ pageIndex: 1 })).rejects.toThrow(
-        new GodaddyProviderError(code as never),
-      );
+        new GodaddyProviderError(code as never)
+      )
     }
-  });
-});
+  })
+})

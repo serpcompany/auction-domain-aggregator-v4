@@ -21,7 +21,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) Owner reviewed v1: "looks good", plus two requests: show and hide columns, and a whole page for filters instead of a panel, because SpamZilla needs a full page for its options.
 - [x] (2026-10-07) Published mockups v2 at the same URL with a Columns menu, a Custom columns state, and a full-page Filters screen on desktop and phone.
 - [x] (2026-10-07) Owner settled the open decisions (Sync status in, dark mode in, tooling first) and filed the work: tracking #52; #51 tooling; #59 Milestone 0; #53 Milestone 1; #54 Milestone 2; #55 Milestone 2b; #56 Milestone 3; #57 Milestone 4; #58 Milestone 5.
-- [ ] #51: Biome and `apps/web/` (prerequisite).
+- [x] (2026-10-07) #51: moved the app to `apps/web/` and replaced ESLint and Prettier with Biome.
 - [x] (2026-10-07) Milestone 0 (#59): committed the plan and mockups (`docs/plans/active/ui-redesign-mockups.html`), updated the product spec, and recorded the trailing-slash decision. PR open for owner approval.
 - [ ] Milestone 0 (#59): owner approves the spec PR.
 - [ ] Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
