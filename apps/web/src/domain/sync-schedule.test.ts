@@ -26,7 +26,7 @@ describe('sync schedule', () => {
     expect(crons).toHaveLength(3)
     expect(times.map(time => syncSchedule(time).cron)).toEqual(crons)
     // Staging runs after Production, so they never page a provider at once.
-    expect(times).toEqual(['15:30', '17:30', '15:30'])
+    expect(times).toEqual(['15:30', '23:30', '15:30'])
   })
 
   it('reads HH:MM in UTC and falls back to 15:30', () => {

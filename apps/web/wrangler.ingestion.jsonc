@@ -46,8 +46,8 @@
     }
   ],
   "env": {
-    // Staging: the same Worker and Workflow on Staging's own D1 and R2, with a
-    // weekly (Monday) cron to keep provider calls down.
+    // Staging: the same Worker and Workflow on Staging's own D1 and R2, synced
+    // daily at 23:30 UTC (08:30 in Japan), eight hours after Production.
     "staging": {
       "name": "auction-domain-aggregator-ingestion-staging",
       // No HTTP routes: no workers.dev URL and no preview URLs.
@@ -57,7 +57,7 @@
         "cpu_ms": 60000
       },
       "triggers": {
-        "crons": ["30 17 * * *"]
+        "crons": ["30 23 * * *"]
       },
       "observability": {
         "enabled": true
