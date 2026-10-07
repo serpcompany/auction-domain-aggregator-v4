@@ -8,6 +8,7 @@ import {
   FeedError,
   feedErrorCode,
   openZipEntry,
+  PAGE_WRITES_IN_FLIGHT,
   pageBody,
   stageZippedFeed,
   writeFeedPages
@@ -413,6 +414,42 @@ describe('page writer', () => {
       records: 1
     })
     await expect(write(1, { maxPageBytes: 41 })).rejects.toThrow(new FeedError('feed_too_large'))
+  })
+
+  it('writes up to six pages at once and waits for every write before finishing', async () => {
+    let active = 0
+    let peak = 0
+    const written: number[] = []
+    const writer = createPageWriter(1, async page => {
+      active += 1
+      peak = Math.max(peak, active)
+      await new Promise(resolve => setTimeout(resolve, 1))
+      active -= 1
+      written.push(page)
+    })
+    for (let index = 0; index < 20; index += 1) {
+      const ready = writer.add(record(index))
+      if (ready) await writer.flush(ready)
+    }
+    await expect(writer.finish()).resolves.toEqual({ pages: 20, records: 20 })
+    expect(peak).toBe(PAGE_WRITES_IN_FLIGHT)
+    expect(active).toBe(0)
+    expect(written.sort((a, b) => a - b)).toEqual(
+      Array.from({ length: 20 }, (_, index) => index + 1)
+    )
+  })
+
+  it('reports a write that throws before it starts, at the next page', async () => {
+    const writer = createPageWriter(1, () => {
+      throw new Error('invalid key')
+    })
+    writer.add(record(1))
+    const ready = writer.add(record(2))
+    await writer.flush(ready!)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect(writer.flush(writer.add(record(3))!)).rejects.toThrow(
+      new FeedError('feed_page_write_failed')
+    )
   })
 
   it('reports a failed page write as retryable', async () => {
