@@ -324,7 +324,8 @@ describe('domain table formatting', () => {
     ['auction', 'Auction'],
     ['closeout', 'Closeout'],
     ['expired', 'Expired'],
-    ['pending_delete', 'Pending Delete']
+    ['pending_delete', 'Pending Delete'],
+    ['EXPIRED', 'Expired']
   ])('normalizes auction type %s for display', (value, expected) => {
     expect(formatAuctionType(value)).toBe(expected)
   })

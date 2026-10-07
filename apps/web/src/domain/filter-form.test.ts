@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 
 import { parseDomainTableFilters } from '@/domain/domain-table'
 import {
+  buildFiltersPageHref,
   countFiltersBySection,
   findInvalidRange,
   formDataToSearchParams,
@@ -87,5 +88,13 @@ describe('countFiltersBySection', () => {
         })
       )
     ).toEqual({ general: 4, auction: 3, name: 4, activity: 4, seo: 4 })
+  })
+})
+
+describe('buildFiltersPageHref', () => {
+  it('opens the Filters page with the table query string', () => {
+    expect(buildFiltersPageHref(parseDomainTableFilters({ tld: 'com', page: '3' }))).toBe(
+      '/filters/?tld=com&sort=endsAt&direction=asc&page=3'
+    )
   })
 })

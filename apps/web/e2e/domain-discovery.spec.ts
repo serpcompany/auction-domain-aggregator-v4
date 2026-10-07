@@ -40,53 +40,40 @@ test('serves the deterministic domain inventory with a healthy database', async 
   page,
   request
 }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', error => pageErrors.push(error.message))
   await page.goto('/')
 
   await expect(
-    page.getByRole('heading', {
-      level: 1,
-      name: 'Domain discovery',
-      exact: true
-    })
-  ).toBeVisible()
-  await expect(page.getByLabel('Domain contains')).toBeVisible()
-  await expect(page.getByLabel('Domain contains')).toHaveAttribute('autocomplete', 'off')
-  await expect(page.getByLabel('Domain contains')).toHaveAttribute('placeholder', 'e.g. garden…')
-  await expect(page.getByLabel('Max current bid')).toHaveAttribute('autocomplete', 'off')
-  await expect(page.getByLabel('Auction source')).toBeVisible()
-  const tld = page.getByRole('combobox', { name: 'TLD' })
-  await expect(tld).toHaveAttribute('placeholder', 'Any TLD')
-  await tld.fill('co')
+    page.getByRole('heading', { level: 1, name: 'Auctions', exact: true })
+  ).toBeAttached()
+  const search = page.getByRole('searchbox', { name: 'Domain contains' })
+  await expect(search).toBeVisible()
+  await expect(search).toHaveAttribute('autocomplete', 'off')
+  await expect(search).toHaveAttribute('placeholder', 'Search domains…')
+  await page.getByRole('button', { name: /^TLD/ }).click()
+  await page.getByPlaceholder('TLD').fill('co')
   await expect(page.getByRole('option', { name: '.com' })).toBeVisible()
   await page.keyboard.press('Escape')
-  await tld.fill('')
-  await expect(page.getByRole('button', { name: 'Apply filters', exact: true })).toBeVisible()
-  await expect(page.getByText('60 active listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
 
   const table = page.getByRole('table')
   await expect(table).toBeVisible()
-  for (const header of [
-    'Domain',
-    'Auction',
-    'Price',
-    'Interest',
-    'Ends',
-    'Age',
-    'Links',
-    'Appraisal'
-  ]) {
+  for (const header of ['Domain', 'Source', 'Price', 'Bids', 'Ends', 'Age', 'Links', 'Appraisal']) {
     await expect(table.getByRole('columnheader', { name: header, exact: true })).toBeVisible()
   }
 
-  // Seeded Ahrefs DR renders with the licence-required attribution link.
-  const drHeader = table.getByRole('columnheader', { name: /^DR/ })
-  await expect(drHeader.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toHaveAttribute(
+  // Seeded Ahrefs DR renders under the licence-required attribution link.
+  await expect(table.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toHaveAttribute(
     'href',
     'https://ahrefs.com/'
   )
   await expect(
     table.getByRole('row', { name: /garden\.com/ }).getByTitle('Domain Rating by Ahrefs')
   ).toHaveText('37')
+
+  // Uncaught script errors, such as a broken theme script in the Worker bundle.
+  expect(pageErrors).toEqual([])
 
   const response = await request.get('/api/health')
   expect(response.status()).toBe(200)
@@ -96,16 +83,21 @@ test('serves the deterministic domain inventory with a healthy database', async 
 test('applies, removes, sorts, clears, and restores URL-backed filters', async ({ page }) => {
   await page.goto('/')
 
-  await page.getByLabel('Domain contains').fill('garden')
-  await page.getByLabel('Max current bid').fill('30')
-  await page.getByLabel('Ending').click()
-  await page.getByRole('option', { name: 'Next 1 hour' }).click()
-  await page.getByRole('button', { name: 'Apply filters', exact: true }).click()
-
+  const search = page.getByRole('searchbox', { name: 'Domain contains' })
+  await search.fill('garden')
+  await search.press('Enter')
   await expectUrlParameter(page, 'q', 'garden')
+
+  await page.getByRole('button', { name: /^Max bid/ }).click()
+  await page.getByRole('spinbutton', { name: 'Maximum current bid' }).fill('30')
+  await page.getByRole('button', { name: 'Apply', exact: true }).click()
   await expectUrlParameter(page, 'priceMax', '30')
+
+  await page.getByRole('button', { name: /^Ends/ }).click()
+  await page.getByRole('option', { name: 'Within 1 hour' }).click()
   await expectUrlParameter(page, 'endingWithin', '1h')
-  await expect(page.getByText('1 active listing', { exact: true })).toBeVisible()
+  await expectUrlParameter(page, 'q', 'garden')
+  await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /garden\.com.*opens auction/i })).toBeVisible()
 
   const endTime = page.getByRole('table').locator('time').first()
@@ -113,18 +105,17 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expect(endTime).toContainText(/UTC/)
   await expect(endTime).toHaveAttribute('datetime', /T.*Z$/)
 
-  await page.getByRole('button', { name: 'More filters' }).click()
-  const sheet = page.getByRole('dialog', { name: 'More filters' })
-  await expect(sheet.getByLabel('Minimum current bid')).toHaveAttribute('autocomplete', 'off')
-  await sheet.getByLabel('Minimum current bid').fill('20')
-  await sheet.getByText('No digits', { exact: true }).click()
-  await sheet.getByText('No hyphens', { exact: true }).click()
-  await sheet.getByRole('button', { name: 'Apply filters', exact: true }).click()
+  await page.getByRole('link', { name: 'All filters' }).click()
+  await expect(page.getByRole('heading', { level: 1, name: 'Filters' })).toBeVisible()
+  await page.getByLabel('Minimum current bid').fill('20')
+  await page.getByText('No digits', { exact: true }).click()
+  await page.getByText('No hyphens', { exact: true }).click()
+  await page.getByRole('button', { name: 'Show results' }).click()
 
   await expectUrlParameter(page, 'priceMin', '20')
   await expectUrlParameter(page, 'noDigits', '1')
   await expectUrlParameter(page, 'noHyphens', '1')
-  await expect(page.getByText('1 active listing', { exact: true })).toBeVisible()
+  await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
   await page.getByRole('columnheader', { name: 'Price', exact: true }).getByRole('link').click()
   await expectUrlParameter(page, 'sort', 'price')
@@ -133,16 +124,16 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
 
   await page.goBack()
   await expectUrlParameter(page, 'sort', 'endsAt')
-  await expectUrlParameter(page, 'q', 'garden')
-  await expect(page.getByLabel('Domain contains')).toHaveValue('garden')
-  await expect(page.getByLabel('Max current bid')).toHaveValue('30')
-  await expect(page.getByLabel('Ending')).toContainText('Next 1 hour')
-  await expect(page.getByText('1 active listing', { exact: true })).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('garden')
+  await expect(page.getByRole('button', { name: /^Max bid/ })).toContainText('$30')
+  await expect(page.getByRole('button', { name: /^Ends/ })).toContainText('1 hour')
+  await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
-  await page.getByRole('button', { name: /More filters/ }).click()
-  await expect(page.getByRole('dialog').getByLabel('Minimum current bid')).toHaveValue('20')
-  await expect(page.getByRole('dialog').getByRole('checkbox', { name: 'No digits' })).toBeChecked()
-  await page.getByRole('dialog').getByRole('button', { name: 'Dismiss' }).click()
+  await page.getByRole('link', { name: /^All filters/ }).click()
+  await expect(page.getByLabel('Minimum current bid')).toHaveValue('20')
+  await expect(page.getByRole('checkbox', { name: 'No digits' })).toBeChecked()
+  await page.getByRole('link', { name: 'Cancel' }).click()
+  await expectUrlParameter(page, 'priceMin', '20')
 
   await page.getByRole('link', { name: 'Remove Domain: no digits filter' }).click()
   await expectUrlParameter(page, 'noDigits', null)
@@ -150,9 +141,9 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'q', 'garden')
 
   await page.getByRole('link', { name: 'Clear all', exact: true }).click()
-  await expect(page).toHaveURL(`${E2E_BASE_URL}/`)
-  await expect(page.getByText('60 active listings', { exact: true })).toBeVisible()
-  await expect(page.getByLabel('Domain contains')).toHaveValue('')
+  await expect(page).toHaveURL(`${E2E_BASE_URL}/?sort=endsAt&direction=asc&page=1`)
+  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+  await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('')
 })
 
 for (const viewport of [
@@ -172,7 +163,7 @@ for (const viewport of [
       exact: true
     })
     const auctionHeader = table.getByRole('columnheader', {
-      name: 'Auction',
+      name: 'Source',
       exact: true
     })
     await expect(container).toBeVisible()
@@ -322,7 +313,7 @@ for (const viewport of [
       element.scrollTop = 0
     })
     await expect.poll(() => container.evaluate(element => element.scrollTop)).toBe(0)
-    const firstRow = table.getByRole('row').nth(1)
+    const firstRow = table.locator('tbody tr').first()
     const rowBackgroundBefore = await firstRow.evaluate(
       element => getComputedStyle(element).backgroundColor
     )

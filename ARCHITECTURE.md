@@ -35,7 +35,7 @@ ingestion Worker -> one `provider-sync` Workflow instance per provider
 
 ### Next.js application
 
-`apps/web/src/app/page.tsx` normalizes URL search parameters, asks `apps/web/src/server/queries/domain-listings.ts` for active listings, and server-renders `apps/web/src/components/domain-discovery.tsx`. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only the facet values and the current page cross into the UI. Majestic Topic and Ahrefs DR are displayed as unavailable until real enrichment is implemented.
+`apps/web/src/app/page.tsx` normalizes URL search parameters, asks `apps/web/src/server/queries/domain-listings.ts` for active listings, server-renders `apps/web/src/components/auctions/auctions-page.tsx`. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only the facet values and the current page cross into the UI. Which table columns show is a per-browser choice in the `columns` cookie, read by the page so the server renders only those columns; it is not part of the URL.
 
 TLD and domain length are SQLite-generated, indexed columns of `auction_listings`; hyphen and digit presence are query expressions over the normalized name. The read model applies OR within repeated source, auction-type, and TLD values and AND across filter families. The filter-independent facets (sources, auction types, every TLD) are not grouped per request: each successful sync rebuilds the `listing_facets` read model, and a request reads it. Count, page, facet, and freshness reads remain sequential because concurrent local D1 snapshots previously produced locking failures. The full read behavior and measured index decision are recorded in `docs/technical-design/domain-discovery.md`.
 
@@ -51,7 +51,7 @@ GoDaddy publishes no paged API for its inventory, only a daily zipped JSON file 
 
 ### Domain enrichment
 
-Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `apps/web/src/components/enrich-visible-domain-ratings.tsx` posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`.
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, `apps/web/src/components/auctions/enrich-visible-domain-ratings.tsx` posts the visible domains that lack DR (only while the DR column is shown) to `POST /api/enrichment/domain-rating`.
 - That route is the only request path that calls a provider.
 - It accepts at most 50 domains, and `apps/web/src/server/enrichment/domain-rating.ts` fetches only those with an active listing and no stored rating.
 - Ratings come from Ahrefs' free `domain-rating-free` endpoint (`apps/web/src/server/enrichment/ahrefs.ts`) and are written once to `domain_metrics`. "No rating" is stored too, so it is not requested again.
@@ -105,7 +105,7 @@ Detailed behavior and verified ingestion evidence are in `docs/technical-design/
 - `apps/web/src/app/` owns Next.js routes, the root layout (theme provider, sidebar shell, toaster), global styles, and the D1 health route.
 - `apps/web/src/app/filters/page.tsx` is the Filters page: it parses the same URL as the table, reads only the facets (`queryListingFacets`), and renders `apps/web/src/components/filters/`, a client form that applies its draft as a canonical table URL on page 1. `apps/web/src/domain/filter-form.ts` holds its pure section, count, and range-validation logic.
 - `apps/web/src/components/app-shell/` owns the stock `sidebar-07` shell: the app sidebar, the page header (sidebar trigger, breadcrumb, page status, theme toggle), the freshness badge, and the `next-themes` provider.
-- `apps/web/src/components/domain-discovery.tsx` composes the page, `apps/web/src/components/domain-filters.tsx` owns the single URL-backed filter-form island, and `apps/web/src/components/domain-results-table.tsx` owns the server-rendered comparison table. `apps/web/src/components/ui/` contains repository-owned shadcn source.
+- `apps/web/src/components/auctions/` owns the Auctions page: the toolbar island (search, faceted Source and TLD filters, Max bid, Ends, the Columns menu), the removable filter chips, the server-rendered results table, and pagination. `apps/web/src/domain/table-columns.ts` is the single registry of table columns and parses the `columns` cookie. `apps/web/src/components/ui/` contains stock shadcn source.
 - `apps/web/src/domain/domain-table.ts` owns pure filter parsing, link construction, and presentation formatting.
 - `apps/web/src/server/db/` owns the server-only Drizzle schema, client, and database types, and `listing-facets.ts`, the SQL that rebuilds the facet read model.
 - `apps/web/src/server/queries/domain-listings.ts` is the server-only application boundary for the D1 table read model implemented in `domain-listings-query.ts`.

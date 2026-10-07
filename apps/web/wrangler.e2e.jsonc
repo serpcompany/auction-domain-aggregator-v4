@@ -4,6 +4,9 @@
   "main": "worker.ts",
   "compatibility_date": "2026-07-13",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+  // Bundling with kept names injects __name() into functions that next-themes serializes into
+  // its inline script, which then throws in the browser.
+  "keep_names": false,
   "assets": {
     "binding": "ASSETS",
     "directory": ".open-next/assets"

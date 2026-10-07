@@ -25,7 +25,7 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [x] (2026-10-07) Milestone 0 (#59): committed the plan and mockups (`docs/plans/active/ui-redesign-mockups.html`), updated the product spec, and recorded the trailing-slash decision. PR open for owner approval.
 - [ ] Milestone 0 (#59): owner approves the spec PR.
 - [x] (2026-10-07) Milestone 1 (#53): foundation reset (tokens, fonts, refreshed `ui/`, guard test, app shell).
-- [ ] Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
+- [x] (2026-10-07) Milestone 2 (#54): Auctions page on desktop (toolbar, quick filters, column registry and Columns menu, table, pagination).
 - [x] (2026-10-07) Milestone 2b (#55), done before Milestone 2 so the toolbar's All filters button has a target: Filters page at `/filters/`.
 - [ ] Milestone 3 (#56): details panel and the phone layout.
 - [ ] Milestone 4 (#57): loading, error, empty, stale, and DR-pending states.
@@ -33,6 +33,9 @@ Out of scope: new providers, new filters, changes to D1 queries other than the o
 - [ ] Milestone 6 (in #52): documentation, final verification at both widths, plan moved to `completed/`.
 
 ## Surprises & Discoveries
+
+- Observation: Wrangler bundles the OpenNext Worker with esbuild's `keep_names`, which injects `__name()` into functions that `next-themes` serializes into its inline theme script; the script then throws "__name is not defined" in the browser, so the theme could flash on load.
+  Evidence: Playwright `pageerror` events on the workerd preview during #54. `"keep_names": false` in `apps/web/wrangler.jsonc` and `wrangler.e2e.jsonc` fixes it, and the first journey now fails on any uncaught page error.
 
 - Observation: Next 16's `proxy.ts` (the renamed middleware) runs only on the Node runtime, and OpenNext for Cloudflare refuses to build it: "Node.js middleware is not currently supported".
   Evidence: `corepack pnpm test:e2e` failed with `e2e_build_failed` after adding `apps/web/src/proxy.ts` (#53). A `next.config.ts` redirect loops instead, because Next matches each redirect source with or without its trailing slash. The trailing-slash rule moved to a Worker entry, as best.serp.co does.

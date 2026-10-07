@@ -1,4 +1,8 @@
-import type { DomainTableFilters, DomainTableSearchParams } from '@/domain/domain-table'
+import {
+  buildDomainTableHref,
+  type DomainTableFilters,
+  type DomainTableSearchParams
+} from '@/domain/domain-table'
 
 // The Filters page (/filters/) groups every filter into these sections.
 export const FILTER_SECTIONS = [
@@ -100,4 +104,9 @@ export function countFiltersBySection(
       filters.semrushAsMin !== undefined
     )
   }
+}
+
+// The Filters page carries the same query string as the table.
+export function buildFiltersPageHref(filters: DomainTableFilters) {
+  return `/filters/${buildDomainTableHref(filters).slice(1)}`
 }
