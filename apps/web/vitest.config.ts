@@ -5,7 +5,7 @@ export default defineConfig({
     tsconfigPaths: true
   },
   test: {
-    exclude: [...configDefaults.exclude, 'e2e/**', '.claude/**'],
+    exclude: [...configDefaults.exclude, 'e2e/**', '.claude/**', 'tmp/**'],
     environment: 'jsdom',
     setupFiles: ['./vitest.setup.ts'],
     coverage: {
