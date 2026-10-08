@@ -10,8 +10,9 @@ function isPageRequest(request: Request) {
   return new URL(request.url()).pathname === '/' && !request.headers()['next-router-prefetch']
 }
 
-// Hovers until the tooltip shows: a hover that lands before hydration opens
-// nothing, so it is repeated rather than trusted once.
+// Hovers until the tooltip shows. A hover that lands before hydration opens
+// nothing until the pointer moves again, and the 96 row menus and checkboxes
+// make hydration finish later, so the hover is repeated rather than trusted once.
 async function expectTooltipOnHover(page: Page, target: Locator, text: RegExp) {
   const tooltip = page.locator('[data-slot=tooltip-content]').filter({ hasText: text })
   await expect(async () => {
@@ -21,6 +22,7 @@ async function expectTooltipOnHover(page: Page, target: Locator, text: RegExp) {
   }).toPass()
 }
 
+// Records the page requests (see above) a page sends from now on.
 function recordPageRequests(page: Page) {
   const requests: string[] = []
   page.on('request', request => {
@@ -148,7 +150,10 @@ test('adds a rule from Filters and applies its value only on Enter', async ({ pa
   await page.getByRole('option', { name: '≤' }).click()
 
   // Typing and choosing the operator send no page request; Enter does.
-  const pageRequests = recordPageRequests(page)
+  const pageRequests: string[] = []
+  page.on('request', request => {
+    if (isPageRequest(request)) pageRequests.push(request.url())
+  })
   await value.click()
   await value.pressSequentially('500', { delay: 50 })
   await page.waitForTimeout(500)
@@ -531,7 +536,13 @@ test('opens listing details beside the table from the row menu on desktop', asyn
   await page.goto('/?q=garden')
 
   const actions = page.getByRole('button', { name: 'Actions for garden.com' })
-  await actions.click()
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await actions.click()
+    await expect(page.getByRole('menuitem', { name: 'Open auction' })).toBeVisible({
+      timeout: 1000
+    })
+  }).toPass()
   await expect(page.getByRole('menuitem', { name: 'Open auction' })).toHaveAttribute(
     'target',
     '_blank'
@@ -590,7 +601,11 @@ test('pins and moves columns in the browser only, keeping them across a reload',
       .evaluateAll(cells => cells.map(cell => cell.getAttribute('aria-label') ?? cell.textContent))
   const pageRequests = recordPageRequests(page)
 
-  await header('Price').getByRole('button').click()
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await header('Price').getByRole('button').click()
+    await expect(page.getByRole('menuitem', { name: 'Pin to left' })).toBeVisible({ timeout: 1000 })
+  }).toPass()
   await page.getByRole('menuitem', { name: 'Pin to left' }).click()
   await expect(page.getByRole('menu')).toHaveCount(0)
   await header('Bids').getByRole('button').click()
@@ -658,7 +673,11 @@ test('selects rows on the page and clears the selection on navigation', async ({
   const bar = page.getByRole('region', { name: 'Selected rows' })
 
   await expect(bar).toBeHidden()
-  await rows.nth(0).getByRole('checkbox').click()
+  // A click before hydration selects nothing, so the first one is retried.
+  await expect(async () => {
+    await rows.nth(0).getByRole('checkbox').click()
+    await expect(rows.nth(0)).toHaveAttribute('data-state', 'selected', { timeout: 1000 })
+  }).toPass()
   await rows.nth(1).getByRole('checkbox').click()
   await expect(bar.getByRole('status')).toHaveText('2 selected')
   await expect(all).toHaveAttribute('aria-checked', 'mixed')
