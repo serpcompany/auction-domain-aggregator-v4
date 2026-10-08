@@ -21,7 +21,7 @@ and never appears in a shared URL.
 - [ ] M1 Page size 96 and at most two DR requests per page, with rows read measured.
 - [x] (2026-10-08) M2 One-row headers, tooltips, header menus (sort, hide), Columns menu, footer.
 - [ ] M3 Pin and move, row selection column and bar, row action menu.
-- [ ] M4 Rule bar, Filters menu, Clear all, with a measured bind count.
+- [x] (2026-10-08) M4 Rule bar, Filters menu, Clear all; the worst statements bind 89 (tested).
 - [ ] M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
 - [ ] M6 Save and Views (named saved views, #106), built last.
 - [ ] M7 (deferred) Maximum filters, only after the bind-budget decision below.
@@ -107,6 +107,11 @@ All 2026-10-08. "Owner" decisions come from the owner directly or through #125.
 M2: hiding and Reset layout send no page request; the current sort is marked, not a link (no D1
 re-read). Ref. dom. got a tooltip too, since its Majestic group row is gone.
 
+M4: a rule sends no request until Enter, leaving it, or choosing an option; a list rule applies
+when its list closes, so three TLDs cost one D1 read. Save waits for M6, and the desktop "All
+filters" link is gone. The bind test seeds a full page of worst-case matches, since Drizzle binds no
+offset on page 1.
+
 ## Context and Orientation
 
 Run commands from `apps/web/`. The page (`src/app/page.tsx`) reads the `columns` and `column-widths`
@@ -182,14 +187,9 @@ A pure module `src/domain/filter-rules.ts` exports `rulesFromFilters(filters): R
 | Renewal | ≤ | `renewalMax` |
 | Ends | within 1h to 7d | `endingWithin` |
 
-The rule bar replaces the faceted toolbar and the chip row in one wrapping row: the always-present
-`Domain · contains` rule (keeping `/`), one rule per active field (field name, operator Select, value
-control, × to remove), Filters (a menu of unused fields; choosing one adds a rule and focuses its
-value), Clear all (keeps the sort), and Save (enabled in M6). Inputs commit on Enter, blur, or
-choosing an option via `router.push`, and every change resets `page`. The title row carries Views
-(M6), Fetch DR (#122), and Columns. Phones get a full-width search, wrapping rules, and the sort
-select; `/filters/` stays. Add a workerd test that reads `toSQL().params.length` of the worst
-accepted count and row statements and fails above 89.
+Done (2026-10-08): the rule bar replaced the faceted toolbar and chip row on md and wider; phones
+keep their toolbar, chips, and `/filters/`. Behavior and the bind budget are in
+`docs/technical-design/domain-discovery.md`.
 
 ### M5 Cells and phone
 

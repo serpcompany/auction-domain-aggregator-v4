@@ -217,9 +217,15 @@ export function AuctionsPage({
                 <ListingCount result={result} />
               </Suspense>
             }
+            actions={
+              <Suspense key={key} fallback={null}>
+                <FetchDomainRatings result={result} filters={filters} />
+              </Suspense>
+            }
           />
           <ActiveFilters
             filters={filters}
+            className="md:hidden"
             actions={
               <Suspense key={key} fallback={null}>
                 <FetchDomainRatings result={result} filters={filters} />

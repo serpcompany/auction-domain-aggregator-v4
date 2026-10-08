@@ -1,4 +1,5 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AuctionsToolbar } from '@/components/auctions/auctions-toolbar'
@@ -23,7 +24,7 @@ beforeAll(() => {
 beforeEach(() => push.mockClear())
 afterEach(cleanup)
 
-function renderToolbar(params: Record<string, string | string[]> = {}) {
+function renderToolbar(params: Record<string, string | string[]> = {}, actions?: ReactNode) {
   return render(
     <TableLayoutProvider initialColumns={DEFAULT_COLUMNS} initialWidths={{}}>
       <AuctionsToolbar
@@ -32,27 +33,25 @@ function renderToolbar(params: Record<string, string | string[]> = {}) {
         auctionTypes={['auction', 'buy_now', 'expired']}
         tlds={['co', 'com', 'net']}
         count={<span>857,412 listings</span>}
+        actions={actions}
       />
     </TableLayoutProvider>
   )
 }
 
-async function choose(trigger: string, option: string) {
-  fireEvent.click(screen.getByRole('button', { name: new RegExp(`^${trigger}`) }))
-  fireEvent.click(await screen.findByRole('option', { name: option }))
-}
-
 describe('AuctionsToolbar', () => {
-  it('shows the count, the All filters link, and no Reset without filters', () => {
+  it('shows the count, Filters, Columns, and no Clear all without filters', () => {
     renderToolbar()
 
     expect(screen.getByText('857,412 listings')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'All filters' })).toHaveAttribute(
-      'href',
-      '/filters/?sort=price&direction=desc&page=1'
-    )
-    expect(screen.queryByRole('link', { name: 'Reset' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Filters' })).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Clear all' })).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Columns' })).toBeInTheDocument()
+  })
+
+  it('ends the row with actions on the matching listings', () => {
+    renderToolbar({ tld: 'com' }, <button type="button">Fetch DR</button>)
+    expect(screen.getByRole('button', { name: 'Fetch DR' })).toBeInTheDocument()
   })
 
   it('searches on Enter and returns to page 1', () => {
@@ -62,6 +61,18 @@ describe('AuctionsToolbar', () => {
     fireEvent.change(search, { target: { value: '  Garden ' } })
     fireEvent.submit(search.closest('form') as HTMLFormElement)
     expect(push).toHaveBeenCalledWith('/?q=garden&sort=price&direction=desc&page=1')
+  })
+
+  it('searches on leaving the field only when the search changed', () => {
+    renderToolbar({ q: 'garden' })
+
+    const search = screen.getByRole('searchbox', { name: 'Domain contains' })
+    fireEvent.change(search, { target: { value: 'Garden ' } })
+    fireEvent.blur(search)
+    expect(push).not.toHaveBeenCalled()
+    fireEvent.change(search, { target: { value: '' } })
+    fireEvent.blur(search)
+    expect(push).toHaveBeenCalledWith('/?sort=price&direction=desc&page=1')
   })
 
   it('focuses search on "/" unless the user is typing', () => {
@@ -82,88 +93,18 @@ describe('AuctionsToolbar', () => {
     other.remove()
   })
 
-  it('applies a source as soon as it is chosen and clears it again', async () => {
-    renderToolbar({ source: 'godaddy' })
-    expect(screen.getByRole('button', { name: /^Source/ })).toHaveTextContent('GoDaddy')
+  it('edits filters as rules that push the URL on page 1', () => {
+    renderToolbar({ type: 'expired', bidsMin: '5', page: '3' })
 
-    await choose('Source', 'Dynadot')
-    expect(push).toHaveBeenLastCalledWith(
-      '/?source=godaddy&source=dynadot&sort=price&direction=desc&page=1'
-    )
-    fireEvent.click(screen.getByRole('option', { name: 'GoDaddy' }))
-    expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
-    fireEvent.click(screen.getByRole('option', { name: 'Clear filter' }))
-    expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
-  })
-
-  it('applies an auction type as soon as it is chosen', async () => {
-    renderToolbar()
-
-    await choose('Type', 'Expired')
-    expect(push).toHaveBeenLastCalledWith('/?type=expired&sort=price&direction=desc&page=1')
-  })
-
-  it('searches TLDs, summarizes many choices, and keeps a TLD the facets dropped', async () => {
-    renderToolbar({ tld: ['com', 'co', 'org'] })
-    const trigger = screen.getByRole('button', { name: /^TLD/ })
-    expect(trigger).toHaveTextContent('3 selected')
-
-    fireEvent.click(trigger)
-    expect(await screen.findByPlaceholderText('TLD')).toBeInTheDocument()
-    expect(screen.getByText('3 TLDs in the inventory')).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'org' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('option', { name: '.net' }))
-    expect(push).toHaveBeenLastCalledWith(
-      '/?tld=com&tld=co&tld=org&tld=net&sort=price&direction=desc&page=1'
-    )
-  })
-
-  it('applies and clears a maximum bid', async () => {
-    renderToolbar({ priceMax: '50' })
-    const trigger = screen.getByRole('button', { name: /^Max bid/ })
-    expect(trigger).toHaveTextContent('$50')
-
-    fireEvent.click(trigger)
-    const input = await screen.findByRole('spinbutton', { name: 'Max bid' })
-    expect(input).toHaveValue(50)
-    fireEvent.change(input, { target: { value: '120.5' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Apply' }))
-    expect(push).toHaveBeenLastCalledWith('/?priceMax=120.50&sort=price&direction=desc&page=1')
-
-    fireEvent.click(screen.getByRole('button', { name: /^Max bid/ }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Clear' }))
-    expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
-  })
-
-  it('opens an empty maximum bid without Clear', async () => {
-    renderToolbar()
-    fireEvent.click(screen.getByRole('button', { name: /^Max bid/ }))
-    expect(await screen.findByRole('spinbutton', { name: 'Max bid' })).toHaveValue(null)
-    expect(screen.queryByRole('button', { name: 'Clear' })).not.toBeInTheDocument()
-  })
-
-  it('picks an ending window and returns to any time', async () => {
-    renderToolbar({ endingWithin: '6h' })
-    expect(screen.getByRole('button', { name: /^Ends/ })).toHaveTextContent('6 hours')
-
-    await choose('Ends', 'Within 24 hours')
-    expect(push).toHaveBeenLastCalledWith('/?endingWithin=24h&sort=price&direction=desc&page=1')
-    await choose('Ends', 'Any time')
-    expect(push).toHaveBeenLastCalledWith('/?sort=price&direction=desc&page=1')
-    fireEvent.click(screen.getByRole('button', { name: /^Ends/ }))
-    expect(
-      within(await screen.findByRole('option', { name: /Within 6 hours/ })).getByText('(selected)')
-    ).toBeInTheDocument()
-  })
-
-  it('counts the filters only the Filters page sets and offers Reset', () => {
-    renderToolbar({ bidsMin: '5', noDigits: '1', tld: 'com', type: 'expired' })
-
-    expect(screen.getByRole('link', { name: 'All filters 2' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: 'Reset' })).toHaveAttribute(
+    expect(screen.getByRole('group', { name: 'Type rule' })).toHaveTextContent('Expired')
+    expect(screen.getByRole('link', { name: 'Clear all' })).toHaveAttribute(
       'href',
       '/?sort=price&direction=desc&page=1'
     )
+    const bids = screen.getByRole('spinbutton', { name: 'Bids value' })
+    fireEvent.change(bids, { target: { value: '8' } })
+    fireEvent.keyDown(bids, { key: 'Enter' })
+    expect(push).toHaveBeenCalledWith('/?type=expired&bidsMin=8&sort=price&direction=desc&page=1')
   })
 
   it('gives phones a Filters link counting every filter and a sort list', () => {
