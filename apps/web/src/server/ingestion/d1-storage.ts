@@ -157,6 +157,40 @@ const UPSERT_SEO_METRICS_SQL = `
     OR domain_seo_metrics.semrush_backlinks IS NOT excluded.semrush_backlinks
 `
 
+// A listing goes a week after its auction ends, whatever its provider or
+// status: by then the table has hidden it for a week, and a provider that is
+// no longer synced (as on Staging) leaves its listings behind otherwise. The
+// feed metrics and domains nothing else uses go with it, so storage stops
+// growing with every day's ended auctions; a domain with a stored Ahrefs
+// rating is kept, since rating it again would cost an Ahrefs call. There is
+// no index on `ends_at`, so the table is read once in rowid order from a
+// cursor, which costs reads but no index writes.
+const DELETE_ENDED_LISTINGS_SQL = `
+  DELETE FROM auction_listings WHERE rowid IN (
+    SELECT rowid FROM auction_listings
+    WHERE rowid > ? AND ends_at < ?
+    ORDER BY rowid
+    LIMIT ?
+  )
+  RETURNING rowid, domain_name
+`
+
+const DELETE_UNUSED_SEO_METRICS_SQL = `
+  DELETE FROM domain_seo_metrics
+  WHERE domain_name IN (SELECT value FROM json_each(?))
+    AND NOT EXISTS (
+      SELECT 1 FROM auction_listings AS l WHERE l.domain_name = domain_seo_metrics.domain_name
+    )
+`
+
+const DELETE_UNUSED_DOMAINS_SQL = `
+  DELETE FROM domains
+  WHERE name IN (SELECT value FROM json_each(?))
+    AND NOT EXISTS (SELECT 1 FROM auction_listings AS l WHERE l.domain_name = domains.name)
+    AND NOT EXISTS (SELECT 1 FROM domain_seo_metrics AS s WHERE s.domain_name = domains.name)
+    AND NOT EXISTS (SELECT 1 FROM domain_metrics AS m WHERE m.domain_name = domains.name)
+`
+
 // Inserts nothing once the run has stopped running, which is how a stale
 // continuation is detected now that unchanged listings write nothing.
 const INSERT_SEEN_PAGE_SQL = `
@@ -377,6 +411,27 @@ export function createD1IngestionStorage(
           console.warn('sync_cleanup_failed', { message: errorMessage(error) })
         )
       return completed[0].recordsInactivated
+    },
+
+    async deleteEndedListings(before, afterRowid, limit) {
+      const { results } = await db.$client
+        .prepare(DELETE_ENDED_LISTINGS_SQL)
+        .bind(afterRowid, before.getTime(), limit)
+        .all<{ rowid: number; domain_name: string }>()
+      if (results.length === 0) {
+        return { listings: 0, seoMetrics: 0, domains: 0, lastRowid: afterRowid }
+      }
+      const names = JSON.stringify([...new Set(results.map(row => row.domain_name))])
+      const [seoMetrics, unusedDomains] = await db.$client.batch([
+        db.$client.prepare(DELETE_UNUSED_SEO_METRICS_SQL).bind(names),
+        db.$client.prepare(DELETE_UNUSED_DOMAINS_SQL).bind(names)
+      ])
+      return {
+        listings: results.length,
+        seoMetrics: seoMetrics.meta.changes,
+        domains: unusedDomains.meta.changes,
+        lastRowid: Math.max(...results.map(row => row.rowid))
+      }
     },
 
     async loadSucceededRun(runId) {

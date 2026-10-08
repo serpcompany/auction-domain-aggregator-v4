@@ -22,6 +22,10 @@
   "triggers": {
     "crons": ["30 15 * * *"]
   },
+  // The providers a Cron Trigger syncs, comma-separated; "" is every provider.
+  "vars": {
+    "SYNC_PROVIDERS": ""
+  },
   "d1_databases": [
     {
       "binding": "DB",
@@ -46,8 +50,10 @@
     }
   ],
   "env": {
-    // Staging: the same Worker and Workflow on Staging's own D1 and R2, synced
-    // daily at 11:30 UTC (20:30 in Japan), four hours before Production.
+    // Staging: the same Worker and Workflow on Staging's own D1 and R2. It
+    // exists to test deploys, so it syncs only GoDaddy (one file, no key, no
+    // rate limit), weekly on Mondays at 11:30 UTC; a full sync is started by
+    // hand (docs/technical-design/deployment.md).
     "staging": {
       "name": "auction-domain-aggregator-ingestion-staging",
       // No HTTP routes: no workers.dev URL and no preview URLs.
@@ -57,7 +63,10 @@
         "cpu_ms": 60000
       },
       "triggers": {
-        "crons": ["30 11 * * *"]
+        "crons": ["30 11 * * 1"]
+      },
+      "vars": {
+        "SYNC_PROVIDERS": "godaddy"
       },
       "observability": {
         "enabled": true
@@ -96,6 +105,9 @@
       },
       "triggers": {
         "crons": ["30 15 * * *"]
+      },
+      "vars": {
+        "SYNC_PROVIDERS": ""
       },
       "observability": {
         "enabled": true

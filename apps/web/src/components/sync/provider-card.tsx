@@ -15,6 +15,7 @@ import {
   formatAgo,
   formatIn,
   formatRunDuration,
+  isScheduled,
   nextScheduledSync,
   providerFeed,
   type SyncSchedule,
@@ -122,11 +123,17 @@ export function ProviderCard({
               </>
             ) : null}
             <Fact label="Next run">
-              {schedule.label}
-              <span className="text-muted-foreground">
-                {' '}
-                · {formatIn(nextScheduledSync(now, schedule), now)}
-              </span>
+              {isScheduled(schedule, provider) ? (
+                <>
+                  {schedule.label}
+                  <span className="text-muted-foreground">
+                    {' '}
+                    · {formatIn(nextScheduledSync(now, schedule), now)}
+                  </span>
+                </>
+              ) : (
+                <span className="text-muted-foreground">Not scheduled here; run by hand</span>
+              )}
             </Fact>
           </dl>
         )}

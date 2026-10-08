@@ -6,6 +6,7 @@
 //   [stage feed]                  file feeds only: zip or CSV -> R2 page files
 //   sync pages, segment 1..n      runSyncSegment over 20 pages per step
 //   [delete staged pages]         file feeds only, also after a failure
+//   delete ended listings, 1..n   after a success: any listing ended a week ago
 //
 // Each completed step's result is persisted by Workflows. A step may run
 // again: after a retryable error, or when the platform interrupts it before
@@ -36,6 +37,7 @@ import {
 import { type FeedErrorCode, feedErrorCode, stageZippedFeed } from './feed-stage'
 import { findNamesiloRecording, replayNamesiloRecording } from './namesilo-recording'
 import {
+  errorMessage,
   failSyncRun,
   type IngestionStorage,
   runSyncSegment,
@@ -50,6 +52,8 @@ export type SyncWorkerEnv = ProviderSecrets & {
   DB: D1Database
   FEED_PAGES: R2Bucket
   PROVIDER_SYNC: Workflow<ProviderSyncParams>
+  // The providers the Cron Trigger syncs, comma-separated; empty is every one.
+  SYNC_PROVIDERS?: string
 }
 
 // The subset of a Workflow step's options used here.
@@ -87,6 +91,13 @@ export const CLEANUP_STEP: StepConfig = {
   retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' },
   timeout: '5 minutes'
 }
+
+// Inactive listings are kept this long after they end, then deleted.
+export const ENDED_LISTING_RETENTION_MS = 7 * 24 * 60 * 60_000
+// Deletes run in statements of this many listings, this many per step: about
+// 50,000 listings per step, so the first run's backlog takes a few steps.
+const DELETE_BATCH = 2_000
+const DELETE_BATCHES_PER_STEP = 25
 
 const SEGMENT_PAGES = 20
 // GoDaddy's archive is about 37 MB zipped and 450 MB unzipped. The download
@@ -335,7 +346,52 @@ export async function runProviderSync({
   // A failed step surfaces as a generic Workflows error unless its fixed
   // code is rethrown from `run`.
   if ('failure' in result) throw new Error(fixedErrorCode(result.failure))
+  await deleteEndedListings(step, storage)
   return result.summary
+}
+
+// After a successful run, every listing that ended more than a week ago is
+// deleted, a batch at a time in one pass over the table, with the feed
+// metrics and domains nothing else uses (`deleteEndedListings`). Best effort:
+// the sync has succeeded, so a failure is only logged and the next
+// successful run carries on.
+async function deleteEndedListings(step: StepRunner, storage: IngestionStorage) {
+  const deleted = { listings: 0, seoMetrics: 0, domains: 0 }
+  let cursor = 0
+  try {
+    for (let stepNumber = 1; ; stepNumber += 1) {
+      const from = cursor
+      const batch = await step.do(
+        `delete ended listings, step ${stepNumber}`,
+        CLEANUP_STEP,
+        async () => {
+          const before = new Date(Date.now() - ENDED_LISTING_RETENTION_MS)
+          const counts = { listings: 0, seoMetrics: 0, domains: 0, lastRowid: from, more: false }
+          for (let index = 0; index < DELETE_BATCHES_PER_STEP; index += 1) {
+            const result = await storage.deleteEndedListings(before, counts.lastRowid, DELETE_BATCH)
+            counts.listings += result.listings
+            counts.seoMetrics += result.seoMetrics
+            counts.domains += result.domains
+            counts.lastRowid = result.lastRowid
+            counts.more = result.listings === DELETE_BATCH
+            if (!counts.more) break
+          }
+          return counts
+        }
+      )
+      deleted.listings += batch.listings
+      deleted.seoMetrics += batch.seoMetrics
+      deleted.domains += batch.domains
+      cursor = batch.lastRowid
+      if (!batch.more) break
+    }
+    console.info('ended_listings_deleted', { provider: storage.provider, ...deleted })
+  } catch (error) {
+    console.warn('ended_listings_delete_failed', {
+      provider: storage.provider,
+      message: errorMessage(error)
+    })
+  }
 }
 
 // Workflows rejects `step.do` for a step that threw a NonRetryableError with
@@ -357,12 +413,27 @@ export function fixedErrorCode(error: unknown) {
 // One instance per implemented provider for a Cron Trigger firing. The
 // instance ID is derived from the scheduled time, so a repeated delivery of
 // the same firing cannot start a second instance.
+// The providers a Cron Trigger syncs: the listed ones, in registry order, or
+// every provider when the list is empty. A list naming no known provider is
+// a configuration error, not an empty schedule.
+export function scheduledProviders(list = '') {
+  const listed = list
+    .split(',')
+    .map(provider => provider.trim())
+    .filter(Boolean)
+  const providers = Object.keys(PROVIDER_REGISTRY).filter(
+    provider => listed.length === 0 || listed.includes(provider)
+  )
+  if (providers.length === 0) throw new Error('sync_schedule_invalid')
+  return providers
+}
+
 export async function scheduleProviderSyncs(
   workflow: Pick<Workflow<ProviderSyncParams>, 'create'>,
-  scheduledTime: Date
+  scheduledTime: Date,
+  providers: string[] = scheduledProviders()
 ) {
   const stamp = scheduledTime.toISOString().replace(/[-:]/g, '').slice(0, 13)
-  const providers = Object.keys(PROVIDER_REGISTRY)
   const results = await Promise.allSettled(
     providers.map(provider => workflow.create({ id: `${provider}-${stamp}`, params: { provider } }))
   )
