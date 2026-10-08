@@ -159,53 +159,63 @@ export function AuctionsToolbar({
   const active = Object.values(countFiltersBySection(filters)).reduce((sum, n) => sum + n, 0)
 
   return (
-    <div className="flex flex-wrap items-center gap-2" aria-busy={pending || undefined}>
-      <SearchField
-        // Remount on navigation so Back, rules, and Clear all show the URL's query.
-        key={filters.query ?? ''}
-        query={filters.query}
-        onSearch={query =>
-          navigate(
-            buildDomainTableHref(filters, {
-              query: parseDomainTableFilters({ q: query }).query,
-              page: 1
-            })
-          )
-        }
-      />
-      <div className="hidden md:contents">
-        <RuleBar
-          filters={filters}
-          options={ruleOptions({ sources, auctionTypes, tlds })}
-          onNavigate={navigate}
-        />
-      </div>
-      <div className="flex items-center gap-2 md:hidden">
-        <Link
-          prefetch={false}
-          href={buildFiltersPageHref(filters)}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          <ListFilterIcon aria-hidden="true" />
-          Filters
-          {active > 0 ? (
-            <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-              {active}
-            </Badge>
-          ) : null}
-        </Link>
-        <SortSelect
-          filters={filters}
-          onChange={(sort, direction) =>
-            navigate(buildDomainTableHref(filters, { sort, direction, page: 1 }))
+    // On md and wider the rules wrap on the left while the count and the
+    // listing actions keep the first row's right end.
+    <div
+      className="flex flex-col gap-2 md:flex-row md:items-start"
+      aria-busy={pending || undefined}
+      data-testid="auctions-toolbar"
+    >
+      <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2">
+        <SearchField
+          // Remount on navigation so Back, rules, and Clear all show the URL's query.
+          key={filters.query ?? ''}
+          query={filters.query}
+          onSearch={query =>
+            navigate(
+              buildDomainTableHref(filters, {
+                query: parseDomainTableFilters({ q: query }).query,
+                page: 1
+              })
+            )
           }
         />
-        <FieldsDrawer />
+        <div className="hidden md:contents">
+          <RuleBar
+            filters={filters}
+            options={ruleOptions({ sources, auctionTypes, tlds })}
+            onNavigate={navigate}
+          />
+        </div>
+        <div className="flex items-center gap-2 md:hidden">
+          <Link
+            prefetch={false}
+            href={buildFiltersPageHref(filters)}
+            className={buttonVariants({ variant: 'outline', size: 'sm' })}
+          >
+            <ListFilterIcon aria-hidden="true" />
+            Filters
+            {active > 0 ? (
+              <Badge variant="secondary" className="rounded-sm px-1 font-normal">
+                {active}
+              </Badge>
+            ) : null}
+          </Link>
+          <SortSelect
+            filters={filters}
+            onChange={(sort, direction) =>
+              navigate(buildDomainTableHref(filters, { sort, direction, page: 1 }))
+            }
+          />
+          <FieldsDrawer />
+        </div>
       </div>
-      {/* One unit, so a wrapping rule bar never splits the count from its actions. */}
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex h-8 shrink-0 items-center gap-2">
         <div
-          className={cn('text-sm text-muted-foreground tabular-nums', pending && 'animate-pulse')}
+          className={cn(
+            'text-sm whitespace-nowrap text-muted-foreground tabular-nums',
+            pending && 'animate-pulse'
+          )}
         >
           {count}
         </div>

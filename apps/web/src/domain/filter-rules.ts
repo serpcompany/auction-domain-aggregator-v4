@@ -73,36 +73,36 @@ export const RULE_FIELDS = {
   appraisal: { label: 'Appraisal', operators: ['gte'], kind: 'money', params: ['appraisalMin'] },
   renewal: { label: 'Renewal', operators: ['lte'], kind: 'money', params: ['renewalMax'] },
   majesticTf: {
-    label: 'TF',
-    description: 'Majestic Trust Flow',
+    label: 'Majestic TF',
+    description: 'Trust Flow',
     operators: ['gte'],
     kind: 'integer',
     params: ['majesticTfMin']
   },
   majesticCf: {
-    label: 'CF',
-    description: 'Majestic Citation Flow',
+    label: 'Majestic CF',
+    description: 'Citation Flow',
     operators: ['gte'],
     kind: 'integer',
     params: ['majesticCfMin']
   },
   majesticRefDomains: {
-    label: 'Ref. domains',
-    description: 'Majestic referring domains',
+    label: 'Majestic ref. domains',
+    description: 'Referring domains',
     operators: ['gte'],
     kind: 'integer',
     params: ['majesticRefDomainsMin']
   },
   semrushAs: {
-    label: 'AS',
-    description: 'Semrush Authority Score',
+    label: 'Semrush AS',
+    description: 'Authority Score',
     operators: ['gte'],
     kind: 'integer',
     params: ['semrushAsMin']
   },
   domainRating: {
-    label: 'DR',
-    description: 'Domain Rating by Ahrefs',
+    label: 'Ahrefs DR',
+    description: 'Domain Rating',
     operators: ['gte'],
     kind: 'integer',
     params: ['domainRatingMin']

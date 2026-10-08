@@ -4,11 +4,11 @@ import type { DomainTableSort } from '@/domain/domain-table'
 // cookie that stores the choice all read it; Domain is always shown and is
 // not part of it. Every column can be sorted.
 export const TABLE_COLUMNS = [
-  { key: 'source', label: 'Source', sort: 'source', width: 104, defaultVisible: true },
+  { key: 'source', label: 'Source', sort: 'source', width: 112, defaultVisible: true },
   { key: 'type', label: 'Type', sort: 'type', width: 80, defaultVisible: true },
   { key: 'price', label: 'Price', sort: 'price', numeric: true, width: 80, defaultVisible: true },
   { key: 'bids', label: 'Bids', sort: 'bids', numeric: true, width: 72, defaultVisible: true },
-  { key: 'ends', label: 'Ends', sort: 'endsAt', width: 192, defaultVisible: true },
+  { key: 'ends', label: 'Ends', sort: 'endsAt', width: 96, defaultVisible: true },
   { key: 'age', label: 'Age', sort: 'age', numeric: true, width: 64, defaultVisible: true },
   {
     key: 'links',
@@ -103,7 +103,7 @@ export const TABLE_COLUMNS = [
     sort: 'domainRating',
     group: 'Ahrefs',
     numeric: true,
-    width: 104,
+    width: 72,
     defaultVisible: true
   }
 ] as const satisfies ReadonlyArray<{

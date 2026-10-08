@@ -85,18 +85,39 @@ describe('RuleBar', () => {
     expect(screen.getByRole('link', { name: 'Clear all' })).toHaveAttribute('href', url(''))
   })
 
+  it('names metric rules by their vendor and metric', () => {
+    render(
+      bar({
+        majesticTfMin: '25',
+        majesticCfMin: '20',
+        majesticRefDomainsMin: '10',
+        semrushAsMin: '30',
+        domainRatingMin: '40'
+      })
+    )
+
+    expect(screen.getAllByRole('group').map(group => group.getAttribute('aria-label'))).toEqual([
+      'Majestic TF rule',
+      'Majestic CF rule',
+      'Majestic ref. domains rule',
+      'Semrush AS rule',
+      'Ahrefs DR rule'
+    ])
+    expect(screen.getByRole('spinbutton', { name: 'Majestic TF value' })).toHaveValue(25)
+  })
+
   it('has no Clear all without filters', () => {
     render(bar())
     expect(screen.queryByRole('link', { name: 'Clear all' })).not.toBeInTheDocument()
     expect(screen.queryByRole('group')).not.toBeInTheDocument()
   })
 
-  it('lists the unused fields, with full names for short labels', async () => {
+  it('lists the unused fields, with what a metric measures', async () => {
     render(bar({ tld: 'com', noHyphens: '1' }))
     fireEvent.click(screen.getByRole('button', { name: 'Filters' }))
     const listed = (await screen.findAllByRole('option')).map(option => option.textContent)
     expect(listed).toContain('Domain has no digits')
-    expect(listed).toContain('TFMajestic Trust Flow')
+    expect(listed).toContain('Majestic TFTrust Flow')
     expect(listed).not.toContain('Domain has no hyphens')
     expect(listed).not.toContain('TLD')
     expect(listed.some(label => label?.startsWith('Domain contains'))).toBe(false)

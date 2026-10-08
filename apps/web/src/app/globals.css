@@ -29,6 +29,10 @@
   --color-destructive: var(--destructive);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-provider-namecheap: var(--provider-namecheap);
+  --color-provider-godaddy: var(--provider-godaddy);
+  --color-provider-dynadot: var(--provider-dynadot);
+  --color-provider-namesilo: var(--provider-namesilo);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -66,9 +70,15 @@
   --accent: oklch(0.97 0 0);
   --accent-foreground: oklch(0.205 0 0);
   --destructive: oklch(0.577 0.245 27.325);
-  /* Time-sensitive (but not urgent) states, such as a stale inventory or an auction ending within a day. */
+  /* Time-sensitive (but not urgent) states, such as a stale inventory or an auction ending within two days. */
   --warning: oklch(0.97 0.05 85);
   --warning-foreground: oklch(0.47 0.12 60);
+  /* The dot in each provider's Source pill. Lightness steps apart, not only hue, so the
+     dots stay distinct without color vision. */
+  --provider-namecheap: oklch(0.72 0.16 55);
+  --provider-godaddy: oklch(0.6 0.11 175);
+  --provider-dynadot: oklch(0.5 0.19 262);
+  --provider-namesilo: oklch(0.4 0.16 305);
   --border: oklch(0.922 0 0);
   --input: oklch(0.922 0 0);
   --ring: oklch(0.708 0 0);
@@ -106,6 +116,10 @@
   --destructive: oklch(0.704 0.191 22.216);
   --warning: oklch(0.3 0.06 70);
   --warning-foreground: oklch(0.85 0.12 85);
+  --provider-namecheap: oklch(0.82 0.14 60);
+  --provider-godaddy: oklch(0.7 0.12 175);
+  --provider-dynadot: oklch(0.6 0.17 262);
+  --provider-namesilo: oklch(0.93 0.05 305);
   --border: oklch(1 0 0 / 10%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.556 0 0);

@@ -528,7 +528,7 @@ export function formatAbsoluteEndTime(value: Date) {
   return `${part('month')} ${part('day')}, ${part('hour')}:${part('minute')} UTC`
 }
 
-export type EndTimeState = 'neutral' | 'amber' | 'red' | 'ended'
+export type EndTimeState = 'neutral' | 'soon' | 'ended'
 
 export interface FormattedEndTime {
   relative: string
@@ -538,6 +538,8 @@ export interface FormattedEndTime {
 const MINUTE_MS = 60_000
 const HOUR_MS = 60 * MINUTE_MS
 const DAY_MS = 24 * HOUR_MS
+// Auctions ending sooner than this are marked amber.
+const SOON_MS = 2 * DAY_MS
 
 export function compactDuration(milliseconds: number) {
   const minutes = Math.floor(milliseconds / MINUTE_MS)
@@ -557,7 +559,7 @@ export function compactDuration(milliseconds: number) {
 
 /**
  * Durations floor elapsed whole minutes. Urgency uses the exact timestamp:
- * red through 1h, amber through 24h, and neutral beyond 24h.
+ * soon (amber) under 48h, neutral from 48h on, and ended once past.
  */
 export function formatEndTime(value: Date, now: Date): FormattedEndTime {
   const remaining = value.getTime() - now.getTime()
@@ -569,7 +571,7 @@ export function formatEndTime(value: Date, now: Date): FormattedEndTime {
   }
   return {
     relative: compactDuration(remaining),
-    state: remaining <= HOUR_MS ? 'red' : remaining <= DAY_MS ? 'amber' : 'neutral'
+    state: remaining < SOON_MS ? 'soon' : 'neutral'
   }
 }
 
