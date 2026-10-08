@@ -3,7 +3,12 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite
 
 import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
 import { TableLayoutProvider } from '@/components/auctions/table-layout'
-import { type ColumnKey, type ColumnWidths, DEFAULT_COLUMNS } from '@/domain/table-columns'
+import {
+  type ColumnKey,
+  type ColumnWidths,
+  DEFAULT_COLUMNS,
+  parseColumnLayout
+} from '@/domain/table-columns'
 
 const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
@@ -96,6 +101,24 @@ describe('ColumnsMenu', () => {
     expect(cookie('column-widths')).toBe('')
     expect(screen.getByRole('button', { name: /Columns/ })).not.toHaveTextContent('Custom')
     expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('counts moved or pinned columns as custom, and Reset layout clears them', async () => {
+    render(
+      <TableLayoutProvider
+        initialColumns={DEFAULT_COLUMNS}
+        initialLayout={parseColumnLayout('order:price|right:bids')}
+        initialWidths={{}}
+      >
+        <ColumnsMenu />
+      </TableLayoutProvider>
+    )
+    expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Custom')
+    await openMenu()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset layout' }))
+    expect(screen.getByRole('button', { name: /Columns/ })).not.toHaveTextContent('Custom')
+    expect(cookie('column-layout')).toBeUndefined()
   })
 
   it('lets phones choose the metrics under each listing', async () => {

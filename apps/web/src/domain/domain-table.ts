@@ -502,6 +502,11 @@ const providerLabels: Record<AuctionSource, string> = {
   namesilo: 'NameSilo'
 }
 
+// A listing's identity on a page: one provider's auction.
+export function listingKey(listing: { provider: string; externalId: string }) {
+  return `${listing.provider}:${listing.externalId}`
+}
+
 export function formatProvider(value: string) {
   return providerLabels[value.toLowerCase() as AuctionSource] ?? titleCase(value)
 }

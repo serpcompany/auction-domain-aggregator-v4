@@ -210,3 +210,130 @@ export function serializeColumnWidths(widths: ColumnWidths) {
     .map(([key, width]) => `${key}:${width}`)
     .join(',')
 }
+
+// Column order and pins. The selection checkbox and Domain always lead and
+// stick to the left; the row-action menu always ends the row and sticks to the
+// right. Every other column has a place in `order` and may be pinned to either
+// side, where it sticks after Domain (left) or before the row actions (right),
+// keeping its place in `order` within that side; unpinning puts it back in
+// place. The layout is saved per browser in the `column-layout` cookie, never
+// in the URL.
+export type PinSide = 'left' | 'right'
+export type ColumnLayout = {
+  order: ColumnKey[]
+  pins: Partial<Record<ColumnKey, PinSide>>
+}
+
+export const COLUMN_LAYOUT_COOKIE = 'column-layout'
+// The fixed widths, in CSS pixels, of the selection and row-action columns.
+export const SELECTION_COLUMN_WIDTH = 40
+export const ROW_ACTIONS_COLUMN_WIDTH = 40
+
+const COLUMN_KEYS: ColumnKey[] = TABLE_COLUMNS.map(column => column.key)
+const COLUMNS_BY_KEY = new Map<string, TableColumn>(
+  TABLE_COLUMNS.map(column => [column.key, column])
+)
+
+export const DEFAULT_COLUMN_LAYOUT: ColumnLayout = { order: COLUMN_KEYS, pins: {} }
+
+function isColumnKey(key: string): key is ColumnKey {
+  return COLUMNS_BY_KEY.has(key)
+}
+
+// The cookie holds `order:a,b,c|left:a|right:c` (a `;` would end the cookie).
+// Unknown sections and keys are ignored, a key keeps its first place, columns
+// the cookie lacks follow in registry order, and anything unreadable is the
+// default layout.
+export function parseColumnLayout(cookie: string | undefined): ColumnLayout {
+  const sections = new Map<string, ColumnKey[]>()
+  for (const section of cookie?.split('|') ?? []) {
+    const [name, keys = ''] = section.split(':')
+    if (!sections.has(name)) sections.set(name, keys.split(',').filter(isColumnKey))
+  }
+  const order = [...new Set([...(sections.get('order') ?? []), ...COLUMN_KEYS])]
+  const pins: ColumnLayout['pins'] = {}
+  for (const side of ['left', 'right'] as const) {
+    for (const key of sections.get(side) ?? []) pins[key] ??= side
+  }
+  return { order, pins }
+}
+
+export function serializeColumnLayout(layout: ColumnLayout) {
+  const sections = [`order:${layout.order.join(',')}`]
+  for (const side of ['left', 'right'] as const) {
+    const keys = layout.order.filter(key => layout.pins[key] === side)
+    if (keys.length > 0) sections.push(`${side}:${keys.join(',')}`)
+  }
+  return sections.join('|')
+}
+
+export function isDefaultColumnLayout(layout: ColumnLayout) {
+  return serializeColumnLayout(layout) === serializeColumnLayout(DEFAULT_COLUMN_LAYOUT)
+}
+
+// The visible columns in display order, split into the left-pinned, scrolling,
+// and right-pinned sections.
+export function orderedColumns(layout: ColumnLayout, visible: readonly ColumnKey[]) {
+  const shown = layout.order
+    .filter(key => visible.includes(key))
+    .map(key => COLUMNS_BY_KEY.get(key) as TableColumn)
+  return {
+    left: shown.filter(column => layout.pins[column.key] === 'left'),
+    center: shown.filter(column => layout.pins[column.key] === undefined),
+    right: shown.filter(column => layout.pins[column.key] === 'right')
+  }
+}
+
+// Pins a column to a side, or unpins it with `null`.
+export function pinColumn(
+  layout: ColumnLayout,
+  key: ColumnKey,
+  side: PinSide | null
+): ColumnLayout {
+  const { [key]: _, ...pins } = layout.pins
+  return { order: layout.order, pins: side ? { ...pins, [key]: side } : pins }
+}
+
+// Swaps an unpinned column with its visible unpinned neighbour on one side.
+// Null when there is none: at either end, or for a pinned column.
+export function moveColumn(
+  layout: ColumnLayout,
+  key: ColumnKey,
+  direction: PinSide,
+  visible: readonly ColumnKey[]
+): ColumnLayout | null {
+  const center = orderedColumns(layout, visible).center.map(column => column.key)
+  const index = center.indexOf(key)
+  const neighbour = index === -1 ? undefined : center[index + (direction === 'left' ? -1 : 1)]
+  if (neighbour === undefined) return null
+  const order = layout.order.map(column =>
+    column === key ? neighbour : column === neighbour ? key : column
+  )
+  return { order, pins: layout.pins }
+}
+
+export type StickyOffset = { left: string } | { right: string }
+
+// The CSS `left` or `right` of each sticky column: the widths of the sticky
+// columns between it and the table's edge, summed in a `calc()` over the same
+// width variables as the `<col>` elements, so a resize keeps the offsets right.
+// `left` lists the columns sticking after the selection checkbox (Domain
+// first), and `right` those sticking before the row actions.
+export function stickyOffsets(
+  left: readonly ResizableColumnKey[],
+  right: readonly ResizableColumnKey[]
+) {
+  const offsets: Partial<Record<ResizableColumnKey, StickyOffset>> = {}
+  const sum = (terms: string[]) => (terms.length === 1 ? terms[0] : `calc(${terms.join(' + ')})`)
+  left.forEach((key, index) => {
+    offsets[key] = {
+      left: sum([`${SELECTION_COLUMN_WIDTH}px`, ...left.slice(0, index).map(columnWidthCss)])
+    }
+  })
+  right.forEach((key, index) => {
+    offsets[key] = {
+      right: sum([`${ROW_ACTIONS_COLUMN_WIDTH}px`, ...right.slice(index + 1).map(columnWidthCss)])
+    }
+  })
+  return offsets
+}

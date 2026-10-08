@@ -20,7 +20,7 @@ and never appears in a shared URL.
 - [x] (2026-10-08) The owner approved the prototype; #125 records it, and this plan follows it.
 - [ ] M1 Page size 96 and at most two DR requests per page, with rows read measured.
 - [x] (2026-10-08) M2 One-row headers, tooltips, header menus (sort, hide), Columns menu, footer.
-- [ ] M3 Pin and move, row selection column and bar, row action menu.
+- [x] (2026-10-08) M3 Pin and move, row selection column and bar, row action menu.
 - [x] (2026-10-08) M4 Rule bar, Filters menu, Clear all; the worst statements bind 89 (tested).
 - [ ] M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
 - [ ] M6 Save and Views (named saved views, #106), built last.
@@ -107,6 +107,10 @@ All 2026-10-08. "Owner" decisions come from the owner directly or through #125.
 M2: hiding and Reset layout send no page request; the current sort is marked, not a link (no D1
 re-read). Ref. dom. got a tooltip too, since its Majestic group row is gone.
 
+M3 (2026-10-08): pins keep their place in `order`, so Unpin restores it; an empty widthless column
+before the right pins keeps the 40px row actions exact; the header checkbox draws its dash through
+className (the stock Checkbox shows a check). Details in `domain-discovery.md`.
+
 M4: a rule sends no request until Enter, leaving it, or choosing an option; a list rule applies
 when its list closes, so three TLDs cost one D1 read. Save waits for M6, and the desktop "All
 filters" link is gone. The bind test seeds a full page of worst-case matches, since Drizzle binds no
@@ -161,17 +165,12 @@ by Ahrefs" line, and pagination; put the same line at the top of the phone list.
 
 ### M3 Pin, move, selection, row menu
 
-Add to `table-columns.ts`: `COLUMN_LAYOUT_COOKIE = 'column-layout'`, `parseColumnLayout`,
-`serializeColumnLayout` (for example `order=price,source,...;left=price;right=bids`; unknown keys
-ignored, missing columns appended in registry order), `orderedColumns`, and `stickyOffsets`, which
-returns CSS `calc()` sums of `columnWidthCss` per pinned column. The checkbox column and Domain stay
-first and sticky; left-pinned columns stack after Domain, right-pinned ones before the row-action
-column; the boundary column gets a shadow edge and its header a pin icon. Menu items: Pin to left or
-right (Unpin when pinned) and Move left or right, disabled at the ends and on pinned columns. Reset
-layout clears the cookie. Selection is client state for the current page: header checkbox with
-indeterminate state, tinted rows, and the selection bar with a placeholder Save to list (a toast) and
-Clear selection. The ⋮ row menu holds Details (the existing sheet), Open auction, and Copy domain.
-No selection, pins, or column menus below `md`.
+Add `COLUMN_LAYOUT_COOKIE`, `parseColumnLayout`, `serializeColumnLayout` (`order:a,b|left:a|right:b`;
+a `;` ends a cookie), `orderedColumns`, and `stickyOffsets` (`calc()` over the width variables) to
+`table-columns.ts`. Checkbox and Domain stick left, left pins after them, right pins before the ⋮
+row menu (Details, Open auction, Copy domain); shadow edges and pin icons; Pin, Unpin, Move left and
+right (disabled at the ends and when pinned); Reset layout clears the cookie. Client-only selection
+with an indeterminate header checkbox, tinted rows, and a bar (Save to list toast, Clear). Not on phones.
 
 ### M4 Rule bar
 

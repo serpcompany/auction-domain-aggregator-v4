@@ -10,7 +10,7 @@ import {
 import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { fullRow, now } from '@/components/auctions/test-rows'
 import { parseDomainTableFilters } from '@/domain/domain-table'
-import { DEFAULT_COLUMNS } from '@/domain/table-columns'
+import { DEFAULT_COLUMN_LAYOUT, DEFAULT_COLUMNS } from '@/domain/table-columns'
 import type { DomainListingsResult, InventoryStatus } from '@/server/queries/domain-listings'
 
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn() }) }))
@@ -65,6 +65,7 @@ describe('AuctionsPage', () => {
         status={status()}
         result={new Promise(() => {})}
         visibleColumns={DEFAULT_COLUMNS}
+        columnLayout={DEFAULT_COLUMN_LAYOUT}
         columnWidths={{}}
         now={now}
       />
@@ -84,6 +85,7 @@ describe('AuctionsPage', () => {
         status={status({ latestSuccessfulSync: new Date(now.getTime() - 2 * 86_400_000) })}
         result={new Promise(() => {})}
         visibleColumns={DEFAULT_COLUMNS}
+        columnLayout={DEFAULT_COLUMN_LAYOUT}
         columnWidths={{}}
         now={now}
       />

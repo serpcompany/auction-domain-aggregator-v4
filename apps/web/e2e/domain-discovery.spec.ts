@@ -10,6 +10,15 @@ function isPageRequest(request: Request) {
   return new URL(request.url()).pathname === '/' && !request.headers()['next-router-prefetch']
 }
 
+// Records the page requests (see above) a page sends from now on.
+function recordPageRequests(page: Page) {
+  const requests: string[] = []
+  page.on('request', request => {
+    if (isPageRequest(request)) requests.push(request.url())
+  })
+  return requests
+}
+
 test('applies the URL trailing-slash rule in the Worker entry', async ({ request }) => {
   const page = await request.get('/filters?tld=com', { maxRedirects: 0 })
   expect(page.status()).toBe(308)
@@ -335,7 +344,8 @@ for (const viewport of [
     const stackingProof = await domainHeader.evaluate(header => {
       const headerBox = header.getBoundingClientRect()
       const firstRow = header.closest('table')?.tBodies[0]?.rows[0]
-      const movingCell = [...(firstRow?.cells ?? [])].slice(1).find(cell => {
+      // Past the sticky selection and Domain cells.
+      const movingCell = [...(firstRow?.cells ?? [])].slice(2).find(cell => {
         const box = cell.getBoundingClientRect()
         return (
           box.left < headerBox.right &&
@@ -453,13 +463,20 @@ test('sorts and hides columns from the header menus without a page request to hi
   const header = (name: string) => table.getByRole('columnheader', { name, exact: true })
 
   // One header row; Semrush AS is off by default; short labels have tooltips.
-  await expect(table.getByRole('row').first().getByRole('columnheader')).toHaveCount(13)
+  // Selection, Domain, ten default columns, and the row actions.
+  await expect(table.getByRole('row').first().getByRole('columnheader')).toHaveCount(14)
   await expect(header('AS')).toHaveCount(0)
   const tooltip = page.locator('[data-slot=tooltip-content]')
-  await header('TF').getByRole('button').hover()
-  await expect(tooltip.filter({ hasText: /^Majestic Trust Flow$/ })).toBeVisible()
-  await header('DR').getByRole('button').hover()
-  await expect(tooltip.filter({ hasText: /^Domain Rating by Ahrefs$/ })).toBeVisible()
+  // A hover that lands before hydration opens nothing until the pointer moves
+  // again, and the 96 row menus and checkboxes make hydration finish later.
+  const showsTooltip = (name: string, text: RegExp) =>
+    expect(async () => {
+      await page.mouse.move(0, 0)
+      await header(name).getByRole('button').hover()
+      await expect(tooltip.filter({ hasText: text })).toBeVisible({ timeout: 1000 })
+    }).toPass()
+  await showsTooltip('TF', /^Majestic Trust Flow$/)
+  await showsTooltip('DR', /^Domain Rating by Ahrefs$/)
   await expect(page.getByText(/^Showing 1–\d+ of \d+ · 96 per page$/)).toBeVisible()
 
   // Domain's menu sorts only.
@@ -468,10 +485,7 @@ test('sorts and hides columns from the header menus without a page request to hi
   await page.keyboard.press('Escape')
 
   // Hiding a column and resetting the layout change only the cookie.
-  const pageRequests: string[] = []
-  page.on('request', request => {
-    if (isPageRequest(request)) pageRequests.push(request.url())
-  })
+  const pageRequests = recordPageRequests(page)
   await header('Bids').getByRole('button').click()
   await page.getByRole('menuitem', { name: 'Hide column' }).click()
   await expect(header('Bids')).toHaveCount(0)
@@ -506,11 +520,29 @@ test('sorts and hides columns from the header menus without a page request to hi
   )
 })
 
-test('opens listing details beside the table on desktop', async ({ page }) => {
+test('opens listing details beside the table from the row menu on desktop', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
   await page.goto('/?q=garden')
 
-  await page.getByRole('button', { name: 'Details for garden.com' }).click()
+  const actions = page.getByRole('button', { name: 'Actions for garden.com' })
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await actions.click()
+    await expect(page.getByRole('menuitem', { name: 'Open auction' })).toBeVisible({
+      timeout: 1000
+    })
+  }).toPass()
+  await expect(page.getByRole('menuitem', { name: 'Open auction' })).toHaveAttribute(
+    'target',
+    '_blank'
+  )
+  await page.getByRole('menuitem', { name: 'Copy domain' }).click()
+  await expect(page.getByText('Copied garden.com')).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe('garden.com')
+
+  await actions.click()
+  await page.getByRole('menuitem', { name: 'Details' }).click()
   const sheet = page.getByRole('dialog')
   await expect(sheet.getByText('garden.com', { exact: true })).toBeVisible()
   await expect(sheet.getByRole('link', { name: /Open auction on Dynadot/ })).toHaveAttribute(
@@ -521,6 +553,129 @@ test('opens listing details beside the table on desktop', async ({ page }) => {
   await expect(sheet.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(sheet).toBeHidden()
+})
+
+test('pins and moves columns in the browser only, keeping them across a reload', async ({
+  page,
+  browser
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
+  const opened = page.url()
+  const table = page.getByRole('table')
+  const header = (name: string) => table.getByRole('columnheader', { name, exact: true })
+  const headerNames = () =>
+    page
+      .locator('thead th:not([aria-hidden])')
+      .evaluateAll(cells => cells.map(cell => cell.getAttribute('aria-label') ?? cell.textContent))
+  const pageRequests = recordPageRequests(page)
+
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await header('Price').getByRole('button').click()
+    await expect(page.getByRole('menuitem', { name: 'Pin to left' })).toBeVisible({ timeout: 1000 })
+  }).toPass()
+  await page.getByRole('menuitem', { name: 'Pin to left' }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await header('Bids').getByRole('button').click()
+  await page.getByRole('menuitem', { name: 'Move right' }).click()
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  const pinnedOrder = ['', 'Domain', 'Price', 'Source', 'Type', 'Ends', 'Bids', 'Age']
+  await expect.poll(async () => (await headerNames()).slice(0, 8)).toEqual(pinnedOrder)
+  await expect(header('Price').getByRole('img', { name: 'Pinned' })).toBeVisible()
+  await header('Price').getByRole('button').click()
+  await expect(page.getByRole('menuitem', { name: 'Unpin' })).toBeVisible()
+  await expect(page.getByRole('menuitem', { name: 'Move left' })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  expect(pageRequests).toEqual([])
+  await expect(page).toHaveURL(opened)
+
+  // The pinned column stays put while the table scrolls sideways.
+  const container = page.getByTestId('domain-results-scroll-container')
+  const left = (name: string) => header(name).evaluate(cell => cell.getBoundingClientRect().x)
+  const priceBefore = await left('Price')
+  const sourceBefore = await left('Source')
+  await container.evaluate(element => {
+    element.scrollLeft = 300
+  })
+  await expect.poll(() => container.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
+  expect(Math.abs((await left('Price')) - priceBefore)).toBeLessThan(1)
+  expect(await left('Source')).toBeLessThan(sourceBefore - 1)
+
+  // A reload renders the same layout from the cookie, and the URL never holds it.
+  await page.reload()
+  await expect(page).toHaveURL(opened)
+  expect((await headerNames()).slice(0, 8)).toEqual(pinnedOrder)
+  const other = await browser.newContext()
+  const fresh = await other.newPage()
+  await fresh.setViewportSize({ width: 1440, height: 900 })
+  await fresh.goto(opened)
+  await expect(fresh.getByRole('columnheader', { name: 'Source', exact: true })).toBeVisible()
+  expect(
+    (
+      await fresh
+        .locator('thead th:not([aria-hidden])')
+        .evaluateAll(cells =>
+          cells.map(cell => cell.getAttribute('aria-label') ?? cell.textContent)
+        )
+    ).slice(0, 4)
+  ).toEqual(['', 'Domain', 'Source', 'Type'])
+  await other.close()
+
+  // Reset layout clears pins and order too.
+  await page.getByRole('button', { name: /^Columns/ }).click()
+  await page.getByRole('menuitem', { name: 'Reset layout' }).click()
+  await expect
+    .poll(async () => (await headerNames()).slice(0, 4))
+    .toEqual(['', 'Domain', 'Source', 'Type'])
+})
+
+test('selects rows on the page and clears the selection on navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
+  const rows = page.getByRole('table').locator('tbody tr')
+  const all = page.getByRole('checkbox', { name: 'Select all rows on this page' })
+  const bar = page.getByRole('region', { name: 'Selected rows' })
+
+  await expect(bar).toBeHidden()
+  // A click before hydration selects nothing, so the first one is retried.
+  await expect(async () => {
+    await rows.nth(0).getByRole('checkbox').click()
+    await expect(rows.nth(0)).toHaveAttribute('data-state', 'selected', { timeout: 1000 })
+  }).toPass()
+  await rows.nth(1).getByRole('checkbox').click()
+  await expect(bar.getByRole('status')).toHaveText('2 selected')
+  await expect(all).toHaveAttribute('aria-checked', 'mixed')
+  await expect(rows.nth(0)).toHaveAttribute('data-state', 'selected')
+  // The tint reaches the sticky cells too.
+  const tint = (index: number) =>
+    rows
+      .nth(index)
+      .locator('td')
+      .nth(1)
+      .evaluate(cell => getComputedStyle(cell).backgroundColor)
+  expect(await tint(0)).not.toBe(await tint(2))
+
+  await bar.getByRole('button', { name: 'Save to list' }).click()
+  await expect(
+    page.getByText('Saving selected rows to a list comes in a later feature.')
+  ).toBeVisible()
+  await bar.getByRole('button', { name: 'Clear selection' }).click()
+  await expect(bar).toBeHidden()
+  await expect(all).toHaveAttribute('aria-checked', 'false')
+
+  await all.click()
+  await expect(bar.getByRole('status')).toHaveText('96 selected')
+  await expect(all).toHaveAttribute('aria-checked', 'true')
+
+  await page.getByRole('link', { name: 'Go to next page' }).click()
+  await expectUrlParameter(page, 'page', '2')
+  await expect(bar).toBeHidden()
+  await expect(all).toHaveAttribute('aria-checked', 'false')
 })
 
 test('shows listings as a list on phones and opens details from a tap', async ({ page }) => {

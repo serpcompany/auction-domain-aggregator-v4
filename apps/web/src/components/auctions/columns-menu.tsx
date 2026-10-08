@@ -2,7 +2,7 @@
 
 import { Columns3Icon, RotateCcwIcon } from 'lucide-react'
 
-import { useVisibleColumns } from '@/components/auctions/table-layout'
+import { useColumnLayout, useVisibleColumns } from '@/components/auctions/table-layout'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -31,6 +31,7 @@ import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from '@/componen
 import {
   columnGroup,
   DEFAULT_COLUMNS,
+  isDefaultColumnLayout,
   isDefaultColumnSet,
   TABLE_COLUMNS,
   type TableColumn
@@ -78,12 +79,13 @@ export function ColumnCheckboxItems() {
 // every header has the same checkboxes in its menu.
 export function ColumnsMenu() {
   const { columns, resetLayout } = useVisibleColumns()
+  const { layout } = useColumnLayout()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" />}>
         <Columns3Icon aria-hidden="true" />
         Columns
-        {isDefaultColumnSet(columns) ? null : (
+        {isDefaultColumnSet(columns) && isDefaultColumnLayout(layout) ? null : (
           <Badge variant="secondary" className="rounded-sm px-1 font-normal">
             Custom
           </Badge>
