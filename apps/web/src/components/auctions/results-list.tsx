@@ -3,11 +3,11 @@
 import { ExternalLinkIcon } from 'lucide-react'
 
 import { PendingRatingBadge } from '@/components/auctions/domain-ratings'
+import { endTimeText, ProviderDot } from '@/components/auctions/listing-cells'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
 import { useVisibleColumns } from '@/components/auctions/table-layout'
 import { Badge } from '@/components/ui/badge'
 import {
-  type EndTimeState,
   formatAuctionType,
   formatCompactCount,
   formatEndTime,
@@ -15,14 +15,8 @@ import {
   formatProvider
 } from '@/domain/domain-table'
 import { type ColumnKey, TABLE_COLUMNS } from '@/domain/table-columns'
+import { cn } from '@/lib/utils'
 import type { DomainListingRow } from '@/server/queries/domain-listings'
-
-const urgency: Record<EndTimeState, string> = {
-  neutral: '',
-  amber: 'font-medium text-warning-foreground',
-  red: 'font-semibold text-destructive',
-  ended: 'font-semibold text-destructive'
-}
 
 // The metric badges under each listing follow the chosen columns. Source,
 // price, bids, and the end time are always in the item itself.
@@ -63,7 +57,8 @@ function badge(key: ColumnKey, row: DomainListingRow): string | null {
   }
 }
 
-// The phone list. Its badges follow the browser's chosen columns.
+// The phone list. Its badges follow the browser's chosen columns, and the DR
+// badge stands out from the rest.
 export function ResultsList({ rows, now }: { rows: DomainListingRow[]; now: Date }) {
   const { columns: visibleColumns } = useVisibleColumns()
   const badgeColumns = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
@@ -111,13 +106,16 @@ export function ResultsList({ rows, now }: { rows: DomainListingRow[]; now: Date
               <span className="text-right font-semibold tabular-nums">
                 {formatMoney(row.currentBidCents, row.currency)}
               </span>
-              <span className="truncate text-xs text-muted-foreground">
-                {formatProvider(row.provider)} · {formatAuctionType(row.auctionType)} ·{' '}
-                {row.bidCount.toLocaleString('en-US')} {row.bidCount === 1 ? 'bid' : 'bids'}
+              <span className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+                <ProviderDot provider={row.provider} />
+                <span className="truncate">
+                  {formatProvider(row.provider)} · {formatAuctionType(row.auctionType)} ·{' '}
+                  {row.bidCount.toLocaleString('en-US')} {row.bidCount === 1 ? 'bid' : 'bids'}
+                </span>
               </span>
               <time
                 dateTime={row.endsAt.toISOString()}
-                className={`text-right text-xs tabular-nums ${urgency[end.state]}`}
+                className={cn('text-right text-xs tabular-nums', endTimeText[end.state])}
               >
                 {end.relative}
               </time>
@@ -126,8 +124,11 @@ export function ResultsList({ rows, now }: { rows: DomainListingRow[]; now: Date
                   {badges.map(([key, text]) => (
                     <Badge
                       key={key}
-                      variant="secondary"
-                      className="font-normal tabular-nums"
+                      variant={key === 'domainRating' ? 'default' : 'secondary'}
+                      className={cn(
+                        'tabular-nums',
+                        key === 'domainRating' ? 'font-semibold' : 'font-normal'
+                      )}
                       title={key === 'domainRating' ? 'Domain Rating by Ahrefs' : undefined}
                     >
                       {text}

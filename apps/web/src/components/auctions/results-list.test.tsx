@@ -30,7 +30,8 @@ describe('ResultsList', () => {
     )
     expect(full).toHaveTextContent('$12.50')
     expect(full).toHaveTextContent('Dynadot · Expired · 3 bids')
-    expect(within(full).getByText('30m')).toHaveClass('text-destructive')
+    expect(within(full).getByText('30m')).toHaveClass('text-warning-foreground')
+    expect(full.querySelector('[data-provider-dot]')).toHaveClass('bg-provider-dynadot')
     expect(
       within(full)
         .getAllByText(/./, { selector: '[data-slot=badge]' })
@@ -48,12 +49,18 @@ describe('ResultsList', () => {
       'AS 33',
       'DR 42'
     ])
-    expect(within(full).getByText('DR 42')).toHaveAttribute('title', 'Domain Rating by Ahrefs')
+    const rating = within(full).getByText('DR 42')
+    expect(rating).toHaveAttribute('title', 'Domain Rating by Ahrefs')
+    // The DR badge stands out; the others are secondary.
+    expect(rating).toHaveClass('bg-primary', 'font-semibold')
+    expect(within(full).getByText('TF 12')).toHaveClass('bg-secondary')
     expect(
       within(full).getByRole('button', { name: 'Details for garden-example.com' })
     ).toBeInTheDocument()
 
     expect(empty).toHaveTextContent('GoDaddy · Auction · 1 bid')
+    // Two days out, the countdown is neutral.
+    expect(within(empty).getByText('2d 2h')).not.toHaveClass('text-warning-foreground')
     expect(
       within(empty)
         .getAllByText(/./, { selector: '[data-slot=badge]' })

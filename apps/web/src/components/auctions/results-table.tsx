@@ -20,10 +20,20 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import type * as React from 'react'
+import { useState } from 'react'
 
 import { ColumnResizeHandle } from '@/components/auctions/column-resize'
 import { ColumnCheckboxItems } from '@/components/auctions/columns-menu'
 import { PendingRating } from '@/components/auctions/domain-ratings'
+import {
+  createEndTimeTooltip,
+  EndsPill,
+  type EndTimeTooltip,
+  EndTimeTooltipContent,
+  RatingRing,
+  SourcePill,
+  TypePill
+} from '@/components/auctions/listing-cells'
 import { copyDomain, useOpenListingDetails } from '@/components/auctions/listing-details'
 import { useRowSelection } from '@/components/auctions/row-selection'
 import { useColumnLayout, useVisibleColumns } from '@/components/auctions/table-layout'
@@ -53,11 +63,7 @@ import {
   buildDomainTableHref,
   type DomainTableFilters,
   type DomainTableSort,
-  type EndTimeState,
-  formatAbsoluteEndTime,
-  formatAuctionType,
   formatCompactCount,
-  formatEndTime,
   formatMoney,
   formatProvider,
   listingKey
@@ -78,13 +84,6 @@ import {
 } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
 import type { DomainListingRow } from '@/server/queries/domain-listings'
-
-const urgency: Record<EndTimeState, string> = {
-  neutral: '',
-  amber: 'font-medium text-warning-foreground',
-  red: 'font-semibold text-destructive',
-  ended: 'font-semibold text-destructive'
-}
 
 // Sticky body cells: the stock cell styled through className, opaque so the
 // scrolling cells pass beneath, and tinted with their row.
@@ -123,8 +122,7 @@ function Count({ value, unit }: { value: number | null; unit: string }) {
 }
 
 function DomainRating({ row }: { row: DomainListingRow }) {
-  if (row.domainRating !== null)
-    return <span title="Domain Rating by Ahrefs">{Math.round(row.domainRating)}</span>
+  if (row.domainRating !== null) return <RatingRing value={row.domainRating} />
   if (!row.domainRatingFetched)
     return (
       <PendingRating domain={row.domainName}>
@@ -139,28 +137,24 @@ function DomainRating({ row }: { row: DomainListingRow }) {
   )
 }
 
-function cellContent(key: ColumnKey, row: DomainListingRow, now: Date): React.ReactNode {
+function cellContent(
+  key: ColumnKey,
+  row: DomainListingRow,
+  now: Date,
+  endTimeTooltip: EndTimeTooltip
+): React.ReactNode {
   const seo = row.seoMetrics
   switch (key) {
     case 'source':
-      return formatProvider(row.provider)
+      return <SourcePill provider={row.provider} />
     case 'type':
-      return formatAuctionType(row.auctionType)
+      return <TypePill auctionType={row.auctionType} />
     case 'price':
       return <span className="font-medium">{formatMoney(row.currentBidCents, row.currency)}</span>
     case 'bids':
       return row.bidCount.toLocaleString('en-US')
-    case 'ends': {
-      const end = formatEndTime(row.endsAt, now)
-      return (
-        <time dateTime={row.endsAt.toISOString()}>
-          <span className={urgency[end.state]}>{end.relative}</span>
-          <span className="ml-1.5 text-xs text-muted-foreground">
-            {formatAbsoluteEndTime(row.endsAt)}
-          </span>
-        </time>
-      )
-    }
+    case 'ends':
+      return <EndsPill endsAt={row.endsAt} now={now} tooltip={endTimeTooltip} />
     case 'age':
       return row.ageYears === null ? (
         <NotCollected />
@@ -333,11 +327,10 @@ function ColumnHeader({
   const column = header.key === 'domain' ? null : header.key
   const pinned = column !== null && layout.pins[column] !== undefined
   const active = filters.sort === header.sort
-  const Icon = active
-    ? filters.direction === 'asc'
-      ? ArrowUpIcon
-      : ArrowDownIcon
-    : ChevronsUpDownIcon
+  // One indicator, so a pinned header keeps the room for its label: the sort
+  // arrow on the sorted column, else a pin on a pinned one (its shadow edge
+  // still marks it), else the idle sort icon.
+  const Icon = active ? (filters.direction === 'asc' ? ArrowUpIcon : ArrowDownIcon) : null
   const trigger = (
     <DropdownMenuTrigger
       render={
@@ -351,14 +344,14 @@ function ColumnHeader({
         />
       }
     >
-      {pinned ? (
-        <PinIcon className="size-3 text-muted-foreground" aria-label="Pinned" role="img" />
-      ) : null}
       <span className="truncate">{header.label}</span>
-      <Icon
-        className={cn('size-3.5', active ? 'text-foreground' : 'text-muted-foreground')}
-        aria-hidden="true"
-      />
+      {Icon ? (
+        <Icon className="size-3.5 text-foreground" aria-hidden="true" />
+      ) : pinned ? (
+        <PinIcon className="size-3.5 text-muted-foreground" aria-label="Pinned" role="img" />
+      ) : (
+        <ChevronsUpDownIcon className="size-3.5 text-muted-foreground" aria-hidden="true" />
+      )}
     </DropdownMenuTrigger>
   )
 
@@ -508,6 +501,7 @@ export function ResultsTable({
   const { columns } = useVisibleColumns()
   const { layout } = useColumnLayout()
   const { selected, toggle } = useRowSelection()
+  const [endTimeTooltip] = useState(createEndTimeTooltip)
   const { left, center, right } = orderedColumns(layout, columns)
   const leftKeys: ResizableColumnKey[] = ['domain', ...left.map(column => column.key)]
   const rightKeys = right.map(column => column.key)
@@ -546,91 +540,98 @@ export function ResultsTable({
         style={position.style}
         className={cn('tabular-nums', 'numeric' in column && 'text-right', position.className)}
       >
-        {cellContent(column.key, row, now)}
+        {cellContent(column.key, row, now, endTimeTooltip)}
       </TableCell>
     )
   }
 
   return (
-    <Table className="table-fixed [&_td]:h-10 [&_td]:truncate" style={{ width: tableWidth }}>
-      <colgroup>
-        <col style={{ width: `${SELECTION_COLUMN_WIDTH}px` }} />
-        {resizable.map(key => (
-          <col key={key} style={{ width: columnWidthCss(key) }} />
-        ))}
-        <col />
-        {rightKeys.map(key => (
-          <col key={key} style={{ width: columnWidthCss(key) }} />
-        ))}
-        <col style={{ width: `${ROW_ACTIONS_COLUMN_WIDTH}px` }} />
-      </colgroup>
-      <TableHeader>
-        <TableRow className="hover:bg-transparent">
-          <TableHead scope="col" className={cn(headCell, 'left-0 z-30')}>
-            <SelectAllCheckbox />
-          </TableHead>
-          <ColumnHeader header={domainHeader} filters={filters} sticky={sticky('domain')} />
-          {[...left, ...center].map(column => (
-            <ColumnHeader
-              key={column.key}
-              header={header(column)}
-              filters={filters}
-              sticky={sticky(column.key)}
-            />
+    <>
+      <EndTimeTooltipContent tooltip={endTimeTooltip} />
+      <Table className="table-fixed [&_td]:h-10 [&_td]:truncate" style={{ width: tableWidth }}>
+        <colgroup>
+          <col style={{ width: `${SELECTION_COLUMN_WIDTH}px` }} />
+          {resizable.map(key => (
+            <col key={key} style={{ width: columnWidthCss(key) }} />
           ))}
-          <TableHead aria-hidden="true" className={cn(headCell, 'p-0')} />
-          {right.map(column => (
-            <ColumnHeader
-              key={column.key}
-              header={header(column)}
-              filters={filters}
-              sticky={sticky(column.key)}
-            />
+          <col />
+          {rightKeys.map(key => (
+            <col key={key} style={{ width: columnWidthCss(key) }} />
           ))}
-          <TableHead scope="col" className={cn(headCell, 'right-0 z-30')}>
-            <span className="sr-only">Actions</span>
-          </TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {rows.map(row => {
-          const key = listingKey(row)
-          const isSelected = selected.has(key)
-          const domain = stickyBodyCell('domain')
-          return (
-            <TableRow key={key} data-state={isSelected ? 'selected' : undefined} className="group">
-              <TableCell className={cn(stickyCell, 'left-0')}>
-                <Checkbox
-                  aria-label={`Select ${row.domainName}`}
-                  checked={isSelected}
-                  onCheckedChange={checked => toggle(key, checked)}
-                />
-              </TableCell>
-              <TableCell style={domain.style} className={domain.className}>
-                <a
-                  href={row.auctionUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-sm font-mono text-[13px] font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-                >
-                  <span className="min-w-0 truncate">{row.domainName}</span>
-                  <ExternalLinkIcon
-                    className="size-3 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
+          <col style={{ width: `${ROW_ACTIONS_COLUMN_WIDTH}px` }} />
+        </colgroup>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead scope="col" className={cn(headCell, 'left-0 z-30')}>
+              <SelectAllCheckbox />
+            </TableHead>
+            <ColumnHeader header={domainHeader} filters={filters} sticky={sticky('domain')} />
+            {[...left, ...center].map(column => (
+              <ColumnHeader
+                key={column.key}
+                header={header(column)}
+                filters={filters}
+                sticky={sticky(column.key)}
+              />
+            ))}
+            <TableHead aria-hidden="true" className={cn(headCell, 'p-0')} />
+            {right.map(column => (
+              <ColumnHeader
+                key={column.key}
+                header={header(column)}
+                filters={filters}
+                sticky={sticky(column.key)}
+              />
+            ))}
+            <TableHead scope="col" className={cn(headCell, 'right-0 z-30')}>
+              <span className="sr-only">Actions</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map(row => {
+            const key = listingKey(row)
+            const isSelected = selected.has(key)
+            const domain = stickyBodyCell('domain')
+            return (
+              <TableRow
+                key={key}
+                data-state={isSelected ? 'selected' : undefined}
+                className="group"
+              >
+                <TableCell className={cn(stickyCell, 'left-0')}>
+                  <Checkbox
+                    aria-label={`Select ${row.domainName}`}
+                    checked={isSelected}
+                    onCheckedChange={checked => toggle(key, checked)}
                   />
-                  <span className="sr-only"> (opens auction in a new tab)</span>
-                </a>
-              </TableCell>
-              {[...left, ...center].map(column => cell(column, row))}
-              <TableCell aria-hidden="true" className="p-0" />
-              {right.map(column => cell(column, row))}
-              <TableCell className={cn(stickyCell, 'right-0 px-1')}>
-                <RowActions row={row} />
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </TableBody>
-    </Table>
+                </TableCell>
+                <TableCell style={domain.style} className={domain.className}>
+                  <a
+                    href={row.auctionUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex max-w-full items-center gap-1.5 rounded-sm font-mono text-[13px] font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
+                  >
+                    <span className="min-w-0 truncate">{row.domainName}</span>
+                    <ExternalLinkIcon
+                      className="size-3 shrink-0 text-muted-foreground"
+                      aria-hidden="true"
+                    />
+                    <span className="sr-only"> (opens auction in a new tab)</span>
+                  </a>
+                </TableCell>
+                {[...left, ...center].map(column => cell(column, row))}
+                <TableCell aria-hidden="true" className="p-0" />
+                {right.map(column => cell(column, row))}
+                <TableCell className={cn(stickyCell, 'right-0 px-1')}>
+                  <RowActions row={row} />
+                </TableCell>
+              </TableRow>
+            )
+          })}
+        </TableBody>
+      </Table>
+    </>
   )
 }

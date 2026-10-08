@@ -1,4 +1,4 @@
-import { expect, type Page, type Request, test } from '@playwright/test'
+import { expect, type Locator, type Page, type Request, test } from '@playwright/test'
 
 async function expectUrlParameter(page: Page, name: string, expected: string | null) {
   await expect.poll(() => new URL(page.url()).searchParams.get(name)).toBe(expected)
@@ -8,6 +8,18 @@ async function expectUrlParameter(page: Page, name: string, expected: string | n
 // "/" is prefetched whenever hydration gets to it, which these checks ignore.
 function isPageRequest(request: Request) {
   return new URL(request.url()).pathname === '/' && !request.headers()['next-router-prefetch']
+}
+
+// Hovers until the tooltip shows. A hover that lands before hydration opens
+// nothing until the pointer moves again, and the 96 row menus and checkboxes
+// make hydration finish later, so the hover is repeated rather than trusted once.
+async function expectTooltipOnHover(page: Page, target: Locator, text: RegExp) {
+  const tooltip = page.locator('[data-slot=tooltip-content]').filter({ hasText: text })
+  await expect(async () => {
+    await page.mouse.move(0, 0)
+    await target.hover()
+    await expect(tooltip).toBeVisible({ timeout: 1_000 })
+  }).toPass()
 }
 
 // Records the page requests (see above) a page sends from now on.
@@ -97,9 +109,16 @@ test('serves the deterministic domain inventory with a healthy database', async 
     'href',
     'https://ahrefs.com/'
   )
-  await expect(
-    table.getByRole('row', { name: /garden\.com/ }).getByTitle('Domain Rating by Ahrefs')
-  ).toHaveText('37')
+  const garden = table.getByRole('row', { name: /garden\.com/ })
+  const rating = garden.getByTitle('Domain Rating by Ahrefs')
+  await expect(rating).toHaveText('37')
+  // The DR ring fills to the rating.
+  await expect(rating).toHaveAttribute('data-fill', '37')
+
+  // Ends is a countdown pill without a date; its tooltip has the exact time.
+  const ends = garden.locator('time')
+  await expect(ends.locator('span').first()).toHaveText(/^\d+[dhm]( \d+[hm])?$/)
+  await expectTooltipOnHover(page, ends, /^Ends \w{3} \d+, \d\d:\d\d UTC$/)
 
   // Uncaught script errors, such as a broken theme script in the Worker bundle.
   expect(pageErrors).toEqual([])
@@ -466,17 +485,8 @@ test('sorts and hides columns from the header menus without a page request to hi
   // Selection, Domain, ten default columns, and the row actions.
   await expect(table.getByRole('row').first().getByRole('columnheader')).toHaveCount(14)
   await expect(header('AS')).toHaveCount(0)
-  const tooltip = page.locator('[data-slot=tooltip-content]')
-  // A hover that lands before hydration opens nothing until the pointer moves
-  // again, and the 96 row menus and checkboxes make hydration finish later.
-  const showsTooltip = (name: string, text: RegExp) =>
-    expect(async () => {
-      await page.mouse.move(0, 0)
-      await header(name).getByRole('button').hover()
-      await expect(tooltip.filter({ hasText: text })).toBeVisible({ timeout: 1000 })
-    }).toPass()
-  await showsTooltip('TF', /^Majestic Trust Flow$/)
-  await showsTooltip('DR', /^Domain Rating by Ahrefs$/)
+  await expectTooltipOnHover(page, header('TF').getByRole('button'), /^Majestic Trust Flow$/)
+  await expectTooltipOnHover(page, header('DR').getByRole('button'), /^Domain Rating by Ahrefs$/)
   await expect(page.getByText(/^Showing 1–\d+ of \d+ · 96 per page$/)).toBeVisible()
 
   // Domain's menu sorts only.
@@ -555,6 +565,48 @@ test('opens listing details beside the table from the row menu on desktop', asyn
   await expect(sheet).toBeHidden()
 })
 
+test('fits every default column beside the row actions at 1440 with the sidebar open', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const table = page.getByRole('table')
+  await expect(page.getByRole('link', { name: 'Sync status' })).toBeVisible()
+  const dr = await table.getByRole('columnheader', { name: 'DR', exact: true }).boundingBox()
+  const actions = await table
+    .getByRole('columnheader', { name: 'Actions', exact: true })
+    .boundingBox()
+  expect(dr).not.toBeNull()
+  expect(actions).not.toBeNull()
+  if (!dr || !actions) return
+  expect(dr.x + dr.width).toBeLessThanOrEqual(actions.x)
+  // The frame does not scroll sideways.
+  const frame = page.getByTestId('domain-results-scroll-container')
+  const sideways = await frame.evaluate(element => element.scrollWidth - element.clientWidth)
+  expect(sideways).toBeLessThanOrEqual(0)
+})
+
+test('keeps Columns on the search row while many rules wrap', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto(
+    '/?type=auction&tld=com&priceMin=1&bidsMin=0&ageMin=1&majesticTfMin=0&majesticCfMin=0&domainRatingMin=0&sort=endsAt&direction=asc&page=1'
+  )
+  await expect(page.getByRole('group', { name: 'Ahrefs DR rule' })).toBeVisible()
+  const middle = async (box: { y: number; height: number } | null) => box!.y + box!.height / 2
+  const search = await middle(
+    await page.getByRole('searchbox', { name: 'Domain contains' }).boundingBox()
+  )
+  const columns = await middle(await page.getByRole('button', { name: /^Columns/ }).boundingBox())
+  const lastRule = await middle(
+    await page.getByRole('group', { name: 'Ahrefs DR rule' }).boundingBox()
+  )
+  expect(Math.abs(columns - search)).toBeLessThan(4)
+  // The rules themselves wrap below.
+  expect(lastRule).toBeGreaterThan(search + 20)
+  const width = await page.evaluate(() => document.documentElement.scrollWidth)
+  expect(width).toBeLessThanOrEqual(1440)
+})
+
 test('pins and moves columns in the browser only, keeping them across a reload', async ({
   page,
   browser
@@ -594,7 +646,9 @@ test('pins and moves columns in the browser only, keeping them across a reload',
   expect(pageRequests).toEqual([])
   await expect(page).toHaveURL(opened)
 
-  // The pinned column stays put while the table scrolls sideways.
+  // The pinned column stays put while the table scrolls sideways. The default
+  // columns fit at 1440, so a narrower window makes the table scroll.
+  await page.setViewportSize({ width: 1100, height: 900 })
   const container = page.getByTestId('domain-results-scroll-container')
   const left = (name: string) => header(name).evaluate(cell => cell.getBoundingClientRect().x)
   const priceBefore = await left('Price')
@@ -696,7 +750,10 @@ test('shows listings as a list on phones and opens details from a tap', async ({
   await expect(page.getByRole('combobox', { name: 'Sort' })).toHaveValue('endsAt:asc')
   await expect(page.getByRole('button', { name: 'Fields shown' })).toBeVisible()
 
+  // The DR line sits above the list, and each item's DR badge stands out.
+  await expect(page.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toBeVisible()
   const garden = list.getByRole('listitem').filter({ hasText: 'garden.com' })
+  await expect(garden.getByText('DR 37')).toHaveClass(/bg-primary/)
   await expect(garden.getByRole('link', { name: /garden\.com.*opens auction/i })).toHaveAttribute(
     'target',
     '_blank'

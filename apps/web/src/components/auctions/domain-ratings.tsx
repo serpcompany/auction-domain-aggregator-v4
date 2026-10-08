@@ -92,7 +92,7 @@ export function PendingRatingBadge({ domain }: { domain: string }) {
   const pending = useContext(Pending)
   if (!pending.has(domain)) return null
   return (
-    <Badge variant="secondary" className="font-normal" title="Domain Rating by Ahrefs">
+    <Badge className="font-semibold" title="Domain Rating by Ahrefs">
       DR
       <Spinner className="size-3" aria-label="Fetching Domain Rating" />
     </Badge>

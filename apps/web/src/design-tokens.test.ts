@@ -40,4 +40,20 @@ describe('design tokens', () => {
   it('uses no Tailwind palette colors', () => {
     expect(violations(PALETTE_CLASS)).toEqual([])
   })
+
+  it('gives each provider dot a light and a dark color, apart in lightness', () => {
+    const css = readFileSync(join(SRC, 'app/globals.css'), 'utf8')
+    const block = (selector: string) => css.slice(css.indexOf(`${selector} {`)).split('}')[0]
+    for (const theme of [block(':root'), block('.dark')]) {
+      const lightness = ['namecheap', 'godaddy', 'dynadot', 'namesilo'].map(provider => {
+        const value = theme.match(new RegExp(`--provider-${provider}: oklch\\(([\\d.]+) `))
+        expect(value, provider).not.toBeNull()
+        return Number(value?.[1])
+      })
+      const sorted = [...lightness].sort((a, b) => a - b)
+      for (let index = 1; index < sorted.length; index++) {
+        expect(sorted[index] - sorted[index - 1]).toBeGreaterThanOrEqual(0.08)
+      }
+    }
+  })
 })

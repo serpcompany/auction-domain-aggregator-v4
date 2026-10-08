@@ -218,8 +218,8 @@ describe('rule helpers', () => {
   it('names each field and lists them in order', () => {
     expect(RULE_FIELD_KEYS[0]).toBe('query')
     expect(ruleField('domainRating')).toMatchObject({
-      label: 'DR',
-      description: 'Domain Rating by Ahrefs'
+      label: 'Ahrefs DR',
+      description: 'Domain Rating'
     })
   })
 })

@@ -245,7 +245,7 @@ describe('ResultsTable', () => {
       'Expired',
       '$12.50',
       '3',
-      '30mJul 13, 10:30 UTC',
+      '30m (Ends Jul 13, 10:30 UTC)',
       '12 yrs',
       '1.5K (1,500)',
       '$2,000',
@@ -262,7 +262,11 @@ describe('ResultsTable', () => {
     const domain = screen.getByRole('link', { name: /garden-example\.com/ })
     expect(domain).toHaveAttribute('target', '_blank')
     expect(domain).toHaveAttribute('rel', 'noopener noreferrer')
-    expect(screen.getByText('30m')).toHaveClass('text-destructive')
+    expect(screen.getByText('30m').closest('time')).toHaveAttribute('data-state', 'soon')
+    expect(screen.getByText('30m').closest('time')).toHaveClass('bg-warning')
+    expect(screen.getByText('Dynadot').previousElementSibling).toHaveClass('bg-provider-dynadot')
+    expect(screen.getByText('Expired').closest('[data-slot=badge]')).toBeInTheDocument()
+    expect(screen.getByTitle('Domain Rating by Ahrefs')).toHaveAttribute('data-fill', '42')
     expect(screen.getByTitle('Dynadot appraisal')).toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: 'Actions for garden-example.com' })
@@ -280,7 +284,7 @@ describe('ResultsTable', () => {
       'Auction',
       '$9.99',
       '1',
-      '2d 2hJul 15, 12:00 UTC',
+      '2d 2h (Ends Jul 15, 12:00 UTC)',
       '—Not collected',
       '—Not collected',
       '—Not collected',
@@ -296,7 +300,7 @@ describe('ResultsTable', () => {
     ])
   })
 
-  it('says when Ahrefs has no rating, and when a row ends within a day', () => {
+  it('says when Ahrefs has no rating, and marks a row ending within two days', () => {
     renderTable({
       rows: [
         {
@@ -312,7 +316,66 @@ describe('ResultsTable', () => {
     expect(screen.getByTitle('Ahrefs has no rating for this domain')).toHaveTextContent(
       'No Ahrefs Domain Rating'
     )
-    expect(screen.getByText(/^10h/)).toHaveClass('text-warning-foreground')
+    expect(screen.getByText(/^10h/).closest('time')).toHaveClass('text-warning-foreground')
+  })
+
+  it('keeps the countdown neutral from two days on, and marks an ended auction', () => {
+    renderTable({
+      rows: [
+        { ...emptyRow, externalId: 'later', endsAt: new Date('2026-07-15T10:00:00.000Z') },
+        { ...fullRow, externalId: 'ended', endsAt: new Date('2026-07-13T09:00:00.000Z') }
+      ],
+      columns: ['ends']
+    })
+
+    const later = screen.getByText('2d').closest('time')
+    expect(later).toHaveAttribute('data-state', 'neutral')
+    expect(later).not.toHaveClass('bg-warning')
+    const ended = screen.getByText('Ended 1h ago').closest('time')
+    expect(ended).toHaveAttribute('data-state', 'ended')
+    expect(ended).toHaveTextContent('(Ended Jul 13, 09:00 UTC)')
+  })
+
+  it('shows the exact end time in the countdown tooltip', async () => {
+    renderTable({ columns: ['ends'] })
+
+    const pill = screen.getByText('30m').closest('time') as HTMLElement
+    expect(pill).toHaveAttribute('dateTime', '2026-07-13T10:30:00.000Z')
+    fireEvent.pointerEnter(pill, { pointerType: 'mouse' })
+    fireEvent.mouseEnter(pill)
+    fireEvent.mouseMove(pill)
+    const tooltip = await screen.findByText('Ends Jul 13, 10:30 UTC', {
+      selector: '[data-slot=tooltip-content]'
+    })
+    expect(tooltip).toBeInTheDocument()
+  })
+
+  it.each([
+    ['namecheap', 'Namecheap', 'bg-provider-namecheap'],
+    ['godaddy', 'GoDaddy', 'bg-provider-godaddy'],
+    ['dynadot', 'Dynadot', 'bg-provider-dynadot'],
+    ['namesilo', 'NameSilo', 'bg-provider-namesilo'],
+    ['dropcatch', 'DropCatch', 'bg-muted-foreground']
+  ])('gives a %s Source pill its dot color', (provider, label, dot) => {
+    renderTable({ rows: [{ ...fullRow, provider }], columns: ['source'] })
+    expect(screen.getByText(label).previousElementSibling).toHaveClass(dot)
+  })
+
+  it('fills the DR ring to the rounded rating', () => {
+    renderTable({
+      rows: [
+        { ...fullRow, externalId: 'low', domainRating: 0 },
+        { ...emptyRow, externalId: 'high', domainRating: 99.6, domainRatingFetched: true }
+      ],
+      columns: ['domainRating']
+    })
+
+    const rings = screen.getAllByTitle('Domain Rating by Ahrefs')
+    expect(rings.map(ring => [ring.textContent, ring.dataset.fill])).toEqual([
+      ['0', '0'],
+      ['100', '100']
+    ])
+    expect(rings[1].style.getPropertyValue('--rating-fill')).toBe('100%')
   })
 
   it('uses the singular for a one-year-old domain', () => {
@@ -336,7 +399,7 @@ describe('ResultsTable', () => {
     const widths = [...container.querySelectorAll('col')].map(col => col.style.width)
     expect(widths).toEqual([
       '40px',
-      'var(--column-domain-width, 240px)',
+      'var(--column-domain-width, 192px)',
       'var(--column-price-width, 80px)',
       'var(--column-links-width, 72px)',
       'var(--column-majesticTf-width, 56px)',
@@ -350,7 +413,7 @@ describe('ResultsTable', () => {
         .getAllByRole('separator')
         .map(handle => [handle.getAttribute('aria-label'), handle.getAttribute('aria-valuenow')])
     ).toEqual([
-      ['Resize Domain column', '240'],
+      ['Resize Domain column', '192'],
       ['Resize Price column', '150'],
       ['Resize Inbound links column', '72'],
       ['Resize Majestic Trust Flow column', '56']
@@ -403,12 +466,13 @@ describe('ResultsTable layout', () => {
       ...defaultHeaders.filter(name => !['', 'Domain', 'Price'].includes(name))
     ])
     const price = screen.getByRole('columnheader', { name: 'Price' })
-    expect(price.style.left).toBe('calc(40px + var(--column-domain-width, 240px))')
+    expect(price.style.left).toBe('calc(40px + var(--column-domain-width, 192px))')
     expect(price.className).toContain('z-30')
     expect(price.className).toContain('shadow-')
-    expect(within(price).getByRole('img', { name: 'Pinned' })).toBeInTheDocument()
+    // Price is the sorted column, so its arrow keeps the indicator slot.
+    expect(within(price).queryByRole('img', { name: 'Pinned' })).not.toBeInTheDocument()
     const priceCell = screen.getByText('$12.50').closest('td') as HTMLElement
-    expect(priceCell.style.left).toBe('calc(40px + var(--column-domain-width, 240px))')
+    expect(priceCell.style.left).toBe('calc(40px + var(--column-domain-width, 192px))')
     expect(priceCell.className).toContain('sticky')
     expect(cookie('column-layout')).toBe(
       `order:${TABLE_COLUMNS.map(column => column.key).join(',')}|left:price`
@@ -458,7 +522,7 @@ describe('ResultsTable layout', () => {
     expect(style('Domain')).toEqual({ left: '40px', right: '', edge: false })
     expect(style('Price').edge).toBe(false)
     expect(style('Bids')).toEqual({
-      left: 'calc(40px + var(--column-domain-width, 240px) + var(--column-price-width, 80px))',
+      left: 'calc(40px + var(--column-domain-width, 192px) + var(--column-price-width, 80px))',
       right: '',
       edge: true
     })
@@ -489,7 +553,11 @@ describe('ResultsTable layout', () => {
 
     await chooseFromMenu('DR', 'Pin to right')
     expect(headers().slice(-3)).toEqual(['CF', 'DR', 'Actions'])
-    expect(screen.getByRole('columnheader', { name: 'DR' }).style.right).toBe('40px')
+    const dr = screen.getByRole('columnheader', { name: 'DR' })
+    expect(dr.style.right).toBe('40px')
+    // An unsorted pinned column's pin takes the place of its idle sort icon.
+    expect(within(dr).getByRole('img', { name: 'Pinned' })).toBeInTheDocument()
+    expect(dr.querySelector('.lucide-chevrons-up-down')).toBeNull()
     expect(cookie('column-layout')).toMatch(/\|right:domainRating$/)
 
     // CF is now the last scrolling column.

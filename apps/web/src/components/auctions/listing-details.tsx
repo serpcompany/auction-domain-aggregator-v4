@@ -4,6 +4,7 @@ import { CopyIcon, ExternalLinkIcon } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useState } from 'react'
 import { toast } from 'sonner'
 
+import { endTimeText } from '@/components/auctions/listing-cells'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
   Drawer,
@@ -21,7 +22,6 @@ import {
   SheetTitle
 } from '@/components/ui/sheet'
 import {
-  type EndTimeState,
   formatAbsoluteEndTime,
   formatAuctionType,
   formatDateTime,
@@ -34,13 +34,6 @@ import { cn } from '@/lib/utils'
 import type { DomainListingRow } from '@/server/queries/domain-listings'
 
 const OpenDetails = createContext<(row: DomainListingRow) => void>(() => {})
-
-const urgency: Record<EndTimeState, string> = {
-  neutral: '',
-  amber: 'font-medium text-warning-foreground',
-  red: 'font-semibold text-destructive',
-  ended: 'font-semibold text-destructive'
-}
 
 // Opens the details panel for a row; the table's row menu uses it.
 export function useOpenListingDetails() {
@@ -141,7 +134,7 @@ function DetailsBody({ row, now }: { row: DomainListingRow; now: Date }) {
           [
             'Ends',
             <>
-              <span className={urgency[end.state]}>{end.relative}</span>
+              <span className={endTimeText[end.state]}>{end.relative}</span>
               <span className="text-muted-foreground"> · {formatAbsoluteEndTime(row.endsAt)}</span>
             </>
           ],

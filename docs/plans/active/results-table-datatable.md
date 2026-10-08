@@ -22,7 +22,7 @@ and never appears in a shared URL.
 - [x] (2026-10-08) M2 One-row headers, tooltips, header menus (sort, hide), Columns menu, footer.
 - [x] (2026-10-08) M3 Pin and move, row selection column and bar, row action menu.
 - [x] (2026-10-08) M4 Rule bar, Filters menu, Clear all; the worst statements bind 89 (tested).
-- [ ] M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
+- [x] (2026-10-08) M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
 - [ ] M6 Save and Views (named saved views, #106), built last.
 - [ ] M7 (deferred) Maximum filters, only after the bind-budget decision below.
 - [ ] Move this plan to `docs/plans/completed/` with an outcome summary.
@@ -116,6 +116,9 @@ when its list closes, so three TLDs cost one D1 read. Save waits for M6, and the
 filters" link is gone. The bind test seeds a full page of worst-case matches, since Drizzle binds no
 offset on page 1.
 
+M5: one Tooltip serves every countdown (a Base UI handle, not 96 roots); the ring is a masked conic
+gradient; a header shows one indicator (sort arrow, else pin); toolbar actions never wrap.
+
 ## Context and Orientation
 
 Run commands from `apps/web/`. The page (`src/app/page.tsx`) reads the `columns` and `column-widths`
@@ -192,11 +195,8 @@ keep their toolbar, chips, and `/filters/`. Behavior and the bind budget are in
 
 ### M5 Cells and phone
 
-Source pills with a provider dot from new tokens (light and dark values); Type pills; the Ends
-countdown pill (amber under 48 hours, exact time in a Tooltip); the DR ring (an SVG circle whose
-stroke fills to the value, with the number inside, about 72px column); `—` in muted text for missing
-values. Update `formatEndTime` urgency states and their tests. The phone list keeps domain, price, a
-source, type, and bids line, the countdown, and TF, CF, and DR pills with DR emphasized.
+Source and Type pills (Source with a dot from new light and dark tokens), the Ends countdown pill
+(amber under 48 hours, exact time in a Tooltip), a DR ring in a 72px column, DR bold on phones.
 
 ### M6 Saved views
 
