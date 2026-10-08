@@ -4,6 +4,17 @@ async function expectUrlParameter(page: Page, name: string, expected: string | n
   await expect.poll(() => new URL(page.url()).searchParams.get(name)).toBe(expected)
 }
 
+// Requests that render the table page, which read D1. Route-tree prefetches,
+// which the sidebar's links send after a load, are not among them.
+function recordPageRequests(page: Page) {
+  const requests: string[] = []
+  page.on('request', request => {
+    const prefetch = request.headers()['next-router-prefetch'] !== undefined
+    if (new URL(request.url()).pathname === '/' && !prefetch) requests.push(request.url())
+  })
+  return requests
+}
+
 test('applies the URL trailing-slash rule in the Worker entry', async ({ request }) => {
   const page = await request.get('/filters?tld=com', { maxRedirects: 0 })
   expect(page.status()).toBe(308)
@@ -430,10 +441,7 @@ test('sorts and hides columns from the header menus without a page request to hi
   await page.keyboard.press('Escape')
 
   // Hiding a column and resetting the layout change only the cookie.
-  const pageRequests: string[] = []
-  page.on('request', request => {
-    if (new URL(request.url()).pathname === '/') pageRequests.push(request.url())
-  })
+  const pageRequests = recordPageRequests(page)
   await header('Bids').getByRole('button').click()
   await page.getByRole('menuitem', { name: 'Hide column' }).click()
   await expect(header('Bids')).toHaveCount(0)
@@ -510,12 +518,7 @@ test('pins and moves columns in the browser only, keeping them across a reload',
     page
       .locator('thead th:not([aria-hidden])')
       .evaluateAll(cells => cells.map(cell => cell.getAttribute('aria-label') ?? cell.textContent))
-  const pageRequests: string[] = []
-  page.on('request', request => {
-    // Page loads and refreshes only: the sidebar's links prefetch the route tree on load.
-    const prefetch = request.headers()['next-router-prefetch'] !== undefined
-    if (new URL(request.url()).pathname === '/' && !prefetch) pageRequests.push(request.url())
-  })
+  const pageRequests = recordPageRequests(page)
 
   await header('Price').getByRole('button').click()
   await page.getByRole('menuitem', { name: 'Pin to left' }).click()
@@ -539,14 +542,15 @@ test('pins and moves columns in the browser only, keeping them across a reload',
 
   // The pinned column stays put while the table scrolls sideways.
   const container = page.getByTestId('domain-results-scroll-container')
-  const priceBefore = (await header('Price').boundingBox())!.x
-  const sourceBefore = (await header('Source').boundingBox())!.x
+  const left = (name: string) => header(name).evaluate(cell => cell.getBoundingClientRect().x)
+  const priceBefore = await left('Price')
+  const sourceBefore = await left('Source')
   await container.evaluate(element => {
     element.scrollLeft = 300
   })
   await expect.poll(() => container.evaluate(element => element.scrollLeft)).toBeGreaterThan(0)
-  expect(Math.abs((await header('Price').boundingBox())!.x - priceBefore)).toBeLessThan(1)
-  expect((await header('Source').boundingBox())!.x).toBeLessThan(sourceBefore - 1)
+  expect(Math.abs((await left('Price')) - priceBefore)).toBeLessThan(1)
+  expect(await left('Source')).toBeLessThan(sourceBefore - 1)
 
   // A reload renders the same layout from the cookie, and the URL never holds it.
   await page.reload()
