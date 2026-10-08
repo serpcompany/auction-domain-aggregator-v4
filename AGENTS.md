@@ -23,7 +23,7 @@ This repository is a personal auction and expired-domain discovery tool. Read `R
 - Keep stable system boundaries in `ARCHITECTURE.md` and implementation detail in technical-design documents.
 - Do not infer first-version requirements from the complete SpamZilla reference inventory.
 - Provider credentials live in `.secrets/providers.env` (template: `providers.env.example`). Treat it as secret local configuration. Never read, print, commit, or copy its values into documentation, tests, logs, or source files.
-- The app worker's own secrets (currently `AHREFS_API_KEY`, an Ahrefs APIv3 key) go in `apps/web/.dev.vars` for local development. OpenNext does not bundle that file. Deployed workers use `wrangler secret put`.
+- The app worker's own secrets (currently `AHREFS_API_KEY`, an Ahrefs APIv3 key) go in `apps/web/.dev.vars` for local development. OpenNext does not bundle that file. Deployed workers use `wrangler secret bulk .dev.vars --env <env>`, which uploads the same file without pasting the key again.
 - Never put credentials in `.env*` files: `opennextjs-cloudflare build` inlines their values into the Worker bundle. `preview`, `deploy`, and `upload` refuse to continue if the built bundle contains non-public env variables.
 - UI follows the SERP web UI rules summarized in `docs/technical-design/technology-stack.md`: stock shadcn first, tokens only, and a check at 1440px and 390px.
 - The app follows the SERP web stack (`serpcompany/serp`, `docs/engineering/standards/web-stack/`) with one recorded exception: local development runs `next dev --webpack` instead of Turbopack, because webpack is the verified bundler for the large local D1 inventory.
