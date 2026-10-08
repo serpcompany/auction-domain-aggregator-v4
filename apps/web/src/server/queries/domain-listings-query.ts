@@ -8,10 +8,12 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   like,
   lte,
   max,
   not,
+  notExists,
   type SQL,
   sql
 } from 'drizzle-orm'
@@ -77,14 +79,12 @@ export interface DomainListingRow {
   seoMetrics: DomainSeoMetrics | null
 }
 
+// The page reads the facets and freshness once, through
+// `queryInventoryStatusWithDatabase`; the listing query does not repeat them.
 export interface DomainListingsResult {
   rows: DomainListingRow[]
   total: number
   page: number
-  sources: string[]
-  auctionTypes: string[]
-  tlds: string[]
-  latestSuccessfulSync: Date | null
 }
 
 const ENDING_WINDOW_MILLISECONDS: Record<DomainTableEndingWindow, number> = {
@@ -102,20 +102,27 @@ function escapeLike(value: string) {
 // Status changes only when a sync reconciles, so an auction whose end time has
 // passed is hidden at read time even if the inventory is stale. `ends_at` is
 // never null; a plain range lets SQLite use it in the TLD index.
-function openListingWhere(now: Date) {
-  return and(eq(auctionListings.status, 'active'), gt(auctionListings.endsAt, now))!
-}
-
-function activeListingWhere(filters: DomainTableFilters, now: Date) {
-  const conditions: SQL[] = [openListingWhere(now)]
-
+//
+// With `pinned`, every column is written `+column`, which SQLite cannot use
+// to choose an index; the results are the same. A metric sort's page walks
+// `auction_listings_domain_name_idx` in order and stops after 50 rows, and
+// without the `+` a filter (a TLD, a price range) would make SQLite read that
+// filter's index and sort every match instead.
+function activeListingWhere(filters: DomainTableFilters, now: Date, pinned = false) {
+  const column = (target: AnyColumn) => (pinned ? sql`+${target}` : sql`${target}`)
+  // Written as SQL, a column binds values unmapped, so times are milliseconds.
+  const time = (date: Date) => date.getTime()
+  const conditions: SQL[] = [
+    eq(column(auctionListings.status), 'active'),
+    gt(column(auctionListings.endsAt), time(now))
+  ]
   if (filters.query) {
     conditions.push(
       sql`lower(${auctionListings.domainName}) like ${`%${escapeLike(filters.query)}%`} escape '\\'`
     )
   }
   if (filters.sources.length > 0) {
-    conditions.push(inArray(auctionListings.provider, filters.sources))
+    conditions.push(inArray(column(auctionListings.provider), filters.sources))
   }
   if (filters.auctionTypes.length > 0) {
     conditions.push(
@@ -123,13 +130,13 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
     )
   }
   if (filters.tlds.length > 0) {
-    conditions.push(inArray(auctionListings.tld, filters.tlds))
+    conditions.push(inArray(column(auctionListings.tld), filters.tlds))
   }
   if (filters.domainLengthMin !== undefined) {
-    conditions.push(gte(auctionListings.domainLength, filters.domainLengthMin))
+    conditions.push(gte(column(auctionListings.domainLength), filters.domainLengthMin))
   }
   if (filters.domainLengthMax !== undefined) {
-    conditions.push(lte(auctionListings.domainLength, filters.domainLengthMax))
+    conditions.push(lte(column(auctionListings.domainLength), filters.domainLengthMax))
   }
   if (filters.noHyphens) {
     conditions.push(not(like(auctionListings.domainName, '%-%')))
@@ -138,31 +145,31 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
     conditions.push(not(sql`${auctionListings.domainName} glob '*[0-9]*'`))
   }
   if (filters.priceMinCents !== undefined) {
-    conditions.push(gte(auctionListings.currentBidCents, filters.priceMinCents))
+    conditions.push(gte(column(auctionListings.currentBidCents), filters.priceMinCents))
   }
   if (filters.priceMaxCents !== undefined) {
-    conditions.push(lte(auctionListings.currentBidCents, filters.priceMaxCents))
+    conditions.push(lte(column(auctionListings.currentBidCents), filters.priceMaxCents))
   }
   if (filters.bidsMin !== undefined) {
-    conditions.push(gte(auctionListings.bidCount, filters.bidsMin))
+    conditions.push(gte(column(auctionListings.bidCount), filters.bidsMin))
   }
   if (filters.ageMin !== undefined) {
-    conditions.push(gte(auctionListings.ageYears, filters.ageMin))
+    conditions.push(gte(column(auctionListings.ageYears), filters.ageMin))
   }
   if (filters.ageMax !== undefined) {
-    conditions.push(lte(auctionListings.ageYears, filters.ageMax))
+    conditions.push(lte(column(auctionListings.ageYears), filters.ageMax))
   }
   if (filters.linksMin !== undefined) {
-    conditions.push(gte(auctionListings.inboundLinks, filters.linksMin))
+    conditions.push(gte(column(auctionListings.inboundLinks), filters.linksMin))
   }
   if (filters.visitorsMin !== undefined) {
-    conditions.push(gte(auctionListings.visitors, filters.visitorsMin))
+    conditions.push(gte(column(auctionListings.visitors), filters.visitorsMin))
   }
   if (filters.appraisalMinCents !== undefined) {
-    conditions.push(gte(auctionListings.appraisalCents, filters.appraisalMinCents))
+    conditions.push(gte(column(auctionListings.appraisalCents), filters.appraisalMinCents))
   }
   if (filters.renewalMaxCents !== undefined) {
-    conditions.push(lte(auctionListings.renewalPriceCents, filters.renewalMaxCents))
+    conditions.push(lte(column(auctionListings.renewalPriceCents), filters.renewalMaxCents))
   }
   const seoConditions = [
     filters.majesticTfMin === undefined
@@ -183,7 +190,7 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
     // domains, and listings are reached through their domain-name index.
     conditions.push(
       inArray(
-        auctionListings.domainName,
+        column(auctionListings.domainName),
         sql`(select ${domainSeoMetrics.domainName} from ${domainSeoMetrics} where ${and(...seoConditions)})`
       )
     )
@@ -191,8 +198,8 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
   if (filters.endingWithin) {
     conditions.push(
       lte(
-        auctionListings.endsAt,
-        new Date(now.getTime() + ENDING_WINDOW_MILLISECONDS[filters.endingWithin])
+        column(auctionListings.endsAt),
+        time(new Date(now.getTime() + ENDING_WINDOW_MILLISECONDS[filters.endingWithin]))
       )
     )
   }
@@ -202,14 +209,6 @@ function activeListingWhere(filters: DomainTableFilters, now: Date) {
 
 type SortableExpression = AnyColumn | SQL<number>
 
-// Metric sorts read the per-domain metric tables through their primary keys.
-function seoMetric(column: AnyColumn) {
-  return sql<number>`(select ${column} from ${domainSeoMetrics} where ${domainSeoMetrics.domainName} = ${auctionListings.domainName})`
-}
-
-// Ahrefs DR exists only for domains someone has viewed; the rest sort last.
-const domainRating = sql<number>`(select ${domainMetrics.value} from ${domainMetrics} where ${domainMetrics.domainName} = ${auctionListings.domainName} and ${domainMetrics.metric} = 'ahrefs_dr')`
-
 const NULL_BEARING_SORTS: ReadonlyArray<DomainTableFilters['sort']> = [
   'age',
   'links',
@@ -217,16 +216,51 @@ const NULL_BEARING_SORTS: ReadonlyArray<DomainTableFilters['sort']> = [
   'appraisal',
   'renewal'
 ]
-const METRIC_SORTS: ReadonlyArray<DomainTableFilters['sort']> = [
-  'majesticTf',
-  'majesticCf',
-  'majesticRefDomains',
-  'semrushAs',
-  'domainRating'
-]
+
+// Metric values live in other tables, keyed by domain name.
+interface MetricSort {
+  table: typeof domainSeoMetrics | typeof domainMetrics
+  domainName: AnyColumn
+  value: AnyColumn
+  // The rows of `table` that hold this metric.
+  where?: SQL
+}
+
+function seoMetricSort(value: AnyColumn): MetricSort {
+  return { table: domainSeoMetrics, domainName: domainSeoMetrics.domainName, value }
+}
+
+const METRIC_SORTS: Partial<Record<DomainTableFilters['sort'], MetricSort>> = {
+  majesticTf: seoMetricSort(domainSeoMetrics.majesticTf),
+  majesticCf: seoMetricSort(domainSeoMetrics.majesticCf),
+  majesticRefDomains: seoMetricSort(domainSeoMetrics.majesticRefDomains),
+  semrushAs: seoMetricSort(domainSeoMetrics.semrushAs),
+  // Ahrefs DR exists only for domains someone has viewed.
+  domainRating: {
+    table: domainMetrics,
+    domainName: domainMetrics.domainName,
+    value: domainMetrics.value,
+    where: eq(domainMetrics.metric, 'ahrefs_dr')
+  }
+}
+
+// Up to this many matches, a metric sort reads each match's value by primary
+// key and sorts them (about 60 ms at the limit). Above it, it walks the
+// metric's index instead, which stops after a page but would scan the whole
+// metric table for a filter that few listings match.
+export const LISTING_DRIVEN_METRIC_SORT_LIMIT = 50_000
+
+const listingRowid = sql`${auctionListings}.rowid`
+
+type MetricSortKey =
+  | 'majesticTf'
+  | 'majesticCf'
+  | 'majesticRefDomains'
+  | 'semrushAs'
+  | 'domainRating'
 
 function listingOrder(filters: DomainTableFilters) {
-  const columns: Record<DomainTableFilters['sort'], SortableExpression> = {
+  const columns: Record<Exclude<DomainTableFilters['sort'], MetricSortKey>, SortableExpression> = {
     domain: auctionListings.domainName,
     source: auctionListings.provider,
     type: auctionListings.auctionType,
@@ -238,96 +272,198 @@ function listingOrder(filters: DomainTableFilters) {
     visitors: auctionListings.visitors,
     appraisal: auctionListings.appraisalCents,
     renewal: auctionListings.renewalPriceCents,
-    domainLength: auctionListings.domainLength,
-    majesticTf: seoMetric(domainSeoMetrics.majesticTf),
-    majesticCf: seoMetric(domainSeoMetrics.majesticCf),
-    majesticRefDomains: seoMetric(domainSeoMetrics.majesticRefDomains),
-    semrushAs: seoMetric(domainSeoMetrics.semrushAs),
-    domainRating
+    domainLength: auctionListings.domainLength
   }
-  const column = columns[filters.sort]
+  const column = columns[filters.sort as Exclude<DomainTableFilters['sort'], MetricSortKey>]
   const order = filters.direction === 'desc' ? desc : asc
   const nullBearing = NULL_BEARING_SORTS.includes(filters.sort)
-  // A metric is a subquery per row, so it is evaluated once: SQLite already
-  // puts nulls last when descending, and ascending replaces them with the
-  // largest integer.
-  const metricOrder = METRIC_SORTS.includes(filters.sort)
-    ? filters.direction === 'desc'
-      ? desc(column)
-      : asc(sql`ifnull(${column}, 9223372036854775807)`)
-    : undefined
 
   return [
     ...(nullBearing ? [asc(sql`${column} is null`)] : []),
-    metricOrder ?? order(column),
+    order(column),
     asc(auctionListings.domainName),
     asc(auctionListings.provider),
     asc(auctionListings.externalId)
   ]
 }
 
+// A metric sort orders ties, and the listings without a value, by domain name
+// and then rowid in the sort's own direction: the order the metric indexes
+// and `auction_listings_domain_name_idx` store, which lets a page stop after
+// 50 rows. Listings without a value come last in both directions.
+function metricOrder(metric: MetricSort, filters: DomainTableFilters) {
+  const by = filters.direction === 'desc' ? desc : asc
+  // Evaluated once per row: descending already puts nulls last, and ascending
+  // replaces them with the largest integer.
+  const value = sql<number>`(select ${metric.value} from ${metric.table} where ${and(eq(metric.domainName, auctionListings.domainName), metric.where)})`
+  return [
+    filters.direction === 'desc' ? desc(value) : asc(sql`ifnull(${value}, 9223372036854775807)`),
+    by(auctionListings.domainName),
+    by(listingRowid)
+  ]
+}
+
+const listingSelection = {
+  provider: auctionListings.provider,
+  externalId: auctionListings.externalId,
+  domainName: auctionListings.domainName,
+  auctionUrl: auctionListings.auctionUrl,
+  auctionType: auctionListings.auctionType,
+  currency: auctionListings.currency,
+  currentBidCents: auctionListings.currentBidCents,
+  bidCount: auctionListings.bidCount,
+  bidderCount: auctionListings.bidderCount,
+  startsAt: auctionListings.startsAt,
+  endsAt: auctionListings.endsAt,
+  ageYears: auctionListings.ageYears,
+  inboundLinks: auctionListings.inboundLinks,
+  visitors: auctionListings.visitors,
+  appraisalCents: auctionListings.appraisalCents,
+  renewalPriceCents: auctionListings.renewalPriceCents,
+  domainLength: auctionListings.domainLength,
+  tld: auctionListings.tld,
+  hasHyphen: sql<number>`instr(${auctionListings.domainName}, '-') > 0`,
+  hasDigit: sql<number>`${auctionListings.domainName} glob '*[0-9]*'`
+}
+
+interface PageSlice {
+  limit: number
+  offset: number
+}
+
+// A metric sort over many matches, in two parts. Listings whose domain has
+// the value come first: SQLite reads the metric's index in order (CROSS JOIN
+// keeps it the outer loop) and finds each domain's listings through
+// `auction_listings_domain_name_idx`. Listings without it follow, by walking
+// that index in name order. Both read the filters pinned (see
+// `activeListingWhere`). Only a page that starts among the listings without a
+// value counts the others.
+async function queryMetricSortPage(
+  database: AppDatabase,
+  metric: MetricSort,
+  filters: DomainTableFilters,
+  now: Date,
+  { limit, offset }: PageSlice
+) {
+  const by = filters.direction === 'desc' ? desc : asc
+  const where = activeListingWhere(filters, now, true)
+  const hasValue = and(metric.where, isNotNull(metric.value))
+  const knownWhere = and(eq(auctionListings.domainName, metric.domainName), hasValue, where)
+  const knownListings = () =>
+    database.select(listingSelection).from(metric.table).crossJoin(auctionListings)
+
+  const known = await knownListings()
+    .where(knownWhere)
+    .orderBy(by(metric.value), by(metric.domainName), by(listingRowid))
+    .limit(limit)
+    .offset(offset)
+  if (known.length === limit) return known
+
+  let unknownOffset = 0
+  if (known.length === 0 && offset > 0) {
+    const [{ value }] = await database
+      .select({ value: count() })
+      .from(metric.table)
+      .crossJoin(auctionListings)
+      .where(knownWhere)
+    unknownOffset = offset - value
+  }
+  const unknown = await database
+    .select(listingSelection)
+    .from(auctionListings)
+    .where(
+      and(
+        where,
+        notExists(
+          database
+            .select({ one: sql`1` })
+            .from(metric.table)
+            .where(and(eq(metric.domainName, auctionListings.domainName), hasValue))
+        )
+      )
+    )
+    .orderBy(by(auctionListings.domainName), by(listingRowid))
+    .limit(limit - known.length)
+    .offset(unknownOffset)
+  return [...known, ...unknown]
+}
+
+async function queryPageRows(
+  database: AppDatabase,
+  filters: DomainTableFilters,
+  now: Date,
+  where: SQL | undefined,
+  total: number,
+  slice: PageSlice,
+  listingDrivenMetricSortLimit: number
+) {
+  const metric = METRIC_SORTS[filters.sort]
+  if (metric && total > listingDrivenMetricSortLimit) {
+    return queryMetricSortPage(database, metric, filters, now, slice)
+  }
+  return database
+    .select(listingSelection)
+    .from(auctionListings)
+    .where(where)
+    .orderBy(...(metric ? metricOrder(metric, filters) : listingOrder(filters)))
+    .limit(slice.limit)
+    .offset(slice.offset)
+}
+
 export async function queryDomainListingsWithDatabase(
   filters: DomainTableFilters,
   database: AppDatabase,
-  now = new Date()
+  now = new Date(),
+  // Tests lower it to run the index-driven metric sort on a few rows.
+  listingDrivenMetricSortLimit = LISTING_DRIVEN_METRIC_SORT_LIMIT
 ): Promise<DomainListingsResult> {
   const where = activeListingWhere(filters, now)
 
   // Keep these reads sequential. Concurrent statements against Wrangler's
-  // local SQLite-backed D1 can race snapshots and fail with SQLITE_BUSY.
+  // local SQLite-backed D1 can race snapshots and fail with SQLITE_BUSY; a
+  // D1 batch runs its statements one after another in one round trip.
   const totalRows = await database.select({ value: count() }).from(auctionListings).where(where)
   const [{ value: total }] = totalRows
   const lastPage = Math.max(1, Math.ceil(total / filters.pageSize))
   const page = Math.min(filters.page, lastPage)
-
-  const rawRows = await database
-    .select({
-      provider: auctionListings.provider,
-      externalId: auctionListings.externalId,
-      domainName: auctionListings.domainName,
-      auctionUrl: auctionListings.auctionUrl,
-      auctionType: auctionListings.auctionType,
-      currency: auctionListings.currency,
-      currentBidCents: auctionListings.currentBidCents,
-      bidCount: auctionListings.bidCount,
-      bidderCount: auctionListings.bidderCount,
-      startsAt: auctionListings.startsAt,
-      endsAt: auctionListings.endsAt,
-      ageYears: auctionListings.ageYears,
-      inboundLinks: auctionListings.inboundLinks,
-      visitors: auctionListings.visitors,
-      appraisalCents: auctionListings.appraisalCents,
-      renewalPriceCents: auctionListings.renewalPriceCents,
-      domainLength: auctionListings.domainLength,
-      tld: auctionListings.tld,
-      hasHyphen: sql<number>`instr(${auctionListings.domainName}, '-') > 0`,
-      hasDigit: sql<number>`${auctionListings.domainName} glob '*[0-9]*'`
-    })
-    .from(auctionListings)
-    .where(where)
-    .orderBy(...listingOrder(filters))
-    .limit(filters.pageSize)
-    .offset((page - 1) * filters.pageSize)
+  const rawRows =
+    total === 0
+      ? []
+      : await queryPageRows(
+          database,
+          filters,
+          now,
+          where,
+          total,
+          { limit: filters.pageSize, offset: (page - 1) * filters.pageSize },
+          listingDrivenMetricSortLimit
+        )
 
   // Looked up only for the visible page, so it stays cheap on any filter.
   const pageDomains = [...new Set(rawRows.map(row => row.domainName))]
-  const ratingRows =
+  const [ratingRows, seoRows] =
     pageDomains.length === 0
-      ? []
-      : await database
-          .select({
-            domainName: domainMetrics.domainName,
-            status: domainMetrics.status,
-            value: domainMetrics.value,
-            retryAfter: domainMetrics.retryAfter
-          })
-          .from(domainMetrics)
-          .where(
-            and(
-              eq(domainMetrics.metric, 'ahrefs_dr'),
-              inArray(domainMetrics.domainName, pageDomains)
-            )
-          )
+      ? [[], []]
+      : await database.batch([
+          database
+            .select({
+              domainName: domainMetrics.domainName,
+              status: domainMetrics.status,
+              value: domainMetrics.value,
+              retryAfter: domainMetrics.retryAfter
+            })
+            .from(domainMetrics)
+            .where(
+              and(
+                eq(domainMetrics.metric, 'ahrefs_dr'),
+                inArray(domainMetrics.domainName, pageDomains)
+              )
+            ),
+          database
+            .select()
+            .from(domainSeoMetrics)
+            .where(inArray(domainSeoMetrics.domainName, pageDomains))
+        ])
   // A domain Ahrefs left out of its answer shows as having no rating until it
   // may be asked again. A domain being asked about now counts as not fetched.
   // The schema gives every omission a retry time.
@@ -341,21 +477,7 @@ export async function queryDomainListingsWithDatabase(
       )
       .map(({ domainName, value }) => [domainName, { value }])
   )
-  const seoRows =
-    pageDomains.length === 0
-      ? []
-      : await database
-          .select()
-          .from(domainSeoMetrics)
-          .where(inArray(domainSeoMetrics.domainName, pageDomains))
   const seoMetrics = new Map(seoRows.map(({ domainName, ...metrics }) => [domainName, metrics]))
-
-  const facets = await queryListingFacetsWithDatabase(database, now)
-
-  const latestSyncRows = await database
-    .select({ value: max(ingestionRuns.completedAt) })
-    .from(ingestionRuns)
-    .where(eq(ingestionRuns.status, 'succeeded'))
 
   return {
     rows: rawRows.map(row => {
@@ -370,9 +492,7 @@ export async function queryDomainListingsWithDatabase(
       }
     }),
     total,
-    page,
-    ...facets,
-    latestSuccessfulSync: latestSyncRows[0]?.value ?? null
+    page
   }
 }
 
@@ -384,15 +504,15 @@ export interface ListingFacets {
 
 // Facets do not depend on the filters. They are rebuilt when a sync
 // succeeds; a value stays offered while one of its auctions can be open.
-export async function queryListingFacetsWithDatabase(
-  database: AppDatabase,
-  now = new Date()
-): Promise<ListingFacets> {
-  const facetRows = await database
+function listingFacetsQuery(database: AppDatabase, now: Date) {
+  return database
     .select({ facet: listingFacets.facet, value: listingFacets.value })
     .from(listingFacets)
     .where(gt(listingFacets.latestEndsAt, now))
     .orderBy(asc(listingFacets.facet), asc(listingFacets.value))
+}
+
+function toListingFacets(facetRows: Awaited<ReturnType<typeof listingFacetsQuery>>): ListingFacets {
   const facetValues = (facet: (typeof facetRows)[number]['facet']) =>
     facetRows.filter(row => row.facet === facet).map(({ value }) => value)
 
@@ -407,20 +527,29 @@ export async function queryListingFacetsWithDatabase(
   }
 }
 
+export async function queryListingFacetsWithDatabase(
+  database: AppDatabase,
+  now = new Date()
+): Promise<ListingFacets> {
+  return toListingFacets(await listingFacetsQuery(database, now))
+}
+
 export interface InventoryStatus extends ListingFacets {
   latestSuccessfulSync: Date | null
 }
 
 // What the page needs before the listing query finishes: the filter facets
-// and the freshness of the inventory. Both reads are small.
+// and the freshness of the inventory, both small, in one round trip.
 export async function queryInventoryStatusWithDatabase(
   database: AppDatabase,
   now = new Date()
 ): Promise<InventoryStatus> {
-  const facets = await queryListingFacetsWithDatabase(database, now)
-  const latestSyncRows = await database
-    .select({ value: max(ingestionRuns.completedAt) })
-    .from(ingestionRuns)
-    .where(eq(ingestionRuns.status, 'succeeded'))
-  return { ...facets, latestSuccessfulSync: latestSyncRows[0]?.value ?? null }
+  const [facetRows, latestSyncRows] = await database.batch([
+    listingFacetsQuery(database, now),
+    database
+      .select({ value: max(ingestionRuns.completedAt) })
+      .from(ingestionRuns)
+      .where(eq(ingestionRuns.status, 'succeeded'))
+  ])
+  return { ...toListingFacets(facetRows), latestSuccessfulSync: latestSyncRows[0]?.value ?? null }
 }
