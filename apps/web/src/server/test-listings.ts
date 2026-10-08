@@ -103,12 +103,12 @@ const hyphenFixture = {
   endsAt: new Date('2026-07-15T04:00:00.000Z')
 }
 
-// The 51 listings of the successful run: initial-a at a new price, four
-// listings with distinctive shapes, and 46 plain ones (one of them named
-// filter-target), so a page of 50 leaves one for page 2.
+// The 97 listings of the successful run: initial-a at a new price, four
+// listings with distinctive shapes, and 92 plain ones (one of them named
+// filter-target), so a page of 96 leaves one for page 2.
 export const ACTIVE_LISTINGS: NormalizedListing[] = [
   { ...INITIAL_LISTINGS[0], currentBidCents: 5_100 },
-  ...Array.from({ length: 50 }, (_, index) =>
+  ...Array.from({ length: 96 }, (_, index) =>
     index === 0
       ? shapeFixture
       : index === 1

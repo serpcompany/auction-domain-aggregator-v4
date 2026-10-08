@@ -54,7 +54,7 @@ describe('sync status on D1', () => {
     ).toEqual([
       {
         provider: 'dynadot',
-        activeListings: 51,
+        activeListings: 97,
         latestRun: 'succeeded',
         latestSuccess: 'succeeded'
       },

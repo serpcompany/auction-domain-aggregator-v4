@@ -6,11 +6,33 @@ import { createContext, type ReactNode, useContext, useEffect, useRef, useState 
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 
+// Domains per request, under the route's limit of 50: a 96-row page is two.
+export const DOMAIN_RATING_PAGE_BATCH = 48
+
 const Pending = createContext<ReadonlySet<string>>(new Set())
+
+// Whether the server stored a rating for any of these domains. Enrichment is
+// best effort, so a failure counts as nothing stored.
+async function requestRatings(domains: string[], signal: AbortSignal) {
+  try {
+    const response = await fetch('/api/enrichment/domain-rating', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ domains }),
+      signal
+    })
+    const body = response.ok ? ((await response.json()) as { stored?: unknown }) : {}
+    return typeof body.stored === 'number' && body.stored > 0
+  } catch {
+    return false
+  }
+}
 
 // Asks the server to fetch Ahrefs DR for the shown rows that have none stored,
 // marks those cells as loading meanwhile, then re-renders the page from D1.
-// On any failure the cells go back to "not collected".
+// The requests go out together; the page refreshes once, after all of them
+// settle, because a refresh re-runs every D1 read of the page. On any failure
+// the cells go back to "not collected".
 export function DomainRatingsProvider({
   domains,
   children
@@ -25,23 +47,20 @@ export function DomainRatingsProvider({
 
   useEffect(() => {
     if (key === '') return
-    setPending(new Set(key.split(',')))
+    const all = key.split(',')
+    setPending(new Set(all))
     const controller = new AbortController()
+    const batches: string[][] = []
+    for (let start = 0; start < all.length; start += DOMAIN_RATING_PAGE_BATCH) {
+      batches.push(all.slice(start, start + DOMAIN_RATING_PAGE_BATCH))
+    }
     void (async () => {
-      try {
-        const response = await fetch('/api/enrichment/domain-rating', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ domains: key.split(',') }),
-          signal: controller.signal
-        })
-        const body = response.ok ? ((await response.json()) as { stored?: unknown }) : {}
-        if (typeof body.stored === 'number' && body.stored > 0) router.current.refresh()
-      } catch {
-        // Enrichment is best effort.
-      } finally {
-        if (!controller.signal.aborted) setPending(new Set())
-      }
+      const stored = await Promise.all(
+        batches.map(batch => requestRatings(batch, controller.signal))
+      )
+      if (controller.signal.aborted) return
+      if (stored.includes(true)) router.current.refresh()
+      setPending(new Set())
     })()
     return () => controller.abort()
   }, [key])

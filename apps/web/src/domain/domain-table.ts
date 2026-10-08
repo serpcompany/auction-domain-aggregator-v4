@@ -1,4 +1,8 @@
-export const DOMAIN_TABLE_PAGE_SIZE = 50
+// A load reads every matching row for the count whatever the page size, so a
+// larger page shows more listings for nearly the same rows read. The page
+// lookups bind one value per row plus at most one constant, so a page holds
+// at most 99 rows under D1's 100 bound values; 96 is two DR requests of 48.
+export const DOMAIN_TABLE_PAGE_SIZE = 96
 export const MAX_DOMAIN_TABLE_PAGE = 100_000
 // With active status, the reference time, every scalar filter (19 values),
 // row limit, and offset, the worst accepted row query binds 87 values, below

@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
   DOMAIN_TABLE_CATEGORY_VALUE_LIMIT,
+  DOMAIN_TABLE_PAGE_SIZE,
   DOMAIN_TABLE_SORTS,
   type DomainTableSearchParams,
   parseDomainTableFilters
@@ -171,8 +172,8 @@ describe('domain listings read model on D1', () => {
       direction: 'desc',
       page: '2'
     })
-    expect(firstPage.total).toBe(51)
-    expect(firstPage.rows).toHaveLength(50)
+    expect(firstPage.total).toBe(97)
+    expect(firstPage.rows).toHaveLength(96)
     expect(firstPage.rows[0]?.currentBidCents).toBe(5_100)
     expect(secondPage.page).toBe(2)
     expect(secondPage.rows).toHaveLength(1)
@@ -561,26 +562,26 @@ describe('domain listings read model on D1', () => {
       }
     )
 
-    // 60 listings; all but every sixth (5, 11, ... 59) have Trust Flow, so page 1 is all
+    // 115 listings; all but every sixth (5, 11, ... 113) have Trust Flow, so page 1 is all
     // known values and page 2 all unknown.
     it.each([
       { path: 'listing-driven', limit: undefined },
       { path: 'index-driven', limit: 0 }
     ])('pages across the listings without a value ($path metric sorts)', async ({ limit }) => {
       const seenAt = FIXTURE_SEEN_AT.getTime()
-      const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < 59)`
-      const name = sql`'boundary-' || printf('%02d', i) || '.test'`
+      const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < 114)`
+      const name = sql`'boundary-' || printf('%03d', i) || '.test'`
       await database.run(
         sql`${numbers} insert into domains (name, first_seen_at) select ${name}, ${seenAt} from n`
       )
       await database.run(
-        sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, status, first_seen_at, last_seen_at) select 'dynadot', 'boundary-' || printf('%02d', i), ${name}, 'https://example.invalid/boundary/' || i, 'EXPIRED', 'USD', 100, 0, ${new Date('2026-07-20T00:00:00.000Z').getTime()}, 'active', ${seenAt}, ${seenAt} from n`
+        sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, status, first_seen_at, last_seen_at) select 'dynadot', 'boundary-' || printf('%03d', i), ${name}, 'https://example.invalid/boundary/' || i, 'EXPIRED', 'USD', 100, 0, ${new Date('2026-07-20T00:00:00.000Z').getTime()}, 'active', ${seenAt}, ${seenAt} from n`
       )
       await database.run(
         sql`${numbers} insert into domain_seo_metrics (domain_name, source, majestic_tf, updated_at) select ${name}, 'godaddy', i % 5, ${seenAt} from n where i % 6 != 5`
       )
-      const rows = Array.from({ length: 60 }, (_, i) => ({
-        id: `boundary-${String(i).padStart(2, '0')}`,
+      const rows = Array.from({ length: 115 }, (_, i) => ({
+        id: `boundary-${String(i).padStart(3, '0')}`,
         tf: i % 6 === 5 ? null : i % 5
       }))
       const expected = (direction: 'asc' | 'desc') => {
@@ -599,13 +600,13 @@ describe('domain listings read model on D1', () => {
       for (const direction of ['asc', 'desc'] as const) {
         const first = await paged({ q: 'boundary-', sort: 'majesticTf', direction })
         const second = await paged({ q: 'boundary-', sort: 'majesticTf', direction, page: '2' })
-        expect(first.total).toBe(60)
+        expect(first.total).toBe(115)
         expect([...ids(first), ...ids(second)], direction).toEqual(expected(direction))
       }
       // A page that runs out of known values continues with the rest from the start, and a
       // page that has none starts with them at once.
-      expect(ids(await paged({ q: 'boundary-3', sort: 'majesticTf' })).at(-1)).toBe('boundary-35')
-      expect(ids(await paged({ q: 'boundary-35', sort: 'majesticTf' }))).toEqual(['boundary-35'])
+      expect(ids(await paged({ q: 'boundary-03', sort: 'majesticTf' })).at(-1)).toBe('boundary-035')
+      expect(ids(await paged({ q: 'boundary-035', sort: 'majesticTf' }))).toEqual(['boundary-035'])
     })
 
     it('clamps a page past the end to the last page', async () => {
@@ -672,6 +673,51 @@ describe('domain listings read model on D1', () => {
           }
         }
       }
+    }
+  })
+
+  // The page's DR and SEO lookups bind every domain on the page, so the page size is bounded
+  // by D1's 100 bound values. Local D1 does not enforce that limit, so the test counts them.
+  it('binds at most 100 values in every statement of a full page', async () => {
+    const seenAt = FIXTURE_SEEN_AT.getTime()
+    const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < ${DOMAIN_TABLE_PAGE_SIZE})`
+    const name = sql`'full-page-' || printf('%03d', i) || '.test'`
+    await database.run(
+      sql`${numbers} insert into domains (name, first_seen_at) select ${name}, ${seenAt} from n`
+    )
+    await database.run(
+      sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, status, first_seen_at, last_seen_at) select 'dynadot', 'full-page-' || i, ${name}, 'https://example.invalid/full-page/' || i, 'EXPIRED', 'USD', 100, 0, ${new Date('2026-07-20T00:00:00.000Z').getTime()}, 'active', ${seenAt}, ${seenAt} from n`
+    )
+    // Drizzle's logger skips the statements of a batch, so record every bind instead.
+    const statements: { query: string; params: unknown[] }[] = []
+    const recording = {
+      prepare: (query: string) => {
+        const statement = testEnv.DB.prepare(query)
+        return {
+          bind: (...params: unknown[]) => {
+            statements.push({ query, params })
+            return statement.bind(...params)
+          }
+        }
+      },
+      batch: (batch: D1PreparedStatement[]) => testEnv.DB.batch(batch)
+    } as unknown as D1Database
+
+    const result = await queryDomainListingsWithDatabase(
+      parseDomainTableFilters({ q: 'full-page-' }),
+      drizzle(recording, { schema }),
+      QUERY_NOW
+    )
+
+    expect(result.total).toBe(DOMAIN_TABLE_PAGE_SIZE + 1)
+    expect(result.rows).toHaveLength(DOMAIN_TABLE_PAGE_SIZE)
+    const lookups = statements.filter(({ query }) => / from "domain(_seo)?_metrics" /.test(query))
+    expect(lookups.map(({ params }) => params.length)).toEqual([
+      DOMAIN_TABLE_PAGE_SIZE + 1,
+      DOMAIN_TABLE_PAGE_SIZE
+    ])
+    for (const { query, params } of statements) {
+      expect(params.length, query).toBeLessThanOrEqual(100)
     }
   })
 

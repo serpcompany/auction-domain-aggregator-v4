@@ -12,13 +12,13 @@ describe('ResultsPagination', () => {
   it('links the first, previous, next, and last pages and keeps the filters', () => {
     render(<ResultsPagination filters={filters} page={3} total={857_412} />)
 
-    expect(screen.getByText('Showing 101–150 of 857,412')).toBeInTheDocument()
-    expect(screen.getByText('Page 3 of 17,149')).toBeInTheDocument()
+    expect(screen.getByText('Showing 193–288 of 857,412')).toBeInTheDocument()
+    expect(screen.getByText('Page 3 of 8,932')).toBeInTheDocument()
     const href = (name: string) => screen.getByRole('link', { name }).getAttribute('href')
     expect(href('Go to first page')).toBe('/?tld=com&sort=endsAt&direction=asc&page=1')
     expect(href('Go to previous page')).toBe('/?tld=com&sort=endsAt&direction=asc&page=2')
     expect(href('Go to next page')).toBe('/?tld=com&sort=endsAt&direction=asc&page=4')
-    expect(href('Go to last page')).toBe('/?tld=com&sort=endsAt&direction=asc&page=17149')
+    expect(href('Go to last page')).toBe('/?tld=com&sort=endsAt&direction=asc&page=8932')
   })
 
   it('disables the pages that do not exist', () => {

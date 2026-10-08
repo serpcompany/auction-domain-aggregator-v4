@@ -123,7 +123,7 @@ describe('D1 ingestion storage', () => {
     // the successful run then inactivated the two it did not see.
     expect(successfulReconciled).toBe(2)
     expect(repeatedReconciled).toBe(0)
-    expect(await activeListingCount(database)).toBe(51)
+    expect(await activeListingCount(database)).toBe(97)
     const [inactive] = await database
       .select({ value: count() })
       .from(auctionListings)

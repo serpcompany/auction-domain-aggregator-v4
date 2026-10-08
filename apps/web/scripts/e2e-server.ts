@@ -80,7 +80,8 @@ function fixtureSql(now = Date.now()) {
       appraisal: 9_000,
       renewal: 1_500
     },
-    ...Array.from({ length: 58 }, (_, index) => {
+    // 100 listings, half of them auctions: more than one 96-row page.
+    ...Array.from({ length: 98 }, (_, index) => {
       const number = String(index + 1).padStart(2, '0')
       return {
         externalId: `e2e-sample-${number}`,
@@ -114,7 +115,7 @@ function fixtureSql(now = Date.now()) {
     `INSERT INTO domains (name, first_seen_at) VALUES ${domainValues}`,
     `INSERT INTO auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, bidder_count, starts_at, ends_at, age_years, inbound_links, visitors, appraisal_cents, renewal_price_cents, status, first_seen_at, last_seen_at) VALUES ${listingValues}`,
     `INSERT INTO domain_metrics (domain_name, metric, status, value, fetched_at) VALUES ('garden.com','ahrefs_dr','ok',37.2,${now})`,
-    `INSERT INTO ingestion_runs (provider, status, started_at, completed_at, pages_fetched, next_page, records_fetched, records_upserted, records_inactivated) VALUES ('dynadot','succeeded',${firstSeenAt},${now},1,1,60,60,0)`,
+    `INSERT INTO ingestion_runs (provider, status, started_at, completed_at, pages_fetched, next_page, records_fetched, records_upserted, records_inactivated) VALUES ('dynadot','succeeded',${firstSeenAt},${now},1,1,100,100,0)`,
     // A successful sync rebuilds the facet values; the seed does the same.
     ...REFRESH_LISTING_FACETS_SQL
   ].join(';\n')};\n`
