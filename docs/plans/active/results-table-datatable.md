@@ -19,7 +19,7 @@ and never appears in a shared URL.
 - [x] (2026-10-08) Wrote this plan; the owner decided its open questions.
 - [x] (2026-10-08) The owner approved the prototype; #125 records it, and this plan follows it.
 - [ ] M1 Page size 96 and at most two DR requests per page, with rows read measured.
-- [ ] M2 One-row headers with tooltips, header menus (sort, hide), Columns menu, footer attribution.
+- [x] (2026-10-08) M2 One-row headers, tooltips, header menus (sort, hide), Columns menu, footer.
 - [ ] M3 Pin and move, row selection column and bar, row action menu.
 - [ ] M4 Rule bar, Filters menu, Clear all, with a measured bind count.
 - [ ] M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
@@ -104,7 +104,8 @@ All 2026-10-08. "Owner" decisions come from the owner directly or through #125.
 
 ## Outcomes & Retrospective
 
-Nothing is implemented yet. Update at each milestone.
+M2: hiding and Reset layout send no page request; the current sort is marked, not a link (no D1
+re-read). Ref. dom. got a tooltip too, since its Majestic group row is gone.
 
 ## Context and Orientation
 

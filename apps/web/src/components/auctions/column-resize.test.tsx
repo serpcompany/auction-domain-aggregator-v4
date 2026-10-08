@@ -101,10 +101,33 @@ describe('column resizing', () => {
     )
   })
 
+  it("keeps its pointer, click, and key events from the header's menu", () => {
+    const parent = vi.fn()
+    render(
+      <ColumnWidthsProvider initialWidths={{}}>
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: stands in for the header that holds the menu trigger. */}
+        <div onPointerDown={parent} onClick={parent} onDoubleClick={parent} onKeyDown={parent}>
+          <ColumnResizeHandle column="price" label="Price" />
+        </div>
+      </ColumnWidthsProvider>
+    )
+    const handle = screen.getByRole('separator', { name: 'Resize Price column' })
+    fireEvent.pointerDown(handle, { button: 0, clientX: 100 })
+    fireEvent.pointerUp(window)
+    fireEvent.pointerDown(handle, { button: 2, clientX: 100 })
+    fireEvent.click(handle)
+    fireEvent.doubleClick(handle)
+    fireEvent.keyDown(handle, { key: 'ArrowRight' })
+    expect(parent).not.toHaveBeenCalled()
+    // Keys the handle does not use still reach the page.
+    fireEvent.keyDown(handle, { key: 'Tab' })
+    expect(parent).toHaveBeenCalledOnce()
+  })
+
   it('needs the widths provider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<ColumnResizeHandle column="price" label="Price" />)).toThrow(
-      'ColumnResizeHandle needs a ColumnWidthsProvider'
+      'Column widths need a ColumnWidthsProvider'
     )
     consoleError.mockRestore()
   })

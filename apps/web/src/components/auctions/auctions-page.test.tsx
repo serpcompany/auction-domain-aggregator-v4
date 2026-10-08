@@ -7,6 +7,7 @@ import {
   ListingCount,
   Results
 } from '@/components/auctions/auctions-page'
+import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { fullRow, now } from '@/components/auctions/test-rows'
 import { parseDomainTableFilters } from '@/domain/domain-table'
 import { DEFAULT_COLUMNS } from '@/domain/table-columns'
@@ -44,13 +45,15 @@ async function renderResults(
   columns = DEFAULT_COLUMNS
 ) {
   render(
-    await Results({
-      result: Promise.resolve(result(overrides)),
-      filters: parseDomainTableFilters(params),
-      visibleColumns: columns,
-      columnWidths: {},
-      now
-    })
+    <TableLayoutProvider initialColumns={columns} initialWidths={{}}>
+      {
+        await Results({
+          result: Promise.resolve(result(overrides)),
+          filters: parseDomainTableFilters(params),
+          now
+        })
+      }
+    </TableLayoutProvider>
   )
 }
 
@@ -122,6 +125,8 @@ describe('AuctionsPage', () => {
     expect(within(region).getByRole('table')).toBeInTheDocument()
     expect(screen.getByRole('list', { name: 'Domain results' })).toBeInTheDocument()
     expect(screen.getByText('Page 1 of 1')).toBeInTheDocument()
+    // The DR attribution: in the footer for the table, and above the phone list.
+    expect(screen.getAllByRole('link', { name: 'Domain Rating by Ahrefs' })).toHaveLength(2)
   })
 
   it('asks Ahrefs only for missing ratings, and only while DR is shown', async () => {

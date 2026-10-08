@@ -16,7 +16,7 @@ export function ResultsSkeleton({ visibleColumns }: { visibleColumns: readonly C
         className="hidden min-h-0 overflow-hidden rounded-lg border md:block md:flex-1"
         data-testid="results-skeleton"
       >
-        <div className="flex h-[62px] items-center gap-4 border-b px-3">
+        <div className="flex h-10 items-center gap-4 border-b px-3">
           <Skeleton className="h-4 w-40" />
           {columns.map(column => (
             <Skeleton key={column.key} className="ml-auto h-4 w-10" />

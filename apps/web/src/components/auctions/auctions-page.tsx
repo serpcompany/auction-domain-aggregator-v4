@@ -11,7 +11,8 @@ import { ListingDetailsProvider } from '@/components/auctions/listing-details'
 import { ResultsList } from '@/components/auctions/results-list'
 import { ResultsPagination } from '@/components/auctions/results-pagination'
 import { ResultsSkeleton } from '@/components/auctions/results-skeleton'
-import { ResultsTable } from '@/components/auctions/results-table'
+import { DomainRatingAttribution, ResultsTable } from '@/components/auctions/results-table'
+import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -74,14 +75,10 @@ export async function FetchDomainRatings({
 export async function Results({
   result: pending,
   filters,
-  visibleColumns,
-  columnWidths,
   now
 }: {
   result: Promise<DomainListingsResult>
   filters: DomainTableFilters
-  visibleColumns: ColumnKey[]
-  columnWidths: ColumnWidths
   now: Date
 }) {
   const result = await pending
@@ -157,11 +154,7 @@ export async function Results({
   const effectiveFilters = { ...filters, page: result.page }
   return (
     <DomainRatingsProvider
-      domains={
-        visibleColumns.includes('domainRating')
-          ? result.rows.filter(row => !row.domainRatingFetched).map(row => row.domainName)
-          : []
-      }
+      domains={result.rows.filter(row => !row.domainRatingFetched).map(row => row.domainName)}
     >
       <section
         aria-label="Domain results"
@@ -172,19 +165,15 @@ export async function Results({
         // sticky; the stock Table's own scroll wrapper becomes a pass-through.
         className="relative hidden min-h-0 overflow-auto overscroll-contain rounded-lg border focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:block md:flex-1 [&_[data-slot=table-container]]:overflow-visible"
       >
-        <ResultsTable
-          rows={result.rows}
-          filters={effectiveFilters}
-          visibleColumns={visibleColumns}
-          columnWidths={columnWidths}
-          now={now}
-        />
+        <ResultsTable rows={result.rows} filters={effectiveFilters} now={now} />
       </section>
       {/* Phones get a list instead of the wide table. */}
       <div className="-mx-4 border-y md:hidden">
-        <ResultsList rows={result.rows} visibleColumns={visibleColumns} now={now} />
+        <ResultsList rows={result.rows} now={now} />
       </div>
-      <ResultsPagination filters={filters} page={result.page} total={result.total} />
+      <ResultsPagination filters={filters} page={result.page} total={result.total}>
+        <DomainRatingAttribution />
+      </ResultsPagination>
     </DomainRatingsProvider>
   )
 }
@@ -207,67 +196,63 @@ export function AuctionsPage({
   columnWidths: ColumnWidths
   now: Date
 }) {
-  const key = `${buildDomainTableHref(filters)}#${visibleColumns.join(',')}`
+  // Layout changes never reach the server, so only the URL resets the skeleton.
+  const key = buildDomainTableHref(filters)
 
   return (
-    <ListingDetailsProvider now={now}>
-      <div className="flex min-h-0 flex-col gap-3 px-4 pt-3 pb-3 md:h-[calc(100svh-3rem)]">
-        <h1 className="sr-only">Auctions</h1>
-        <AuctionsToolbar
-          filters={filters}
-          sources={status.sources}
-          auctionTypes={status.auctionTypes}
-          tlds={status.tlds}
-          visibleColumns={visibleColumns}
-          count={
-            <Suspense
-              key={key}
-              fallback={<Skeleton className="inline-block h-4 w-24 align-middle" />}
-            >
-              <ListingCount result={result} />
-            </Suspense>
-          }
-        />
-        <ActiveFilters
-          filters={filters}
-          actions={
-            <Suspense key={key} fallback={null}>
-              <FetchDomainRatings result={result} filters={filters} />
-            </Suspense>
-          }
-        />
-        {isInventoryStale(status.latestSuccessfulSync, now) ? (
-          <Alert
-            role="status"
-            className="border-warning-foreground/30 bg-warning text-warning-foreground"
-          >
-            <TriangleAlertIcon aria-hidden="true" />
-            <AlertTitle>The inventory is out of date</AlertTitle>
-            <AlertAction>
-              <Link
-                prefetch={false}
-                href="/syncs/"
-                className={buttonVariants({ variant: 'outline', size: 'sm' })}
-              >
-                Sync status
-              </Link>
-            </AlertAction>
-            <AlertDescription className="text-warning-foreground/90">
-              {formatSyncRecency(status.latestSuccessfulSync, now)}. Ended auctions are hidden, but
-              prices, bids, and new listings may be out of date until the next sync.
-            </AlertDescription>
-          </Alert>
-        ) : null}
-        <Suspense key={key} fallback={<ResultsSkeleton visibleColumns={visibleColumns} />}>
-          <Results
-            result={result}
+    <TableLayoutProvider initialColumns={visibleColumns} initialWidths={columnWidths}>
+      <ListingDetailsProvider now={now}>
+        <div className="flex min-h-0 flex-col gap-3 px-4 pt-3 pb-3 md:h-[calc(100svh-3rem)]">
+          <h1 className="sr-only">Auctions</h1>
+          <AuctionsToolbar
             filters={filters}
-            visibleColumns={visibleColumns}
-            columnWidths={columnWidths}
-            now={now}
+            sources={status.sources}
+            auctionTypes={status.auctionTypes}
+            tlds={status.tlds}
+            count={
+              <Suspense
+                key={key}
+                fallback={<Skeleton className="inline-block h-4 w-24 align-middle" />}
+              >
+                <ListingCount result={result} />
+              </Suspense>
+            }
           />
-        </Suspense>
-      </div>
-    </ListingDetailsProvider>
+          <ActiveFilters
+            filters={filters}
+            actions={
+              <Suspense key={key} fallback={null}>
+                <FetchDomainRatings result={result} filters={filters} />
+              </Suspense>
+            }
+          />
+          {isInventoryStale(status.latestSuccessfulSync, now) ? (
+            <Alert
+              role="status"
+              className="border-warning-foreground/30 bg-warning text-warning-foreground"
+            >
+              <TriangleAlertIcon aria-hidden="true" />
+              <AlertTitle>The inventory is out of date</AlertTitle>
+              <AlertAction>
+                <Link
+                  prefetch={false}
+                  href="/syncs/"
+                  className={buttonVariants({ variant: 'outline', size: 'sm' })}
+                >
+                  Sync status
+                </Link>
+              </AlertAction>
+              <AlertDescription className="text-warning-foreground/90">
+                {formatSyncRecency(status.latestSuccessfulSync, now)}. Ended auctions are hidden,
+                but prices, bids, and new listings may be out of date until the next sync.
+              </AlertDescription>
+            </Alert>
+          ) : null}
+          <Suspense key={key} fallback={<ResultsSkeleton visibleColumns={visibleColumns} />}>
+            <Results result={result} filters={filters} now={now} />
+          </Suspense>
+        </div>
+      </ListingDetailsProvider>
+    </TableLayoutProvider>
   )
 }

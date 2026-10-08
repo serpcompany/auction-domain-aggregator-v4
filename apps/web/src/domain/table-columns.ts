@@ -7,7 +7,7 @@ export const TABLE_COLUMNS = [
   { key: 'source', label: 'Source', sort: 'source', width: 104, defaultVisible: true },
   { key: 'type', label: 'Type', sort: 'type', width: 80, defaultVisible: true },
   { key: 'price', label: 'Price', sort: 'price', numeric: true, width: 80, defaultVisible: true },
-  { key: 'bids', label: 'Bids', sort: 'bids', numeric: true, width: 64, defaultVisible: true },
+  { key: 'bids', label: 'Bids', sort: 'bids', numeric: true, width: 72, defaultVisible: true },
   { key: 'ends', label: 'Ends', sort: 'endsAt', width: 192, defaultVisible: true },
   { key: 'age', label: 'Age', sort: 'age', numeric: true, width: 64, defaultVisible: true },
   {
@@ -55,6 +55,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticTf',
     label: 'TF',
     menuLabel: 'Trust Flow',
+    tooltip: 'Majestic Trust Flow',
     sort: 'majesticTf',
     group: 'Majestic',
     numeric: true,
@@ -65,6 +66,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticCf',
     label: 'CF',
     menuLabel: 'Citation Flow',
+    tooltip: 'Majestic Citation Flow',
     sort: 'majesticCf',
     group: 'Majestic',
     numeric: true,
@@ -75,6 +77,7 @@ export const TABLE_COLUMNS = [
     key: 'majesticRefDomains',
     label: 'Ref. dom.',
     menuLabel: 'Referring domains',
+    tooltip: 'Majestic Referring Domains',
     sort: 'majesticRefDomains',
     group: 'Majestic',
     numeric: true,
@@ -85,16 +88,18 @@ export const TABLE_COLUMNS = [
     key: 'semrushAs',
     label: 'AS',
     menuLabel: 'Authority Score',
+    tooltip: 'Semrush Authority Score',
     sort: 'semrushAs',
     group: 'Semrush',
     numeric: true,
     width: 72,
-    defaultVisible: true
+    defaultVisible: false
   },
   {
     key: 'domainRating',
     label: 'DR',
     menuLabel: 'Domain Rating',
+    tooltip: 'Domain Rating by Ahrefs',
     sort: 'domainRating',
     group: 'Ahrefs',
     numeric: true,
@@ -105,6 +110,8 @@ export const TABLE_COLUMNS = [
   key: string
   label: string
   menuLabel?: string
+  // The full name a short header label stands for, shown in its tooltip.
+  tooltip?: string
   sort: DomainTableSort
   group?: 'Majestic' | 'Semrush' | 'Ahrefs'
   numeric?: boolean

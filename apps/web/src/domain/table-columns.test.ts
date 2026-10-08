@@ -30,7 +30,6 @@ describe('table columns', () => {
       'appraisal',
       'majesticTf',
       'majesticCf',
-      'semrushAs',
       'domainRating'
     ])
     expect(DEFAULT_COLUMNS).toEqual(parseVisibleColumns(undefined))

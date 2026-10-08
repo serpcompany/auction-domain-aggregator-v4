@@ -1,7 +1,10 @@
+'use client'
+
 import { ExternalLinkIcon } from 'lucide-react'
 
 import { PendingRatingBadge } from '@/components/auctions/domain-ratings'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
+import { useVisibleColumns } from '@/components/auctions/table-layout'
 import { Badge } from '@/components/ui/badge'
 import {
   type EndTimeState,
@@ -60,15 +63,9 @@ function badge(key: ColumnKey, row: DomainListingRow): string | null {
   }
 }
 
-export function ResultsList({
-  rows,
-  visibleColumns,
-  now
-}: {
-  rows: DomainListingRow[]
-  visibleColumns: readonly ColumnKey[]
-  now: Date
-}) {
+// The phone list. Its badges follow the browser's chosen columns.
+export function ResultsList({ rows, now }: { rows: DomainListingRow[]; now: Date }) {
+  const { columns: visibleColumns } = useVisibleColumns()
   const badgeColumns = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
   return (
     <div>

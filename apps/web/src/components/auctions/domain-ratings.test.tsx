@@ -1,4 +1,4 @@
-import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
@@ -7,7 +7,9 @@ import {
   PendingRating,
   PendingRatingBadge
 } from '@/components/auctions/domain-ratings'
+import { TableLayoutProvider, useVisibleColumns } from '@/components/auctions/table-layout'
 import { DOMAIN_TABLE_PAGE_SIZE } from '@/domain/domain-table'
+import { type ColumnKey, DEFAULT_COLUMNS } from '@/domain/table-columns'
 import { DOMAIN_RATING_REQUEST_LIMIT } from '@/server/enrichment/domain-rating'
 
 const { refresh } = vi.hoisted(() => ({ refresh: vi.fn() }))
@@ -25,17 +27,29 @@ function stubFetch(response: () => Promise<Response>) {
   return fetchMock
 }
 
-function renderRatings(domains: string[]) {
+function ShowDomainRating() {
+  const { toggle } = useVisibleColumns()
+  return (
+    <button type="button" onClick={() => toggle('domainRating', true)}>
+      Show DR
+    </button>
+  )
+}
+
+function renderRatings(domains: string[], columns: readonly ColumnKey[] = DEFAULT_COLUMNS) {
   return render(
-    <DomainRatingsProvider domains={domains}>
-      <p>
-        <PendingRating domain="a.com">not collected</PendingRating>
-      </p>
-      <PendingRatingBadge domain="a.com" />
-      <p>
-        <PendingRating domain="other.com">stored</PendingRating>
-      </p>
-    </DomainRatingsProvider>
+    <TableLayoutProvider initialColumns={columns} initialWidths={{}}>
+      <DomainRatingsProvider domains={domains}>
+        <p>
+          <PendingRating domain="a.com">not collected</PendingRating>
+        </p>
+        <PendingRatingBadge domain="a.com" />
+        <p>
+          <PendingRating domain="other.com">stored</PendingRating>
+        </p>
+        <ShowDomainRating />
+      </DomainRatingsProvider>
+    </TableLayoutProvider>
   )
 }
 
@@ -58,6 +72,18 @@ describe('DomainRatingsProvider', () => {
     await waitFor(() => expect(refresh).toHaveBeenCalledOnce())
     expect(screen.queryByRole('status', { name: 'Fetching Domain Rating' })).not.toBeInTheDocument()
     expect(screen.getByText('not collected')).toBeInTheDocument()
+  })
+
+  it('waits while DR is hidden, and asks once the browser shows it again', async () => {
+    const fetchMock = stubFetch(async () => Response.json({ stored: 0 }))
+    renderRatings(['a.com'], ['price'])
+    expect(screen.getByText('not collected')).toBeInTheDocument()
+    await act(async () => {})
+    expect(fetchMock).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show DR' }))
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce())
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('does nothing when every shown domain already has DR', () => {

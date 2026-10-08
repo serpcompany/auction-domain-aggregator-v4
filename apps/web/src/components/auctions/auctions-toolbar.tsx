@@ -36,7 +36,7 @@ import {
   type SortDirection
 } from '@/domain/domain-table'
 import { buildFiltersPageHref, countFiltersBySection } from '@/domain/filter-form'
-import { type ColumnKey, TABLE_COLUMNS } from '@/domain/table-columns'
+import { TABLE_COLUMNS } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
 
 const ENDING_LABELS: Record<DomainTableEndingWindow, string> = {
@@ -264,15 +264,13 @@ export function AuctionsToolbar({
   sources,
   auctionTypes,
   tlds,
-  count,
-  visibleColumns
+  count
 }: {
   filters: DomainTableFilters
   sources: string[]
   auctionTypes: string[]
   tlds: string[]
   count: ReactNode
-  visibleColumns: ColumnKey[]
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
@@ -364,7 +362,7 @@ export function AuctionsToolbar({
             )
           }
         />
-        <FieldsDrawer visibleColumns={visibleColumns} />
+        <FieldsDrawer />
       </div>
       <div
         className={cn(
@@ -375,7 +373,7 @@ export function AuctionsToolbar({
         {count}
       </div>
       <div className="hidden md:block">
-        <ColumnsMenu visibleColumns={visibleColumns} />
+        <ColumnsMenu />
       </div>
     </div>
   )

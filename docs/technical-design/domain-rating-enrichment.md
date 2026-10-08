@@ -12,7 +12,7 @@ Ahrefs Domain Rating (DR) is the one value the web application fetches from a pr
 - `POST /api/enrichment/domain-rating` and `POST /api/enrichment/domain-rating/matching` are the only request paths that call a provider. Page rendering stays D1-only.
 - A stored DR is write-once and never refreshed by scheduled work. Feed-published Majestic and SEMrush metrics are different: every sync replaces them ([Data ingestion](data-ingestion.md#feed-published-seo-metrics)).
 - `domain_metrics` is keyed by `(domain_name, metric)`; `ahrefs_dr` is the only metric. A later listing for the same domain reuses the stored value.
-- Every displayed value sits under the "Domain Rating by Ahrefs" attribution linked to `https://ahrefs.com/`.
+- While DR values show, a visible "DR = Domain Rating by Ahrefs" line linked to `https://ahrefs.com/` sits in the table footer and above the phone list; the DR header tooltip and the details panel name it too.
 - The key is `AHREFS_API_KEY` in the app Worker's env (`apps/web/.dev.vars` locally). Without it the route answers a fixed error and cells keep showing "not collected".
 
 ## Request path
