@@ -27,7 +27,13 @@ function cells(rowIndex: number) {
 describe('ResultsTable', () => {
   it('renders the default columns with grouped metric headers', () => {
     render(
-      <ResultsTable rows={[fullRow]} filters={filters} visibleColumns={DEFAULT_COLUMNS} now={now} />
+      <ResultsTable
+        rows={[fullRow]}
+        filters={filters}
+        visibleColumns={DEFAULT_COLUMNS}
+        columnWidths={{}}
+        now={now}
+      />
     )
 
     const headers = screen.getAllByRole('columnheader').map(header => header.textContent)
@@ -70,7 +76,13 @@ describe('ResultsTable', () => {
 
   it('renders every value of a full row on one line, opening the auction in a new tab', () => {
     render(
-      <ResultsTable rows={[fullRow]} filters={filters} visibleColumns={allColumns} now={now} />
+      <ResultsTable
+        rows={[fullRow]}
+        filters={filters}
+        visibleColumns={allColumns}
+        columnWidths={{}}
+        now={now}
+      />
     )
 
     expect(cells(2)).toEqual([
@@ -106,7 +118,13 @@ describe('ResultsTable', () => {
 
   it('shows unknown values as not collected', () => {
     render(
-      <ResultsTable rows={[emptyRow]} filters={filters} visibleColumns={allColumns} now={now} />
+      <ResultsTable
+        rows={[emptyRow]}
+        filters={filters}
+        visibleColumns={allColumns}
+        columnWidths={{}}
+        now={now}
+      />
     )
 
     expect(cells(2)).toEqual([
@@ -144,6 +162,7 @@ describe('ResultsTable', () => {
         ]}
         filters={filters}
         visibleColumns={['ends', 'age', 'domainRating']}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -160,6 +179,7 @@ describe('ResultsTable', () => {
         rows={[emptyRow]}
         filters={filters}
         visibleColumns={['renewal', 'majesticRefDomains']}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -184,6 +204,7 @@ describe('ResultsTable', () => {
         rows={[fullRow]}
         filters={parseDomainTableFilters({ sort: 'domainRating', direction: 'desc' })}
         visibleColumns={allColumns}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -213,6 +234,7 @@ describe('ResultsTable', () => {
         rows={[{ ...fullRow, ageYears: 1 }]}
         filters={filters}
         visibleColumns={['age']}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -220,7 +242,15 @@ describe('ResultsTable', () => {
   })
 
   it('uses one header row when no metric column is shown', () => {
-    render(<ResultsTable rows={[fullRow]} filters={filters} visibleColumns={[]} now={now} />)
+    render(
+      <ResultsTable
+        rows={[fullRow]}
+        filters={filters}
+        visibleColumns={[]}
+        columnWidths={{}}
+        now={now}
+      />
+    )
 
     expect(screen.getAllByRole('row')).toHaveLength(2)
     expect(screen.getByRole('columnheader', { name: 'Domain' })).toHaveAttribute('rowspan', '1')
@@ -233,6 +263,7 @@ describe('ResultsTable', () => {
         rows={[fullRow]}
         filters={parseDomainTableFilters({ sort: 'domain', direction: 'asc' })}
         visibleColumns={['price']}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -245,5 +276,39 @@ describe('ResultsTable', () => {
       'href',
       '/?sort=domain&direction=desc&page=1'
     )
+  })
+  it('lays the columns out at their saved widths, each with a resize handle', () => {
+    const { container } = render(
+      <ResultsTable
+        rows={[fullRow]}
+        filters={filters}
+        visibleColumns={['price', 'majesticTf']}
+        columnWidths={{ price: 150 }}
+        now={now}
+      />
+    )
+
+    const widths = [...container.querySelectorAll('col')].map(col => col.style.width)
+    expect(widths).toEqual([
+      'var(--column-domain-width, 240px)',
+      'var(--column-price-width, 80px)',
+      'var(--column-majesticTf-width, 56px)',
+      // Details takes the space the others leave.
+      ''
+    ])
+    expect(container.querySelector('table')).toHaveClass('table-fixed')
+    expect(
+      screen
+        .getAllByRole('separator')
+        .map(handle => [handle.getAttribute('aria-label'), handle.getAttribute('aria-valuenow')])
+    ).toEqual([
+      ['Resize Domain column', '240'],
+      ['Resize Price column', '150'],
+      ['Resize Majestic Trust Flow column', '56']
+    ])
+    // The handles stay out of the header names.
+    for (const name of ['Domain', 'Price', 'TF']) {
+      expect(screen.getByRole('columnheader', { name })).toBeInTheDocument()
+    }
   })
 })

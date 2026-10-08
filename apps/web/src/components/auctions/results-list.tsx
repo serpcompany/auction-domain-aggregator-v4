@@ -102,7 +102,7 @@ export function ResultsList({
                 href={row.auctionUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="relative z-10 inline-flex min-w-0 items-center gap-1.5 justify-self-start font-mono font-medium underline-offset-4 hover:underline"
+                className="relative z-10 inline-flex max-w-full min-w-0 items-center gap-1.5 justify-self-start font-mono font-medium underline-offset-4 hover:underline"
               >
                 <span className="truncate">{row.domainName}</span>
                 <ExternalLinkIcon

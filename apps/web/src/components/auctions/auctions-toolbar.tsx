@@ -36,7 +36,7 @@ import {
   type SortDirection
 } from '@/domain/domain-table'
 import { buildFiltersPageHref, countFiltersBySection } from '@/domain/filter-form'
-import type { ColumnKey } from '@/domain/table-columns'
+import { type ColumnKey, TABLE_COLUMNS } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
 
 const ENDING_LABELS: Record<DomainTableEndingWindow, string> = {
@@ -218,6 +218,13 @@ const SORT_OPTIONS: Array<[DomainTableSort, SortDirection, string]> = [
   ['domain', 'asc', 'Domain A–Z']
 ]
 
+// The column a sort belongs to, as the Columns menu names it.
+function sortName(sort: DomainTableSort) {
+  const column = TABLE_COLUMNS.find(candidate => candidate.sort === sort)
+  if (!column) return 'Domain'
+  return 'menuLabel' in column ? column.menuLabel : column.label
+}
+
 function SortSelect({
   filters,
   onChange
@@ -239,7 +246,8 @@ function SortSelect({
     >
       {listed ? null : (
         <NativeSelectOption value={current}>
-          Sorted by {filters.sort} ({filters.direction === 'asc' ? 'ascending' : 'descending'})
+          Sorted by {sortName(filters.sort)} (
+          {filters.direction === 'asc' ? 'ascending' : 'descending'})
         </NativeSelectOption>
       )}
       {SORT_OPTIONS.map(([sort, direction, label]) => (

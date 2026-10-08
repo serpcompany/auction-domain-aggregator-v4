@@ -43,6 +43,7 @@ async function renderResults(
       result: Promise.resolve(result(overrides)),
       filters: parseDomainTableFilters(params),
       visibleColumns: columns,
+      columnWidths: {},
       now
     })
   )
@@ -56,6 +57,7 @@ describe('AuctionsPage', () => {
         status={status()}
         result={new Promise(() => {})}
         visibleColumns={DEFAULT_COLUMNS}
+        columnWidths={{}}
         now={now}
       />
     )
@@ -74,6 +76,7 @@ describe('AuctionsPage', () => {
         status={status({ latestSuccessfulSync: new Date(now.getTime() - 2 * 86_400_000) })}
         result={new Promise(() => {})}
         visibleColumns={DEFAULT_COLUMNS}
+        columnWidths={{}}
         now={now}
       />
     )
