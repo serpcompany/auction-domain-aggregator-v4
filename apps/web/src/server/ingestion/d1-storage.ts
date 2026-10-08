@@ -157,17 +157,22 @@ const UPSERT_SEO_METRICS_SQL = `
     OR domain_seo_metrics.semrush_backlinks IS NOT excluded.semrush_backlinks
 `
 
-// Listings a provider stopped publishing stay inactive until a week after
-// they end, then go, with the feed metrics and domains nothing else uses, so
-// storage stops growing with every day's ended auctions. A domain with a
-// stored Ahrefs rating is kept: rating it again would cost an Ahrefs call.
+// A listing goes a week after its auction ends, whatever its provider or
+// status: by then the table has hidden it for a week, and a provider that is
+// no longer synced (as on Staging) leaves its listings behind otherwise. The
+// feed metrics and domains nothing else uses go with it, so storage stops
+// growing with every day's ended auctions; a domain with a stored Ahrefs
+// rating is kept, since rating it again would cost an Ahrefs call. There is
+// no index on `ends_at`, so the table is read once in rowid order from a
+// cursor, which costs reads but no index writes.
 const DELETE_ENDED_LISTINGS_SQL = `
   DELETE FROM auction_listings WHERE rowid IN (
     SELECT rowid FROM auction_listings
-    WHERE status = 'inactive' AND provider = ? AND ends_at < ?
+    WHERE rowid > ? AND ends_at < ?
+    ORDER BY rowid
     LIMIT ?
   )
-  RETURNING domain_name
+  RETURNING rowid, domain_name
 `
 
 const DELETE_UNUSED_SEO_METRICS_SQL = `
@@ -408,12 +413,14 @@ export function createD1IngestionStorage(
       return completed[0].recordsInactivated
     },
 
-    async deleteEndedListings(before, limit) {
+    async deleteEndedListings(before, afterRowid, limit) {
       const { results } = await db.$client
         .prepare(DELETE_ENDED_LISTINGS_SQL)
-        .bind(provider, before.getTime(), limit)
-        .all<{ domain_name: string }>()
-      if (results.length === 0) return { listings: 0, seoMetrics: 0, domains: 0 }
+        .bind(afterRowid, before.getTime(), limit)
+        .all<{ rowid: number; domain_name: string }>()
+      if (results.length === 0) {
+        return { listings: 0, seoMetrics: 0, domains: 0, lastRowid: afterRowid }
+      }
       const names = JSON.stringify([...new Set(results.map(row => row.domain_name))])
       const [seoMetrics, unusedDomains] = await db.$client.batch([
         db.$client.prepare(DELETE_UNUSED_SEO_METRICS_SQL).bind(names),
@@ -422,7 +429,8 @@ export function createD1IngestionStorage(
       return {
         listings: results.length,
         seoMetrics: seoMetrics.meta.changes,
-        domains: unusedDomains.meta.changes
+        domains: unusedDomains.meta.changes,
+        lastRowid: Math.max(...results.map(row => row.rowid))
       }
     },
 

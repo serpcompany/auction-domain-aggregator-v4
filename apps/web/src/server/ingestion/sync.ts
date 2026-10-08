@@ -81,13 +81,19 @@ export type IngestionStorage = {
   finalizeSuccessfulRun(run: RunState, finalization: SuccessfulRunFinalization): Promise<number>
   updateRunProgress(run: RunState): Promise<void>
   completeRun(run: RunState, completion: RunCompletion): Promise<void>
-  // Deletes up to `limit` of the provider's inactive listings that ended
-  // before `before`, then the feed metrics and domains of theirs that nothing
-  // else uses. Returns how many of each it deleted.
-  deleteEndedListings(before: Date, limit: number): Promise<DeletedListings>
+  // Deletes up to `limit` listings, of any provider and status, that ended
+  // before `before`, reading the table in rowid order after `afterRowid`;
+  // then the feed metrics and domains of theirs that nothing else uses.
+  // Returns how many of each it deleted and the last rowid it reached.
+  deleteEndedListings(before: Date, afterRowid: number, limit: number): Promise<DeletedListings>
 }
 
-export type DeletedListings = { listings: number; seoMetrics: number; domains: number }
+export type DeletedListings = {
+  listings: number
+  seoMetrics: number
+  domains: number
+  lastRowid: number
+}
 
 export type SyncSummary = RunCounters & {
   provider: AuctionProvider

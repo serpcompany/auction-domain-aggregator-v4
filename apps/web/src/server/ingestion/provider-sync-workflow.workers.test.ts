@@ -172,7 +172,7 @@ describe('provider-sync Workflow on D1 and R2', () => {
         `https://www.namecheap.com/market/sale/CsvSale${index}/`,
         `csv-feed-${index}.integration.test`,
         '2026-07-01T00:00:00Z',
-        '2026-07-20T15:00:00Z',
+        '2030-07-20T15:00:00Z',
         index === 0 ? '"12.50"' : '12.50',
         index % 10,
         index === 7 ? '"note, with a comma"' : '',

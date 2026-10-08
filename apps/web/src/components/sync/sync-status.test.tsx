@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { ProviderCard } from '@/components/sync/provider-card'
 import { SyncStatusPage } from '@/components/sync/sync-status-page'
+import { syncSchedule } from '@/domain/sync-schedule'
 import type { IngestionRun, ProviderSyncSummary } from '@/server/queries/sync-status'
 
 afterEach(cleanup)
@@ -55,6 +56,19 @@ describe('ProviderCard', () => {
       'Daily at 15:30 UTC · in 13h 11m'
     )
     expect(screen.getByText('corepack pnpm sync godaddy')).toBeInTheDocument()
+  })
+
+  it('says when this site does not schedule the provider', () => {
+    render(
+      <ProviderCard
+        summary={summary({ provider: 'dynadot' })}
+        now={now}
+        schedule={syncSchedule('Mon 11:30', 'godaddy')}
+      />
+    )
+    expect(screen.getByText('Next run').nextSibling).toHaveTextContent(
+      'Not scheduled here; run by hand'
+    )
   })
 
   it('shows progress while a sync runs', () => {

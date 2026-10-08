@@ -194,8 +194,8 @@ class MemoryStorage implements IngestionStorage {
     this.running.delete(run.runId)
   }
 
-  async deleteEndedListings() {
-    return { listings: 0, seoMetrics: 0, domains: 0 }
+  async deleteEndedListings(_before: Date, afterRowid: number) {
+    return { listings: 0, seoMetrics: 0, domains: 0, lastRowid: afterRowid }
   }
 }
 

@@ -15,6 +15,7 @@ import {
   type StepConfig,
   SYNC_STEP,
   type SyncWorkerEnv,
+  scheduledProviders,
   scheduleProviderSyncs
 } from './provider-sync-workflow'
 import { type IngestionStorage, type RunState, SyncError } from './sync'
@@ -137,8 +138,8 @@ function memoryStorage(provider: AuctionProvider) {
     async completeRun(_run, completion) {
       failures.push(completion.errorCode)
     },
-    async deleteEndedListings() {
-      return { listings: 0, seoMetrics: 0, domains: 0 }
+    async deleteEndedListings(_before, afterRowid) {
+      return { listings: 0, seoMetrics: 0, domains: 0, lastRowid: afterRowid }
     }
   }
   return { storage, listings, failures }
@@ -632,14 +633,17 @@ describe('provider sync workflow', () => {
 
   it('deletes ended listings after a success, a step per 50,000, and only logs a failure', async () => {
     const records = [godaddyRecord(0)]
-    const full = { listings: 2_000, seoMetrics: 1_500, domains: 1_900 }
-    const last = { listings: 300, seoMetrics: 100, domains: 250 }
-    // 25 full batches fill the first step; the second step ends on a short one.
-    const results = [...Array.from({ length: 26 }, () => full), last]
-    const deleteEndedListings = vi.fn(async (before: Date, limit: number) => {
+    // 25 full batches fill the first step; the second step ends on a short one. Each batch
+    // continues from the rowid the previous one reached, across steps too.
+    let batches = 0
+    const deleteEndedListings = vi.fn(async (before: Date, afterRowid: number, limit: number) => {
       expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(ENDED_LISTING_RETENTION_MS)
       expect(limit).toBe(2_000)
-      return results.shift()!
+      expect(afterRowid).toBe(batches * 10_000)
+      batches += 1
+      return batches <= 26
+        ? { listings: 2_000, seoMetrics: 1_500, domains: 1_900, lastRowid: batches * 10_000 }
+        : { listings: 300, seoMetrics: 100, domains: 250, lastRowid: batches * 10_000 }
     })
     const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
     const deleting = setup({
@@ -805,6 +809,14 @@ describe('provider sync workflow', () => {
 })
 
 describe('scheduled provider syncs', () => {
+  it('schedules the listed providers in registry order, or every one when none are listed', () => {
+    expect(scheduledProviders()).toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
+    expect(scheduledProviders('')).toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
+    expect(scheduledProviders(' namesilo, godaddy ')).toEqual(['godaddy', 'namesilo'])
+    // A list that names no provider is a mistake, not an empty schedule.
+    expect(() => scheduledProviders('godady')).toThrow('sync_schedule_invalid')
+  })
+
   it('starts one instance per provider, named by the scheduled time', async () => {
     const create = vi.fn(async () => ({}) as WorkflowInstance)
     await expect(

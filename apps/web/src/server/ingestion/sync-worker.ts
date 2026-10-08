@@ -10,6 +10,7 @@ import {
   runProviderSync,
   type StepRunner,
   type SyncWorkerEnv,
+  scheduledProviders,
   scheduleProviderSyncs
 } from './provider-sync-workflow'
 
@@ -32,9 +33,13 @@ export class ProviderSyncWorkflow extends WorkflowEntrypoint<SyncWorkerEnv, Prov
 }
 
 const worker = {
-  // The daily Cron Trigger starts one Workflow instance per provider.
+  // Each Cron Trigger firing starts one Workflow instance per scheduled provider.
   async scheduled(controller: ScheduledController, env: SyncWorkerEnv) {
-    await scheduleProviderSyncs(env.PROVIDER_SYNC, new Date(controller.scheduledTime))
+    await scheduleProviderSyncs(
+      env.PROVIDER_SYNC,
+      new Date(controller.scheduledTime),
+      scheduledProviders(env.SYNC_PROVIDERS)
+    )
   }
 } satisfies ExportedHandler<SyncWorkerEnv>
 

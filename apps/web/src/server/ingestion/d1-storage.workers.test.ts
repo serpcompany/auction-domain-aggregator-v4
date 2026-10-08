@@ -396,14 +396,16 @@ describe('D1 ingestion storage', () => {
     expect(vanishedListingsLimit(12_345)).toBe(1_234)
   })
 
-  // Inactive listings a week past their end go, with the feed metrics and domains nothing else
-  // uses; a domain another listing or a stored Ahrefs rating still needs stays.
+  // Any listing a week past its end goes, whatever its provider or status, with the feed metrics
+  // and domains nothing else uses; a domain another listing or a stored Ahrefs rating still needs
+  // stays.
   it('deletes ended listings with the metrics and domains nothing else uses', async () => {
     const database = testDatabase()
     const now = new Date('2026-07-30T00:00:00.000Z')
     const before = new Date(now.getTime() - 7 * 86_400_000)
     const longEnded = new Date(now.getTime() - 10 * 86_400_000)
     const recentlyEnded = new Date(now.getTime() - 3 * 86_400_000)
+    const future = new Date(now.getTime() + 3 * 86_400_000)
     const row = (
       externalId: string,
       domainName: string,
@@ -418,19 +420,19 @@ describe('D1 ingestion storage', () => {
       firstSeenAt: STARTED_AT,
       lastSeenAt: STARTED_AT
     })
-    const names = ['alone', 'shared', 'rated', 'recent', 'running', 'other']
+    const names = ['alone', 'shared', 'rated', 'recent', 'unsynced', 'other']
     await database
       .insert(domains)
       .values(names.map(name => ({ name: `${name}.test`, firstSeenAt: STARTED_AT })))
-    // One at a time: seven rows would pass D1's 100 bound parameters.
+    // One at a time, in rowid order: seven rows would pass D1's 100 bound parameters.
     for (const value of [
       row('alone', 'alone.test', longEnded),
       row('shared', 'shared.test', longEnded),
-      row('shared-elsewhere', 'shared.test', longEnded, 'active', 'godaddy'),
+      row('shared-open', 'shared.test', future, 'active', 'godaddy'),
       row('rated', 'rated.test', longEnded),
       row('recent', 'recent.test', recentlyEnded),
-      // Still published, or another provider's: never this provider's to delete.
-      row('running', 'running.test', longEnded, 'active'),
+      // Still active because its provider is no longer synced, and another provider's.
+      row('unsynced', 'unsynced.test', longEnded, 'active', 'namesilo'),
       row('other', 'other.test', longEnded, 'inactive', 'godaddy')
     ]) {
       await database.insert(auctionListings).values(value)
@@ -452,43 +454,28 @@ describe('D1 ingestion storage', () => {
     })
     const storage = createD1IngestionStorage(database, 'dynadot')
 
-    expect(await storage.deleteEndedListings(before, 1)).toEqual({
-      listings: 1,
-      seoMetrics: 1,
-      domains: 1
-    })
-    expect(await storage.deleteEndedListings(before, 10)).toEqual({
-      listings: 2,
-      seoMetrics: 1,
-      domains: 0
-    })
-    expect(await storage.deleteEndedListings(before, 10)).toEqual({
+    const first = await storage.deleteEndedListings(before, 0, 1)
+    expect(first).toMatchObject({ listings: 1, seoMetrics: 1, domains: 1 })
+    const rest = await storage.deleteEndedListings(before, first.lastRowid, 10)
+    expect(rest).toMatchObject({ listings: 4, seoMetrics: 1, domains: 2 })
+    expect(rest.lastRowid).toBeGreaterThan(first.lastRowid)
+    expect(await storage.deleteEndedListings(before, rest.lastRowid, 10)).toEqual({
       listings: 0,
       seoMetrics: 0,
-      domains: 0
+      domains: 0,
+      lastRowid: rest.lastRowid
     })
 
     const left = await database
       .select({ externalId: auctionListings.externalId })
       .from(auctionListings)
       .orderBy(auctionListings.externalId)
-    expect(left.map(({ externalId }) => externalId)).toEqual([
-      'other',
-      'recent',
-      'running',
-      'shared-elsewhere'
-    ])
+    expect(left.map(({ externalId }) => externalId)).toEqual(['recent', 'shared-open'])
     const metrics = await database
       .select({ name: domainSeoMetrics.domainName })
       .from(domainSeoMetrics)
     expect(metrics.map(({ name }) => name)).toEqual(['shared.test'])
     const kept = await database.select({ name: domains.name }).from(domains).orderBy(domains.name)
-    expect(kept.map(({ name }) => name)).toEqual([
-      'other.test',
-      'rated.test',
-      'recent.test',
-      'running.test',
-      'shared.test'
-    ])
+    expect(kept.map(({ name }) => name)).toEqual(['rated.test', 'recent.test', 'shared.test'])
   })
 })

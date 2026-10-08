@@ -78,5 +78,18 @@ describe('ingestion Worker', () => {
       { id: 'namecheap-20260713T1530', params: { provider: 'namecheap' } },
       { id: 'namesilo-20260713T1530', params: { provider: 'namesilo' } }
     ])
+
+    // Staging's Cron Trigger syncs only the providers it lists.
+    create.mockClear()
+    await worker.scheduled(
+      createScheduledController({ scheduledTime: new Date('2026-10-12T11:30:00.000Z') }),
+      {
+        PROVIDER_SYNC: { create } as unknown as Workflow<ProviderSyncParams>,
+        SYNC_PROVIDERS: 'godaddy'
+      } as SyncWorkerEnv
+    )
+    expect(create.mock.calls.map(([options]) => options)).toEqual([
+      { id: 'godaddy-20261012T1130', params: { provider: 'godaddy' } }
+    ])
   })
 })

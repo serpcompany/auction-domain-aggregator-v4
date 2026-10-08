@@ -57,8 +57,8 @@ export function SyncStatusPage({
                 <h2>No syncs have run yet</h2>
               </EmptyTitle>
               <EmptyDescription>
-                The ingestion Worker syncs every provider daily. To fill the local database now, run
-                a sync; GoDaddy needs no credentials.
+                The ingestion Worker syncs on its schedule. To fill the local database now, run a
+                sync; GoDaddy needs no credentials.
               </EmptyDescription>
             </EmptyHeader>
             <EmptyContent>
