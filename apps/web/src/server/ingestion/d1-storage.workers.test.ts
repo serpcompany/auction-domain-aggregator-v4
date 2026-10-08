@@ -1,6 +1,7 @@
 import { and, count, eq, inArray, like, sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/d1'
 import { describe, expect, it, vi } from 'vitest'
-
+import * as schema from '../db/schema'
 import {
   auctionListings,
   domainMetrics,
@@ -9,8 +10,8 @@ import {
   ingestionRunSeenPages,
   ingestionRuns
 } from '../db/schema'
-import type { NormalizedSeoMetrics } from '../providers/types'
-import { type TestDatabase, testDatabase } from '../test-database'
+import type { NormalizedListing, NormalizedSeoMetrics } from '../providers/types'
+import { type TestDatabase, testDatabase, testEnv } from '../test-database'
 import {
   ACTIVE_LISTINGS,
   activeListingCount,
@@ -477,5 +478,74 @@ describe('D1 ingestion storage', () => {
     expect(metrics.map(({ name }) => name)).toEqual(['shared.test'])
     const kept = await database.select({ name: domains.name }).from(domains).orderBy(domains.name)
     expect(kept.map(({ name }) => name)).toEqual(['rated.test', 'recent.test', 'shared.test'])
+  })
+
+  // D1 bills a written row for the table and one for each index an UPDATE's SET list touches. A
+  // change no index covers (a bid, a backlink count) costs one row; an unchanged listing, none.
+  it('writes one row for a change that no index covers', async () => {
+    const written: number[] = []
+    const binding = {
+      prepare: (query: string) => testEnv.DB.prepare(query),
+      batch: async (statements: D1PreparedStatement[]) => {
+        const results = await testEnv.DB.batch(statements)
+        written.push(results.reduce((sum, result) => sum + result.meta.rows_written, 0))
+        return results
+      },
+      exec: (query: string) => testEnv.DB.exec(query)
+    } as unknown as D1Database
+    const storage = createD1IngestionStorage(drizzle(binding, { schema }), 'godaddy')
+    const run = await storage.startRun(STARTED_AT)
+    const metrics: NormalizedSeoMetrics = {
+      majesticTf: 10,
+      majesticCf: 5,
+      majesticBacklinks: 100,
+      majesticRefDomains: 3,
+      semrushAs: 7,
+      semrushRefDomains: 4,
+      semrushBacklinks: 50
+    }
+    let current = godaddyListing('write-cost', 'write-cost.integration.test', metrics)
+    // Rows one page of a single listing writes beyond its seen-pages entry.
+    const cost = async (change: (listing: NormalizedListing) => NormalizedListing) => {
+      current = change(current)
+      written.length = 0
+      await storage.upsertListings(run, [current])
+      return written[0]!
+    }
+    await cost(listing => listing)
+    const seenPage = await cost(listing => listing)
+
+    expect(
+      (await cost(listing => ({ ...listing, currentBidCents: listing.currentBidCents + 100 }))) -
+        seenPage
+    ).toBe(1)
+    expect(
+      (await cost(listing => ({
+        ...listing,
+        seoMetrics: { ...metrics, majesticBacklinks: 101, semrushBacklinks: 51 }
+      }))) - seenPage
+    ).toBe(1)
+    // An end time is indexed, as is Trust Flow: those still rewrite their indexes.
+    expect(
+      (await cost(listing => ({
+        ...listing,
+        endsAt: new Date(listing.endsAt.getTime() + 3_600_000)
+      }))) - seenPage
+    ).toBeGreaterThan(1)
+    expect(
+      (await cost(listing => ({
+        ...listing,
+        seoMetrics: { ...metrics, majesticBacklinks: 101, semrushBacklinks: 51, majesticTf: 11 }
+      }))) - seenPage
+    ).toBeGreaterThan(1)
+    const [stored] = await testDatabase()
+      .select()
+      .from(auctionListings)
+      .where(eq(auctionListings.externalId, 'write-cost'))
+    expect(stored).toMatchObject({
+      currentBidCents: current.currentBidCents,
+      endsAt: current.endsAt,
+      lastSeenAt: STARTED_AT
+    })
   })
 })

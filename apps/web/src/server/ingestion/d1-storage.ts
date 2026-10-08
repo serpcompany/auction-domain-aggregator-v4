@@ -117,6 +117,107 @@ const UPSERT_LISTINGS_SQL = `
     OR auction_listings.renewal_price_cents IS NOT excluded.renewal_price_cents
 `
 
+// A change that touches no indexed column (everything but the domain name,
+// end time, and status) is written by an UPDATE that sets only those
+// columns. D1 bills a written row per index an UPDATE's SET list touches, so
+// a bid change writes one row instead of five. The upsert that follows then
+// finds the row unchanged; it still writes new listings and changes to the
+// indexed columns.
+const UPDATE_UNINDEXED_LISTING_FIELDS_SQL = `
+  UPDATE auction_listings SET
+    auction_url = x.auction_url, auction_type = x.auction_type, currency = x.currency,
+    current_bid_cents = x.current_bid_cents, bid_count = x.bid_count,
+    bidder_count = x.bidder_count, starts_at = x.starts_at, age_years = x.age_years,
+    inbound_links = x.inbound_links, visitors = x.visitors,
+    appraisal_cents = x.appraisal_cents, renewal_price_cents = x.renewal_price_cents,
+    last_seen_at = x.last_seen_at
+  FROM (
+    SELECT
+      json_extract(value, '$.provider') AS provider,
+      json_extract(value, '$.externalId') AS external_id,
+      json_extract(value, '$.domainName') AS domain_name,
+      json_extract(value, '$.auctionUrl') AS auction_url,
+      json_extract(value, '$.auctionType') AS auction_type,
+      json_extract(value, '$.currency') AS currency,
+      json_extract(value, '$.currentBidCents') AS current_bid_cents,
+      json_extract(value, '$.bidCount') AS bid_count,
+      json_extract(value, '$.bidderCount') AS bidder_count,
+      json_extract(value, '$.startsAt') AS starts_at,
+      json_extract(value, '$.endsAt') AS ends_at,
+      json_extract(value, '$.ageYears') AS age_years,
+      json_extract(value, '$.inboundLinks') AS inbound_links,
+      json_extract(value, '$.visitors') AS visitors,
+      json_extract(value, '$.appraisalCents') AS appraisal_cents,
+      json_extract(value, '$.renewalPriceCents') AS renewal_price_cents,
+      json_extract(value, '$.lastSeenAt') AS last_seen_at
+    FROM json_each(?)
+  ) AS x
+  WHERE auction_listings.provider = x.provider
+    AND auction_listings.external_id = x.external_id
+    -- A unary + keeps these out of index selection: SQLite otherwise walks
+    -- every active listing through the status index and scans the batch for
+    -- each, instead of finding the batch's listings by their primary key.
+    AND +auction_listings.status = 'active'
+    AND +auction_listings.domain_name IS x.domain_name
+    AND +auction_listings.ends_at IS x.ends_at
+    AND (
+      auction_listings.auction_url IS NOT x.auction_url
+      OR auction_listings.auction_type IS NOT x.auction_type
+      OR auction_listings.currency IS NOT x.currency
+      OR auction_listings.current_bid_cents IS NOT x.current_bid_cents
+      OR auction_listings.bid_count IS NOT x.bid_count
+      OR auction_listings.bidder_count IS NOT x.bidder_count
+      OR auction_listings.starts_at IS NOT x.starts_at
+      OR auction_listings.age_years IS NOT x.age_years
+      OR auction_listings.inbound_links IS NOT x.inbound_links
+      OR auction_listings.visitors IS NOT x.visitors
+      OR auction_listings.appraisal_cents IS NOT x.appraisal_cents
+      OR auction_listings.renewal_price_cents IS NOT x.renewal_price_cents
+    )
+    AND EXISTS (
+      SELECT 1 FROM ingestion_runs
+      WHERE id = ? AND provider = ? AND status = 'running' AND started_at = ?
+    )
+`
+
+// As for listings: a feed-metric change that leaves the indexed metrics
+// (Trust Flow, Citation Flow, Majestic referring domains, Authority Score)
+// alone writes one row, not five.
+const UPDATE_UNINDEXED_SEO_METRICS_SQL = `
+  UPDATE domain_seo_metrics SET
+    source = ?1, majestic_backlinks = x.majestic_backlinks,
+    semrush_ref_domains = x.semrush_ref_domains, semrush_backlinks = x.semrush_backlinks,
+    updated_at = ?2
+  FROM (
+    SELECT
+      json_extract(value, '$.domainName') AS domain_name,
+      json_extract(value, '$.majesticTf') AS majestic_tf,
+      json_extract(value, '$.majesticCf') AS majestic_cf,
+      json_extract(value, '$.majesticBacklinks') AS majestic_backlinks,
+      json_extract(value, '$.majesticRefDomains') AS majestic_ref_domains,
+      json_extract(value, '$.semrushAs') AS semrush_as,
+      json_extract(value, '$.semrushRefDomains') AS semrush_ref_domains,
+      json_extract(value, '$.semrushBacklinks') AS semrush_backlinks
+    FROM json_each(?3)
+  ) AS x
+  WHERE domain_seo_metrics.domain_name = x.domain_name
+    -- A unary + keeps the lookup on the primary key.
+    AND +domain_seo_metrics.majestic_tf IS x.majestic_tf
+    AND +domain_seo_metrics.majestic_cf IS x.majestic_cf
+    AND +domain_seo_metrics.majestic_ref_domains IS x.majestic_ref_domains
+    AND +domain_seo_metrics.semrush_as IS x.semrush_as
+    AND (
+      domain_seo_metrics.source IS NOT ?1
+      OR domain_seo_metrics.majestic_backlinks IS NOT x.majestic_backlinks
+      OR domain_seo_metrics.semrush_ref_domains IS NOT x.semrush_ref_domains
+      OR domain_seo_metrics.semrush_backlinks IS NOT x.semrush_backlinks
+    )
+    AND EXISTS (
+      SELECT 1 FROM ingestion_runs
+      WHERE id = ?4 AND provider = ?5 AND status = 'running' AND started_at = ?6
+    )
+`
+
 // Feed metrics are refreshed by every sync that carries them: latest wins.
 // As with listings, `updated_at` moves only when a value changes.
 const UPSERT_SEO_METRICS_SQL = `
@@ -308,31 +409,31 @@ export function createD1IngestionStorage(
             run.startedAt.getTime()
           )
       )
-      const listingStatements = chunks(listings, LISTING_BATCH_SIZE).map(batch =>
-        db.$client
-          .prepare(UPSERT_LISTINGS_SQL)
-          .bind(
-            JSON.stringify(batch.map(listing => listingValues(listing, run.startedAt))),
-            run.runId,
-            provider,
-            run.startedAt.getTime()
-          )
-      )
+      const listingStatements = chunks(listings, LISTING_BATCH_SIZE).flatMap(batch => {
+        const values = JSON.stringify(batch.map(listing => listingValues(listing, run.startedAt)))
+        const guard = [run.runId, provider, run.startedAt.getTime()]
+        return [
+          db.$client.prepare(UPDATE_UNINDEXED_LISTING_FIELDS_SQL).bind(values, ...guard),
+          db.$client.prepare(UPSERT_LISTINGS_SQL).bind(values, ...guard)
+        ]
+      })
       const metrics = listings.flatMap(listing =>
         listing.seoMetrics ? [{ domainName: listing.domainName, ...listing.seoMetrics }] : []
       )
-      const metricStatements = chunks(metrics, METRICS_BATCH_SIZE).map(batch =>
-        db.$client
-          .prepare(UPSERT_SEO_METRICS_SQL)
-          .bind(
-            provider,
-            run.startedAt.getTime(),
-            JSON.stringify(batch),
-            run.runId,
-            provider,
-            run.startedAt.getTime()
-          )
-      )
+      const metricStatements = chunks(metrics, METRICS_BATCH_SIZE).flatMap(batch => {
+        const values = [
+          provider,
+          run.startedAt.getTime(),
+          JSON.stringify(batch),
+          run.runId,
+          provider,
+          run.startedAt.getTime()
+        ]
+        return [
+          db.$client.prepare(UPDATE_UNINDEXED_SEO_METRICS_SQL).bind(...values),
+          db.$client.prepare(UPSERT_SEO_METRICS_SQL).bind(...values)
+        ]
+      })
       const [seen] = await db.$client.batch([
         seenStatement,
         ...domainStatements,
