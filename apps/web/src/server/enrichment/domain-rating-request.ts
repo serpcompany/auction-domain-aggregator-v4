@@ -32,9 +32,9 @@ function failed(errorCode: string, status: number, headers?: HeadersInit) {
 // POST { domains: string[] } -> { stored }. Errors are fixed, non-secret codes.
 export async function handleDomainRatingRequest(
   request: Request,
-  { apiKey, enrich, fetchRatings }: DomainRatingRequestDependencies
+  dependencies: DomainRatingRequestDependencies
 ): Promise<Response> {
-  if (!apiKey) return failed('ahrefs_not_configured', 503)
+  if (!dependencies.apiKey) return failed('ahrefs_not_configured', 503)
 
   let body: z.infer<typeof requestSchema>
   try {
@@ -42,13 +42,44 @@ export async function handleDomainRatingRequest(
   } catch {
     return failed('invalid_request', 400)
   }
+  return enrichAndRespond(request, dependencies.apiKey, dependencies, body.domains)
+}
 
+const matchingRequestSchema = z.object({ search: z.string().max(4_000) }).strict()
+
+export type MatchingDomainRatingRequestDependencies = DomainRatingRequestDependencies & {
+  // The domains of the listings the table's query string matches, or null
+  // when there are too many to fetch at once.
+  matchingDomains: (search: string) => Promise<string[] | null>
+}
+
+// POST { search } -> { requested, stored }: DR for every listing that matches
+// the table's filters, refused when they match too many domains.
+export async function handleMatchingDomainRatingRequest(
+  request: Request,
+  dependencies: MatchingDomainRatingRequestDependencies
+): Promise<Response> {
+  if (!dependencies.apiKey) return failed('ahrefs_not_configured', 503)
+
+  let body: z.infer<typeof matchingRequestSchema>
   try {
-    const result = await enrich(
-      domains => fetchRatings(apiKey, domains),
-      body.domains,
-      request.signal
-    )
+    body = matchingRequestSchema.parse(await request.json())
+  } catch {
+    return failed('invalid_request', 400)
+  }
+  const domains = await dependencies.matchingDomains(body.search)
+  if (domains === null) return failed('too_many_listings', 400)
+  return enrichAndRespond(request, dependencies.apiKey, dependencies, domains)
+}
+
+async function enrichAndRespond(
+  request: Request,
+  apiKey: string,
+  { enrich, fetchRatings }: DomainRatingRequestDependencies,
+  domains: string[]
+) {
+  try {
+    const result = await enrich(targets => fetchRatings(apiKey, targets), domains, request.signal)
     return Response.json({ status: 'ok', ...result })
   } catch (error) {
     if (error instanceof DomainRatingCoolDown) {

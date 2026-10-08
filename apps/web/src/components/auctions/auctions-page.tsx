@@ -6,6 +6,7 @@ import { ActiveFilters } from '@/components/auctions/active-filters'
 import { AuctionsToolbar } from '@/components/auctions/auctions-toolbar'
 import { CopyCommand } from '@/components/auctions/copy-command'
 import { DomainRatingsProvider } from '@/components/auctions/domain-ratings'
+import { FetchDomainRatingsButton } from '@/components/auctions/fetch-domain-ratings'
 import { ListingDetailsProvider } from '@/components/auctions/listing-details'
 import { ResultsList } from '@/components/auctions/results-list'
 import { ResultsPagination } from '@/components/auctions/results-pagination'
@@ -32,6 +33,7 @@ import {
 } from '@/domain/domain-table'
 import { buildFiltersPageHref } from '@/domain/filter-form'
 import type { ColumnKey, ColumnWidths } from '@/domain/table-columns'
+import { DOMAIN_RATING_MATCHING_LIMIT } from '@/server/enrichment/domain-rating'
 import type { DomainListingsResult, InventoryStatus } from '@/server/queries/domain-listings'
 
 function EmptyFrame({ children }: { children: ReactNode }) {
@@ -49,6 +51,23 @@ export async function ListingCount({ result }: { result: Promise<DomainListingsR
       <span className="font-medium text-foreground">{total.toLocaleString('en-US')}</span>{' '}
       {total === 1 ? 'listing' : 'listings'}
     </>
+  )
+}
+
+export async function FetchDomainRatings({
+  result,
+  filters
+}: {
+  result: Promise<DomainListingsResult>
+  filters: DomainTableFilters
+}) {
+  const { total } = await result
+  return (
+    <FetchDomainRatingsButton
+      total={total}
+      limit={DOMAIN_RATING_MATCHING_LIMIT}
+      search={buildDomainTableHref(filters).slice('/?'.length)}
+    />
   )
 }
 
@@ -206,6 +225,11 @@ export function AuctionsPage({
               fallback={<Skeleton className="inline-block h-4 w-24 align-middle" />}
             >
               <ListingCount result={result} />
+            </Suspense>
+          }
+          actions={
+            <Suspense key={key} fallback={null}>
+              <FetchDomainRatings result={result} filters={filters} />
             </Suspense>
           }
         />

@@ -1,7 +1,12 @@
 import { cleanup, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 
-import { AuctionsPage, ListingCount, Results } from '@/components/auctions/auctions-page'
+import {
+  AuctionsPage,
+  FetchDomainRatings,
+  ListingCount,
+  Results
+} from '@/components/auctions/auctions-page'
 import { fullRow, now } from '@/components/auctions/test-rows'
 import { parseDomainTableFilters } from '@/domain/domain-table'
 import { DEFAULT_COLUMNS } from '@/domain/table-columns'
@@ -94,6 +99,19 @@ describe('AuctionsPage', () => {
     cleanup()
     render(await ListingCount({ result: Promise.resolve(result()) }))
     expect(screen.getByText('listing')).toBeInTheDocument()
+  })
+
+  it('offers to fetch DR for the listings the filters match', async () => {
+    render(
+      await FetchDomainRatings({
+        result: Promise.resolve(result({ total: 481 })),
+        filters: parseDomainTableFilters({ majesticTfMin: '25' })
+      })
+    )
+    expect(screen.getByRole('button', { name: 'Fetch DR' })).toHaveAttribute(
+      'title',
+      'Fetch Ahrefs DR for every matching listing (up to 1,000)'
+    )
   })
 
   it('shows the keyboard-scrollable table, the phone list, and pagination', async () => {

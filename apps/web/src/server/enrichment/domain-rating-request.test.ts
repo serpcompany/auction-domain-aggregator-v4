@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { AhrefsError } from './ahrefs'
-import { enrichDomainRatings } from './domain-rating'
+import { DOMAIN_RATING_MATCHING_LIMIT, enrichDomainRatings } from './domain-rating'
 import {
   type DomainRatingRequestDependencies,
-  handleDomainRatingRequest
+  handleDomainRatingRequest,
+  handleMatchingDomainRatingRequest
 } from './domain-rating-request'
 import { createMemoryDomainRatingStore } from './test-domain-rating-store'
 
@@ -132,5 +133,61 @@ describe('handleDomainRatingRequest', () => {
     expect(response.status).toBe(499)
     expect(await response.json()).toEqual({ status: 'failed', errorCode: 'request_aborted' })
     expect(fetchRatings).not.toHaveBeenCalled()
+  })
+})
+
+describe('handleMatchingDomainRatingRequest', () => {
+  const search = 'majesticTfMin=25&sort=endsAt&direction=asc&page=1'
+
+  it('fetches every matching domain in one Ahrefs call, past the page limit', async () => {
+    const domains = Array.from({ length: 60 }, (_, index) => `d${index}.com`)
+    const { store } = createMemoryDomainRatingStore(domains)
+    const fetchRatings = vi.fn(
+      async (_key: string, targets: string[]) => new Map(targets.map(target => [target, 42]))
+    )
+    const matchingDomains = vi.fn(async () => domains)
+    const response = await handleMatchingDomainRatingRequest(post({ search }), {
+      ...dependencies({
+        enrich: (fetch, targets, signal) =>
+          enrichDomainRatings(store, fetch, targets, {
+            signal,
+            limit: DOMAIN_RATING_MATCHING_LIMIT
+          }),
+        fetchRatings
+      }),
+      matchingDomains
+    })
+
+    expect(await response.json()).toEqual({ status: 'ok', requested: 60, stored: 60 })
+    expect(matchingDomains).toHaveBeenCalledWith(search)
+    expect(fetchRatings).toHaveBeenCalledOnce()
+    expect(fetchRatings.mock.calls[0]?.[1]).toHaveLength(60)
+  })
+
+  it('refuses filters that match too many domains without calling Ahrefs', async () => {
+    const deps = { ...dependencies(), matchingDomains: vi.fn(async () => null) }
+    const response = await handleMatchingDomainRatingRequest(post({ search }), deps)
+    expect(response.status).toBe(400)
+    expect(await response.json()).toEqual({ status: 'failed', errorCode: 'too_many_listings' })
+    expect(deps.enrich).not.toHaveBeenCalled()
+  })
+
+  it('reports a missing key without reading the body', async () => {
+    const deps = { ...dependencies({ apiKey: undefined }), matchingDomains: vi.fn() }
+    const response = await handleMatchingDomainRatingRequest(post('{'), deps)
+    expect(response.status).toBe(503)
+    expect(deps.matchingDomains).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['malformed JSON', '{'],
+    ['no search', {}],
+    ['an extra field', { search, force: true }],
+    ['an overlong search', { search: 'q='.padEnd(4_001, 'a') }]
+  ])('rejects %s', async (_label, body) => {
+    const deps = { ...dependencies(), matchingDomains: vi.fn() }
+    const response = await handleMatchingDomainRatingRequest(post(body), deps)
+    expect(response.status).toBe(400)
+    expect(deps.matchingDomains).not.toHaveBeenCalled()
   })
 })

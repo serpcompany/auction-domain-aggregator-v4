@@ -20,7 +20,8 @@ import {
   MAX_DOMAIN_TABLE_PAGE,
   nextSortDirection,
   openingDomainTableHref,
-  parseDomainTableFilters
+  parseDomainTableFilters,
+  queryStringToSearchParams
 } from './domain-table'
 
 describe('domain table filters', () => {
@@ -79,6 +80,7 @@ describe('domain table filters', () => {
         majesticCfMin: '0',
         majesticRefDomainsMin: '250',
         semrushAsMin: '12',
+        domainRatingMin: '42',
         endingWithin: '24H',
         sort: 'appraisal',
         direction: 'desc',
@@ -106,6 +108,7 @@ describe('domain table filters', () => {
       majesticCfMin: 0,
       majesticRefDomainsMin: 250,
       semrushAsMin: 12,
+      domainRatingMin: 42,
       endingWithin: '24h',
       sort: 'appraisal',
       direction: 'desc',
@@ -199,6 +202,7 @@ describe('domain table links and sort direction', () => {
     majesticCfMin: '15',
     majesticRefDomainsMin: '20',
     semrushAsMin: '5',
+    domainRatingMin: '30',
     endingWithin: '24h',
     sort: 'domain',
     direction: 'asc',
@@ -231,6 +235,7 @@ describe('domain table links and sort direction', () => {
       majesticCfMin: '15',
       majesticRefDomainsMin: '20',
       semrushAsMin: '5',
+      domainRatingMin: '30',
       endingWithin: '24h',
       sort: 'domain',
       direction: 'asc',
@@ -266,6 +271,7 @@ describe('domain table links and sort direction', () => {
       majesticCfMin: undefined,
       majesticRefDomainsMin: undefined,
       semrushAsMin: undefined,
+      domainRatingMin: undefined,
       endingWithin: undefined,
       sort: 'bids',
       direction: 'desc',
@@ -405,6 +411,7 @@ describe('domain table filter summaries', () => {
     majesticCfMin: '15',
     majesticRefDomainsMin: '20',
     semrushAsMin: '5',
+    domainRatingMin: '25',
     sort: 'price',
     direction: 'desc',
     page: '4'
@@ -426,14 +433,15 @@ describe('domain table filter summaries', () => {
       'majesticTfMin',
       'majesticCfMin',
       'majesticRefDomainsMin',
-      'semrushAsMin'
+      'semrushAsMin',
+      'domainRatingMin'
     ]) {
       expect(hasActiveDomainTableFilters(parseDomainTableFilters({ [metric]: '1' }))).toBe(true)
     }
   })
 
   it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(14)
+    expect(countAdvancedDomainTableFilters(active)).toBe(15)
     expect(
       countAdvancedDomainTableFilters(
         parseDomainTableFilters({
@@ -470,7 +478,8 @@ describe('domain table filter summaries', () => {
       'Majestic TF: 10+',
       'Majestic CF: 15+',
       'Referring domains: 20+',
-      'SEMrush AS: 5+'
+      'SEMrush AS: 5+',
+      'Ahrefs DR: 25+'
     ])
 
     const priceRemoval = new URL(
@@ -525,5 +534,24 @@ describe('domain table filter summaries', () => {
     // Clear all and every link the table builds carry parameters, so they keep every type.
     expect(openingDomainTableHref({ sort: 'endsAt', direction: 'asc', page: '1' })).toBeNull()
     expect(openingDomainTableHref({ q: 'garden' })).toBeNull()
+  })
+})
+
+describe('domain table query strings', () => {
+  it('reads a table link back into the filters it was built from', () => {
+    const filters = parseDomainTableFilters({
+      source: ['dynadot', 'godaddy'],
+      tld: 'com',
+      domainRatingMin: '20',
+      sort: 'domainRating',
+      direction: 'desc'
+    })
+    const search = buildDomainTableHref(filters).slice('/?'.length)
+    expect(queryStringToSearchParams(search)).toMatchObject({
+      source: ['dynadot', 'godaddy'],
+      tld: ['com'],
+      domainRatingMin: ['20']
+    })
+    expect(parseDomainTableFilters(queryStringToSearchParams(search))).toEqual(filters)
   })
 })

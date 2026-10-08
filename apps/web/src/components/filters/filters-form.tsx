@@ -368,6 +368,14 @@ export function FiltersForm({
               max={100}
               placeholder="0–100"
             />
+            <NumberField
+              id="filter-domain-rating-min"
+              label="Min Ahrefs Domain Rating"
+              name="domainRatingMin"
+              defaultValue={filters.domainRatingMin}
+              max={100}
+              placeholder="0–100"
+            />
           </Section>
         </div>
       </div>

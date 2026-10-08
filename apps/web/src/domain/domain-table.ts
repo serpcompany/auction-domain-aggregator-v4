@@ -67,6 +67,8 @@ export interface DomainTableFilters {
   majesticCfMin?: number
   majesticRefDomainsMin?: number
   semrushAsMin?: number
+  // Ahrefs DR (domain_metrics). Matches only domains with a stored rating.
+  domainRatingMin?: number
   endingWithin?: DomainTableEndingWindow
   sort: DomainTableSort
   direction: SortDirection
@@ -216,6 +218,7 @@ export function parseDomainTableFilters(searchParams: DomainTableSearchParams): 
     majesticCfMin: normalizeInteger(firstValue(searchParams.majesticCfMin), 100),
     majesticRefDomainsMin: normalizeInteger(firstValue(searchParams.majesticRefDomainsMin)),
     semrushAsMin: normalizeInteger(firstValue(searchParams.semrushAsMin), 100),
+    domainRatingMin: normalizeInteger(firstValue(searchParams.domainRatingMin), 100),
     endingWithin: DOMAIN_TABLE_ENDING_WINDOWS.includes(endingWithin as DomainTableEndingWindow)
       ? (endingWithin as DomainTableEndingWindow)
       : undefined,
@@ -226,6 +229,15 @@ export function parseDomainTableFilters(searchParams: DomainTableSearchParams): 
     page: Math.min(Math.max(parsedPage ?? 1, 1), MAX_DOMAIN_TABLE_PAGE),
     pageSize: DOMAIN_TABLE_PAGE_SIZE
   }
+}
+
+// A table URL's query string, as the record `parseDomainTableFilters` reads.
+export function queryStringToSearchParams(search: string): DomainTableSearchParams {
+  const params: Record<string, string[]> = {}
+  for (const [name, value] of new URLSearchParams(search)) {
+    params[name] = [...(params[name] ?? []), value]
+  }
+  return params
 }
 
 // Cents as the dollar amount URLs and inputs use: "12" or "12.50".
@@ -269,6 +281,8 @@ export function buildDomainTableHref(
   if (next.majesticRefDomainsMin !== undefined)
     params.set('majesticRefDomainsMin', String(next.majesticRefDomainsMin))
   if (next.semrushAsMin !== undefined) params.set('semrushAsMin', String(next.semrushAsMin))
+  if (next.domainRatingMin !== undefined)
+    params.set('domainRatingMin', String(next.domainRatingMin))
   if (next.endingWithin) params.set('endingWithin', next.endingWithin)
   params.set('sort', next.sort)
   params.set('direction', next.direction)
@@ -309,6 +323,7 @@ export function hasActiveDomainTableFilters(filters: DomainTableFilters) {
     filters.majesticCfMin !== undefined ||
     filters.majesticRefDomainsMin !== undefined ||
     filters.semrushAsMin !== undefined ||
+    filters.domainRatingMin !== undefined ||
     filters.endingWithin !== undefined
   )
 }
@@ -328,7 +343,8 @@ export function countAdvancedDomainTableFilters(filters: DomainTableFilters) {
     filters.majesticTfMin !== undefined,
     filters.majesticCfMin !== undefined,
     filters.majesticRefDomainsMin !== undefined,
-    filters.semrushAsMin !== undefined
+    filters.semrushAsMin !== undefined,
+    filters.domainRatingMin !== undefined
   ].filter(Boolean).length
 }
 
@@ -443,6 +459,10 @@ export function getDomainTableFilterChips(filters: DomainTableFilters): DomainTa
   if (filters.semrushAsMin !== undefined)
     add('semrush-as', `SEMrush AS: ${filters.semrushAsMin}+`, {
       semrushAsMin: undefined
+    })
+  if (filters.domainRatingMin !== undefined)
+    add('domain-rating', `Ahrefs DR: ${filters.domainRatingMin}+`, {
+      domainRatingMin: undefined
     })
 
   return chips
