@@ -50,6 +50,7 @@ End the file with a revision note describing every material plan change and why 
 ## Active plans
 
 - [Paid SaaS: accounts, subscription, payment-gated access](active/saas-accounts-and-billing.md) (#27): read it before touching accounts, billing, or the website deploy.
+- [Results table on datatable-example-01](active/results-table-datatable.md) (#123, #125): the approved prototype's header menus, rule bar, selection, cells, and saved views, without TanStack.
 
 ## Completed plans
 
