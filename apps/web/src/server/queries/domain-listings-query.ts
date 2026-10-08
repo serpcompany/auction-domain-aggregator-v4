@@ -105,7 +105,7 @@ function escapeLike(value: string) {
 //
 // With `pinned`, every column is written `+column`, which SQLite cannot use
 // to choose an index; the results are the same. A metric sort's page walks
-// `auction_listings_domain_name_idx` in order and stops after 50 rows, and
+// `auction_listings_domain_name_idx` in order and stops after one page, and
 // without the `+` a filter (a TLD, a price range) would make SQLite read that
 // filter's index and sort every match instead.
 function activeListingWhere(filters: DomainTableFilters, now: Date, pinned = false) {
@@ -299,7 +299,7 @@ function listingOrder(filters: DomainTableFilters) {
 // A metric sort orders ties, and the listings without a value, by domain name
 // and then rowid in the sort's own direction: the order the metric indexes
 // and `auction_listings_domain_name_idx` store, which lets a page stop after
-// 50 rows. Listings without a value come last in both directions.
+// its last row. Listings without a value come last in both directions.
 function metricOrder(metric: MetricSort, filters: DomainTableFilters) {
   const by = filters.direction === 'desc' ? desc : asc
   // Evaluated once per row: descending already puts nulls last, and ascending
@@ -448,7 +448,9 @@ export async function queryDomainListingsWithDatabase(
           listingDrivenMetricSortLimit
         )
 
-  // Looked up only for the visible page, so it stays cheap on any filter.
+  // Looked up only for the visible page, so it stays cheap on any filter. Each
+  // lookup binds every page domain (the DR one also binds its metric name),
+  // which is what bounds DOMAIN_TABLE_PAGE_SIZE below D1's 100 bound values.
   const pageDomains = [...new Set(rawRows.map(row => row.domainName))]
   const [ratingRows, seoRows] =
     pageDomains.length === 0

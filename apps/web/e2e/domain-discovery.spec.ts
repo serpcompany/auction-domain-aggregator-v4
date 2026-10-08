@@ -64,7 +64,7 @@ test('serves the deterministic domain inventory with a healthy database', async 
   await page.getByPlaceholder('TLD').fill('co')
   await expect(page.getByRole('option', { name: '.com' })).toBeVisible()
   await page.keyboard.press('Escape')
-  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
 
   const table = page.getByRole('table')
   await expect(table).toBeVisible()
@@ -92,12 +92,12 @@ test('serves the deterministic domain inventory with a healthy database', async 
 test('opens on auctions, with expired listings one chip away', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL('/?type=auction&sort=endsAt&direction=asc&page=1')
-  await expect(page.getByText('30 listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('50 listings', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /garden\.com/ })).toBeHidden()
 
   await page.getByRole('link', { name: 'Remove Type: Auction filter' }).click()
   await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
-  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
 })
 
 test('applies, removes, sorts, clears, and restores URL-backed filters', async ({ page }) => {
@@ -162,7 +162,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
 
   await page.getByRole('link', { name: 'Clear all', exact: true }).click()
   await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
-  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('')
 })
 
@@ -417,7 +417,7 @@ test('shows listings as a list on phones and opens details from a tap', async ({
   const list = page.getByRole('list', { name: 'Domain results' })
   await expect(list).toBeVisible()
   await expect(page.getByTestId('domain-results-scroll-container')).toBeHidden()
-  await expect(list.getByRole('listitem')).toHaveCount(50)
+  await expect(list.getByRole('listitem')).toHaveCount(96)
   const width = await page.evaluate(() => ({
     document: document.documentElement.scrollWidth,
     viewport: document.documentElement.clientWidth
@@ -451,7 +451,7 @@ test('explains filters that match nothing and keeps the way back', async ({ page
   await expect(page.getByText('0 listings', { exact: true })).toBeVisible()
   await page.getByRole('link', { name: 'Clear all filters' }).click()
   await expect(page).toHaveURL('/?sort=price&direction=asc&page=1')
-  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+  await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
 })
 
 test('shows each provider sync and the recent runs on Sync status', async ({ page }) => {
@@ -463,7 +463,7 @@ test('shows each provider sync and the recent runs on Sync status', async ({ pag
   await expect(page.getByText('Auction API')).toBeVisible()
   await expect(page.getByText('active listings')).toBeVisible()
   await expect(page.getByText('active listings').locator('xpath=preceding-sibling::p')).toHaveText(
-    '60'
+    '100'
   )
   await expect(page.getByText('Daily at 15:30 UTC').first()).toBeVisible()
   const runs = page.getByRole('table')

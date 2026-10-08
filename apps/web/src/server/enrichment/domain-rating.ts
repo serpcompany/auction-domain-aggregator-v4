@@ -1,7 +1,7 @@
 import { AHREFS_DR_MAX_TARGETS, AhrefsError } from './ahrefs'
 
-// The route accepts at most this many domains per request: one page of the
-// table is 50 rows.
+// The route accepts at most this many domains per request. The table sends a
+// 96-row page in requests of 48 (`DOMAIN_RATING_PAGE_BATCH`).
 export const DOMAIN_RATING_REQUEST_LIMIT = 50
 // Fetching DR for every listing that matches the filters is offered only up
 // to this many domains: one Ahrefs call.

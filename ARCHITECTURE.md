@@ -37,7 +37,7 @@ ingestion Worker -> one `provider-sync` Workflow instance per provider
 
 ### Next.js application
 
-The page normalizes URL search parameters into one filter value, asks the server-only query boundary for active listings, and server-renders the Auctions page. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 50-row page; only the facet values and the current page cross into the UI. Which table columns show is a per-browser choice in the `columns` cookie, read by the server; it is not part of the URL.
+The page normalizes URL search parameters into one filter value, asks the server-only query boundary for active listings, and server-renders the Auctions page. The URL is canonical filter, sort, and page state. D1 performs every filter, allowlisted sort, count, and fixed 96-row page; only the facet values and the current page cross into the UI. Which table columns show is a per-browser choice in the `columns` cookie, read by the server; it is not part of the URL.
 
 Filter-independent facets (sources, auction types, every TLD) are a read model, `listing_facets`, that each successful sync rebuilds; requests read it rather than grouping the inventory. Reads remain sequential, because concurrent local D1 snapshots produced locking failures. The page streams the results behind a skeleton in a `Suspense` boundary keyed by the URL. The read behavior, the derived TLD and length columns, and the measured index decisions are in [Domain discovery](docs/technical-design/domain-discovery.md).
 
@@ -53,7 +53,7 @@ A provider either has a paged API, paced to its declared rate limit, or publishe
 
 ### Domain enrichment
 
-Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, the browser posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`, the only request path that calls a provider. It accepts at most 50 domains, claims them atomically in D1 so overlapping requests never ask Ahrefs for the same domain, logs every call, and honors a cool-down after a 429. The route has no access control of its own; deployed, it sits behind the website's Access gate until #27. Every displayed value sits under the "Domain Rating by Ahrefs" attribution link the DR licence requires ([Ahrefs licensing](docs/references/data-licensing/ahrefs.md)). Details are in [Ahrefs Domain Rating enrichment](docs/technical-design/domain-rating-enrichment.md). Majestic Topic is not planned (#19).
+Ahrefs Domain Rating (DR) is fetched on demand for the rows a person is viewing, never for the whole inventory. After the table renders from D1, the browser posts the visible domains that lack DR to `POST /api/enrichment/domain-rating`, the only request path that calls a provider, in requests of at most 48 domains, so a full page takes two. It accepts at most 50 domains, claims them atomically in D1 so overlapping requests never ask Ahrefs for the same domain, logs every call, and honors a cool-down after a 429. The route has no access control of its own; deployed, it sits behind the website's Access gate until #27. Every displayed value sits under the "Domain Rating by Ahrefs" attribution link the DR licence requires ([Ahrefs licensing](docs/references/data-licensing/ahrefs.md)). Details are in [Ahrefs Domain Rating enrichment](docs/technical-design/domain-rating-enrichment.md). Majestic Topic is not planned (#19).
 
 ### Cloudflare D1
 
