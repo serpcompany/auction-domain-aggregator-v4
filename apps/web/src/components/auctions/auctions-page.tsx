@@ -31,7 +31,7 @@ import {
   parseDomainTableFilters
 } from '@/domain/domain-table'
 import { buildFiltersPageHref } from '@/domain/filter-form'
-import type { ColumnKey } from '@/domain/table-columns'
+import type { ColumnKey, ColumnWidths } from '@/domain/table-columns'
 import type { DomainListingsResult, InventoryStatus } from '@/server/queries/domain-listings'
 
 function EmptyFrame({ children }: { children: ReactNode }) {
@@ -56,11 +56,13 @@ export async function Results({
   result: pending,
   filters,
   visibleColumns,
+  columnWidths,
   now
 }: {
   result: Promise<DomainListingsResult>
   filters: DomainTableFilters
   visibleColumns: ColumnKey[]
+  columnWidths: ColumnWidths
   now: Date
 }) {
   const result = await pending
@@ -155,6 +157,7 @@ export async function Results({
           rows={result.rows}
           filters={effectiveFilters}
           visibleColumns={visibleColumns}
+          columnWidths={columnWidths}
           now={now}
         />
       </section>
@@ -175,12 +178,14 @@ export function AuctionsPage({
   status,
   result,
   visibleColumns,
+  columnWidths,
   now
 }: {
   filters: DomainTableFilters
   status: InventoryStatus
   result: Promise<DomainListingsResult>
   visibleColumns: ColumnKey[]
+  columnWidths: ColumnWidths
   now: Date
 }) {
   const key = `${buildDomainTableHref(filters)}#${visibleColumns.join(',')}`
@@ -228,7 +233,13 @@ export function AuctionsPage({
           </Alert>
         ) : null}
         <Suspense key={key} fallback={<ResultsSkeleton visibleColumns={visibleColumns} />}>
-          <Results result={result} filters={filters} visibleColumns={visibleColumns} now={now} />
+          <Results
+            result={result}
+            filters={filters}
+            visibleColumns={visibleColumns}
+            columnWidths={columnWidths}
+            now={now}
+          />
         </Suspense>
       </div>
     </ListingDetailsProvider>

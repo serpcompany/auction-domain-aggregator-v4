@@ -349,6 +349,37 @@ for (const viewport of [
   })
 }
 
+test('resizes a column by dragging its header edge, keeps the width, and resets it', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1280, height: 720 })
+  await page.goto('/')
+
+  const header = page.getByRole('columnheader', { name: 'Price', exact: true })
+  const handle = page.getByRole('separator', { name: 'Resize Price column' })
+  const width = async () => Math.round((await header.boundingBox())?.width ?? 0)
+  await expect(handle).toHaveAttribute('aria-valuenow', '80')
+  const before = await width()
+
+  const box = await handle.boundingBox()
+  expect(box).not.toBeNull()
+  const y = box!.y + box!.height / 2
+  await page.mouse.move(box!.x + box!.width / 2, y)
+  await page.mouse.down()
+  await page.mouse.move(box!.x + box!.width / 2 + 60, y, { steps: 5 })
+  await page.mouse.up()
+  await expect.poll(width).toBe(before + 60)
+  // The drag neither sorted the table nor selected text.
+  await expect(page).toHaveURL(/\/$/)
+
+  await page.reload()
+  await expect.poll(width).toBe(before + 60)
+  await expect(handle).toHaveAttribute('aria-valuenow', '140')
+
+  await handle.dblclick()
+  await expect.poll(width).toBe(before)
+})
+
 test('opens listing details beside the table on desktop', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/?q=garden')
