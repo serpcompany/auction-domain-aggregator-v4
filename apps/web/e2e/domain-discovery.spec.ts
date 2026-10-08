@@ -467,10 +467,16 @@ test('sorts and hides columns from the header menus without a page request to hi
   await expect(table.getByRole('row').first().getByRole('columnheader')).toHaveCount(14)
   await expect(header('AS')).toHaveCount(0)
   const tooltip = page.locator('[data-slot=tooltip-content]')
-  await header('TF').getByRole('button').hover()
-  await expect(tooltip.filter({ hasText: /^Majestic Trust Flow$/ })).toBeVisible()
-  await header('DR').getByRole('button').hover()
-  await expect(tooltip.filter({ hasText: /^Domain Rating by Ahrefs$/ })).toBeVisible()
+  // A hover that lands before hydration opens nothing until the pointer moves
+  // again, and the 96 row menus and checkboxes make hydration finish later.
+  const showsTooltip = (name: string, text: RegExp) =>
+    expect(async () => {
+      await page.mouse.move(0, 0)
+      await header(name).getByRole('button').hover()
+      await expect(tooltip.filter({ hasText: text })).toBeVisible({ timeout: 1000 })
+    }).toPass()
+  await showsTooltip('TF', /^Majestic Trust Flow$/)
+  await showsTooltip('DR', /^Domain Rating by Ahrefs$/)
   await expect(page.getByText(/^Showing 1–\d+ of \d+ · 96 per page$/)).toBeVisible()
 
   // Domain's menu sorts only.
@@ -520,7 +526,13 @@ test('opens listing details beside the table from the row menu on desktop', asyn
   await page.goto('/?q=garden')
 
   const actions = page.getByRole('button', { name: 'Actions for garden.com' })
-  await actions.click()
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await actions.click()
+    await expect(page.getByRole('menuitem', { name: 'Open auction' })).toBeVisible({
+      timeout: 1000
+    })
+  }).toPass()
   await expect(page.getByRole('menuitem', { name: 'Open auction' })).toHaveAttribute(
     'target',
     '_blank'
@@ -558,7 +570,11 @@ test('pins and moves columns in the browser only, keeping them across a reload',
       .evaluateAll(cells => cells.map(cell => cell.getAttribute('aria-label') ?? cell.textContent))
   const pageRequests = recordPageRequests(page)
 
-  await header('Price').getByRole('button').click()
+  // A click before hydration opens nothing, so the first one is retried.
+  await expect(async () => {
+    await header('Price').getByRole('button').click()
+    await expect(page.getByRole('menuitem', { name: 'Pin to left' })).toBeVisible({ timeout: 1000 })
+  }).toPass()
   await page.getByRole('menuitem', { name: 'Pin to left' }).click()
   await expect(page.getByRole('menu')).toHaveCount(0)
   await header('Bids').getByRole('button').click()
@@ -626,7 +642,11 @@ test('selects rows on the page and clears the selection on navigation', async ({
   const bar = page.getByRole('region', { name: 'Selected rows' })
 
   await expect(bar).toBeHidden()
-  await rows.nth(0).getByRole('checkbox').click()
+  // A click before hydration selects nothing, so the first one is retried.
+  await expect(async () => {
+    await rows.nth(0).getByRole('checkbox').click()
+    await expect(rows.nth(0)).toHaveAttribute('data-state', 'selected', { timeout: 1000 })
+  }).toPass()
   await rows.nth(1).getByRole('checkbox').click()
   await expect(bar.getByRole('status')).toHaveText('2 selected')
   await expect(all).toHaveAttribute('aria-checked', 'mixed')
