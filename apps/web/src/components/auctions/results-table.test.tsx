@@ -399,7 +399,7 @@ describe('ResultsTable', () => {
     const widths = [...container.querySelectorAll('col')].map(col => col.style.width)
     expect(widths).toEqual([
       '40px',
-      'var(--column-domain-width, 240px)',
+      'var(--column-domain-width, 192px)',
       'var(--column-price-width, 80px)',
       'var(--column-links-width, 72px)',
       'var(--column-majesticTf-width, 56px)',
@@ -413,7 +413,7 @@ describe('ResultsTable', () => {
         .getAllByRole('separator')
         .map(handle => [handle.getAttribute('aria-label'), handle.getAttribute('aria-valuenow')])
     ).toEqual([
-      ['Resize Domain column', '240'],
+      ['Resize Domain column', '192'],
       ['Resize Price column', '150'],
       ['Resize Inbound links column', '72'],
       ['Resize Majestic Trust Flow column', '56']
@@ -466,13 +466,13 @@ describe('ResultsTable layout', () => {
       ...defaultHeaders.filter(name => !['', 'Domain', 'Price'].includes(name))
     ])
     const price = screen.getByRole('columnheader', { name: 'Price' })
-    expect(price.style.left).toBe('calc(40px + var(--column-domain-width, 240px))')
+    expect(price.style.left).toBe('calc(40px + var(--column-domain-width, 192px))')
     expect(price.className).toContain('z-30')
     expect(price.className).toContain('shadow-')
     // Price is the sorted column, so its arrow keeps the indicator slot.
     expect(within(price).queryByRole('img', { name: 'Pinned' })).not.toBeInTheDocument()
     const priceCell = screen.getByText('$12.50').closest('td') as HTMLElement
-    expect(priceCell.style.left).toBe('calc(40px + var(--column-domain-width, 240px))')
+    expect(priceCell.style.left).toBe('calc(40px + var(--column-domain-width, 192px))')
     expect(priceCell.className).toContain('sticky')
     expect(cookie('column-layout')).toBe(
       `order:${TABLE_COLUMNS.map(column => column.key).join(',')}|left:price`
@@ -522,7 +522,7 @@ describe('ResultsTable layout', () => {
     expect(style('Domain')).toEqual({ left: '40px', right: '', edge: false })
     expect(style('Price').edge).toBe(false)
     expect(style('Bids')).toEqual({
-      left: 'calc(40px + var(--column-domain-width, 240px) + var(--column-price-width, 80px))',
+      left: 'calc(40px + var(--column-domain-width, 192px) + var(--column-price-width, 80px))',
       right: '',
       edge: true
     })
