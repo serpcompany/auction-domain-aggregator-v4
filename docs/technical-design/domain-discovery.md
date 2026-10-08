@@ -14,7 +14,7 @@ The page request parses untrusted search parameters into one normalized `DomainT
 
 The URL is canonical state. Filter submission uses GET and omits `page`, so applying a change returns to page 1. Removing one summary changes only that filter family and also returns to page 1. Sorting and pagination preserve all filters. Invalid enum values are rejected, numeric inputs are bounded, reversed ranges are normalized, and page size is always 50.
 
-Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 87 bindings (64 category values, active status, the reference time, 19 scalar filters including the four SEO-metric minimums, row limit, and offset), below D1's 100-bound-parameter ceiling. A workerd test on real D1 runs that worst case.
+Repeated Source, Auction type, and TLD values use OR within their category; all filter families combine with AND. The parser retains at most 64 repeated category values in deterministic source, type, then TLD order. This shared limit keeps the worst accepted production row query at 88 bindings (64 category values, active status, the reference time, 20 scalar filters including the four SEO-metric minimums and the DR minimum, row limit, and offset), below D1's 100-bound-parameter ceiling. A workerd test on real D1 runs that worst case.
 
 ## D1 query behavior
 
@@ -81,7 +81,7 @@ The metric indexes replaced the single-column ones one for one (migration `0010_
 
 ## Ahrefs DR
 
-The page reads stored DR for the visible rows only. Fetching it, on demand from the browser, is in [Ahrefs Domain Rating enrichment](domain-rating-enrichment.md).
+The page reads stored DR for the visible rows only. `domainRatingMin` filters like the SEO-metric minimums, through `domain_name in (select domain_name from domain_metrics where metric = 'ahrefs_dr' and status = 'ok' and value >= ?)`, so only a stored rating can satisfy it. Fetching DR, daily for the inventory and on demand from the browser, is in [Ahrefs Domain Rating enrichment](domain-rating-enrichment.md).
 
 ## UI boundary
 

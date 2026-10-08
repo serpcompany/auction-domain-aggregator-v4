@@ -13,18 +13,20 @@ import {
 } from '../src/server/ingestion/local-runner'
 import { implementedProvider, PROVIDER_REGISTRY } from '../src/server/providers/registry'
 
-// Runs one provider's sync through the same Cloudflare Workflow the Cron
-// Trigger starts, inside a temporary local `wrangler dev` of the ingestion
-// Worker (local D1, R2, and Workflows only). The instance is created and
-// polled through Wrangler's local-only explorer API.
+// Runs one provider's sync, or with `ahrefs-dr` the Ahrefs DR backfill,
+// through the same Cloudflare Workflow the Cron Trigger starts, inside a
+// temporary local `wrangler dev` of the ingestion Worker (local D1, R2, and
+// Workflows only). The instance is created and polled through Wrangler's
+// local-only explorer API.
 //
-// Usage: node --env-file-if-exists=../../.secrets/providers.env --import tsx scripts/sync-provider.ts <provider>
-const PROVIDER = implementedProvider(process.argv[2] ?? '')
+// Usage: node --env-file-if-exists=../../.secrets/providers.env --env-file-if-exists=.dev.vars --import tsx scripts/sync-provider.ts <provider | ahrefs-dr>
+const DOMAIN_RATING = process.argv[2] === 'ahrefs-dr'
+const PROVIDER = DOMAIN_RATING ? 'ahrefs-dr' : implementedProvider(process.argv[2] ?? '')
 
 const HOST = '127.0.0.1'
 const PORT = 8790
 const INSPECTOR_PORT = 9330
-const WORKFLOW = 'provider-sync'
+const WORKFLOW = DOMAIN_RATING ? 'domain-rating' : 'provider-sync'
 const INSTANCES_URL = `http://${HOST}:${PORT}/cdn-cgi/explorer/api/workflows/${WORKFLOW}/instances`
 const READY_TIMEOUT_MS = 30_000
 const READY_REQUEST_TIMEOUT_MS = 2_000
@@ -34,8 +36,18 @@ const CREATE_TIMEOUT_MS = 15 * 60_000
 const POLL_INTERVAL_MS = 2_000
 // GoDaddy and Namecheap take a few minutes end to end and Dynadot about 9.
 // NameSilo's roughly 450 requests, paced 2 seconds apart and about 2.5
-// seconds each, take 20 to 30 minutes.
-const RUN_TIMEOUT_MS = 60 * 60_000
+// seconds each, take 20 to 30 minutes. A full DR backfill run (1,000 calls
+// paced 2 seconds apart) takes about two hours.
+const RUN_TIMEOUT_MS = (DOMAIN_RATING ? 4 * 60 : 60) * 60_000
+
+type BackfillSummary = {
+  workflow: 'ahrefs-dr'
+  status: 'succeeded'
+  calls: number
+  requested: number
+  stored: number
+  complete: boolean
+}
 
 type SafeSummary = {
   provider: string
@@ -126,6 +138,29 @@ async function stopChild(child: ChildProcess) {
   }
 }
 
+function parseBackfillSummary(value: unknown): BackfillSummary {
+  const summary = (typeof value === 'object' && value !== null ? value : {}) as Record<
+    string,
+    unknown
+  >
+  const counters = [summary.calls, summary.requested, summary.stored]
+  if (
+    summary.status !== 'succeeded' ||
+    typeof summary.complete !== 'boolean' ||
+    counters.some(counter => !Number.isSafeInteger(counter) || Number(counter) < 0)
+  ) {
+    throw fixedError('sync_failed')
+  }
+  return {
+    workflow: 'ahrefs-dr',
+    status: 'succeeded',
+    calls: Number(summary.calls),
+    requested: Number(summary.requested),
+    stored: Number(summary.stored),
+    complete: summary.complete
+  }
+}
+
 function parseSummary(value: unknown): SafeSummary {
   if (typeof value !== 'object' || value === null) {
     throw fixedError('sync_failed')
@@ -165,9 +200,13 @@ function reportedErrorCode(instance: Record<string, unknown>) {
 
 async function main() {
   if (!PROVIDER) throw fixedError('sync_unknown_provider')
-  const { secretNames } = PROVIDER_REGISTRY[PROVIDER]!
+  const secretNames: readonly string[] = DOMAIN_RATING
+    ? ['AHREFS_API_KEY']
+    : PROVIDER_REGISTRY[PROVIDER as keyof typeof PROVIDER_REGISTRY]!.secretNames
   if (secretNames.some(name => !process.env[name])) {
-    throw fixedError(`${PROVIDER}_missing_credentials`)
+    throw fixedError(
+      DOMAIN_RATING ? 'ahrefs_missing_credentials' : `${PROVIDER}_missing_credentials`
+    )
   }
 
   await ensurePortAvailable(PORT)
@@ -224,7 +263,7 @@ async function main() {
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ id, params: { provider: PROVIDER } })
+        body: JSON.stringify({ id, params: DOMAIN_RATING ? {} : { provider: PROVIDER } })
       },
       CREATE_TIMEOUT_MS
     )
@@ -247,7 +286,9 @@ async function main() {
         method: 'GET'
       })) as Record<string, unknown>
       if (status === 'complete') {
-        const summary = parseSummary(instance.output)
+        const summary = DOMAIN_RATING
+          ? parseBackfillSummary(instance.output)
+          : parseSummary(instance.output)
         process.stdout.write(`${JSON.stringify(summary)}\n`)
         return
       }

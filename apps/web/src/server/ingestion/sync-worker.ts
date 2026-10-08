@@ -4,7 +4,17 @@
 // The Worker has no fetch handler, so it serves no HTTP routes.
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { NonRetryableError } from 'cloudflare:workflows'
+import { drizzle } from 'drizzle-orm/d1'
 
+import * as schema from '../db/schema'
+import { fetchDomainRatings } from '../enrichment/ahrefs'
+import {
+  type BackfillStepRunner,
+  type DomainRatingBackfillParams,
+  PROVIDER_SYNC_HEAD_START_MS,
+  runDomainRatingBackfill
+} from '../enrichment/domain-rating-backfill'
+import { createD1DomainRatingStore } from '../enrichment/domain-rating-store'
 import {
   type ProviderSyncParams,
   runProviderSync,
@@ -32,14 +42,51 @@ export class ProviderSyncWorkflow extends WorkflowEntrypoint<SyncWorkerEnv, Prov
   }
 }
 
+export class DomainRatingWorkflow extends WorkflowEntrypoint<
+  SyncWorkerEnv,
+  DomainRatingBackfillParams
+> {
+  async run(event: Readonly<WorkflowEvent<DomainRatingBackfillParams>>, step: WorkflowStep) {
+    const apiKey = this.env.AHREFS_API_KEY
+    if (!apiKey) throw new NonRetryableError('ahrefs_missing_credentials')
+    const runner: BackfillStepRunner = {
+      do: (name, config, callback) =>
+        step.do(name, config as never, callback as never) as Promise<never>,
+      sleep: (name, milliseconds) => step.sleep(name, milliseconds)
+    }
+    return runDomainRatingBackfill({
+      step: runner,
+      store: createD1DomainRatingStore(drizzle(this.env.DB, { schema })),
+      fetchRatings: domains => fetchDomainRatings({ apiKey, domains }),
+      nonRetryable: code => new NonRetryableError(code),
+      startDelayMs: event.payload?.startDelayMs ?? 0
+    })
+  }
+}
+
 const worker = {
-  // Each Cron Trigger firing starts one Workflow instance per scheduled provider.
+  // Each Cron Trigger firing starts one Workflow instance per scheduled
+  // provider, and the DR backfill, which waits for them.
   async scheduled(controller: ScheduledController, env: SyncWorkerEnv) {
-    await scheduleProviderSyncs(
-      env.PROVIDER_SYNC,
-      new Date(controller.scheduledTime),
-      scheduledProviders(env.SYNC_PROVIDERS)
-    )
+    const scheduledTime = new Date(controller.scheduledTime)
+    // Each is scheduled on its own, so one failure cannot stop the other.
+    const [syncs, backfill] = await Promise.allSettled([
+      Promise.resolve().then(() =>
+        scheduleProviderSyncs(
+          env.PROVIDER_SYNC,
+          scheduledTime,
+          scheduledProviders(env.SYNC_PROVIDERS)
+        )
+      ),
+      Promise.resolve().then(() =>
+        env.DOMAIN_RATING.create({
+          id: `domain-rating-${scheduledTime.toISOString().replace(/[-:]/g, '').slice(0, 13)}`,
+          params: { startDelayMs: PROVIDER_SYNC_HEAD_START_MS }
+        })
+      )
+    ])
+    if (syncs.status === 'rejected') throw syncs.reason
+    if (backfill.status === 'rejected') throw new Error('domain_rating_schedule_failed')
   }
 } satisfies ExportedHandler<SyncWorkerEnv>
 

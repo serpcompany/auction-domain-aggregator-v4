@@ -195,6 +195,15 @@ function activeListingWhere(filters: DomainTableFilters, now: Date, pinned = fal
       )
     )
   }
+  if (filters.domainRatingMin !== undefined) {
+    // Only a stored rating can satisfy a minimum, as for the feed metrics.
+    conditions.push(
+      inArray(
+        column(auctionListings.domainName),
+        sql`(select ${domainMetrics.domainName} from ${domainMetrics} where ${domainMetrics.metric} = 'ahrefs_dr' and ${domainMetrics.status} = 'ok' and ${domainMetrics.value} >= ${filters.domainRatingMin})`
+      )
+    )
+  }
   if (filters.endingWithin) {
     conditions.push(
       lte(

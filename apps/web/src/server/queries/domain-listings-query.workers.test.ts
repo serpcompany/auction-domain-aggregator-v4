@@ -754,7 +754,40 @@ describe('domain listings read model on D1', () => {
       expect((await query({ source: 'godaddy', semrushAsMin: '15' })).total).toBe(2)
     })
 
-    it('binds 87 values for the worst accepted query with metric filters', async () => {
+    it('filters on Ahrefs DR, which only a stored rating can satisfy', async () => {
+      await database.insert(domainMetrics).values([
+        {
+          domainName: 'garden.com',
+          metric: 'ahrefs_dr',
+          status: 'ok',
+          value: 42,
+          fetchedAt: QUERY_NOW
+        },
+        {
+          domainName: 'past.org',
+          metric: 'ahrefs_dr',
+          status: 'not_found',
+          value: null,
+          fetchedAt: QUERY_NOW
+        }
+      ])
+      // garden.com has both a Dynadot and a GoDaddy listing.
+      expect(ids(await query({ domainRatingMin: '42' })).length).toBe(2)
+      expect(
+        (await query({ domainRatingMin: '42' })).rows.every(row => row.domainRating === 42)
+      ).toBe(true)
+      expect((await query({ domainRatingMin: '43' })).total).toBe(0)
+      expect((await query({ q: 'past', domainRatingMin: '0' })).total).toBe(0)
+    })
+
+    it('binds 88 values for the worst accepted query with metric filters', async () => {
+      await database.insert(domainMetrics).values({
+        domainName: 'garden.com',
+        metric: 'ahrefs_dr',
+        status: 'ok',
+        value: 42,
+        fetchedAt: QUERY_NOW
+      })
       const worstCase = await query({
         q: 'garden',
         source: 'dynadot',
@@ -777,11 +810,13 @@ describe('domain listings read model on D1', () => {
         majesticCfMin: '20',
         majesticRefDomainsMin: '40',
         semrushAsMin: '15',
+        domainRatingMin: '40',
         endingWithin: '7d'
       })
       expect(worstCase.total).toBe(1)
       expect(worstCase.rows[0]?.domainName).toBe('garden.com')
       expect(worstCase.rows[0]?.seoMetrics?.majesticTf).toBe(30)
+      expect(worstCase.rows[0]?.domainRating).toBe(42)
     })
   })
 

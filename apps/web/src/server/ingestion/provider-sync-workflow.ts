@@ -21,6 +21,7 @@
 import { drizzle } from 'drizzle-orm/d1'
 
 import * as schema from '../db/schema'
+import type { DomainRatingBackfillParams } from '../enrichment/domain-rating-backfill'
 import { createPacer } from '../providers/rate-limit'
 import { implementedProvider, PROVIDER_REGISTRY, type ProviderSecrets } from '../providers/registry'
 import type { AuctionProvider, ProviderAdapter } from '../providers/types'
@@ -54,6 +55,9 @@ export type SyncWorkerEnv = ProviderSecrets & {
   PROVIDER_SYNC: Workflow<ProviderSyncParams>
   // The providers the Cron Trigger syncs, comma-separated; empty is every one.
   SYNC_PROVIDERS?: string
+  DOMAIN_RATING: Workflow<DomainRatingBackfillParams>
+  // The DR backfill's key; without it, its daily instance fails at once.
+  AHREFS_API_KEY?: string
 }
 
 // The subset of a Workflow step's options used here.
@@ -142,7 +146,7 @@ export async function runProviderSync({
   provider: string
   // Unique per Workflow instance (its ID); names the staged-page prefix.
   runKey: string
-  env: Omit<SyncWorkerEnv, 'PROVIDER_SYNC'>
+  env: Omit<SyncWorkerEnv, 'PROVIDER_SYNC' | 'DOMAIN_RATING'>
   step: StepRunner
   // Builds an error that fails the instance without further retries.
   nonRetryable: (code: string) => Error

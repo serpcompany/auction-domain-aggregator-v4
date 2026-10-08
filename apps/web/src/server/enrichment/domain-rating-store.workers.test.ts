@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from 'vitest'
 
 import { ahrefsRequests, auctionListings, domainMetrics, domains } from '../db/schema'
 import { createD1IngestionStorage } from '../ingestion/d1-storage'
-import { type TestDatabase, testDatabase } from '../test-database'
+import { type TestDatabase, testDatabase, testEnv } from '../test-database'
 import { listing, queryAt } from '../test-listings'
 import { AhrefsError } from './ahrefs'
 import {
@@ -14,7 +14,7 @@ import {
   enrichDomainRatings,
   type FetchDomainRatings
 } from './domain-rating'
-import { createD1DomainRatingStore } from './domain-rating-store'
+import { createD1DomainRatingStore, DOMAINS_TO_RATE_SQL } from './domain-rating-store'
 
 describe('on-demand Domain Rating enrichment on D1', () => {
   // Stores ratings only for domains with an active listing, never overwrites a stored rating,
@@ -249,5 +249,67 @@ describe('on-demand Domain Rating enrichment on D1', () => {
   it('has no cool-down until a call sets one', async () => {
     const store = createD1DomainRatingStore(testDatabase())
     expect(await store.coolDownUntil(new Date())).toBeNull()
+  })
+
+  // The daily backfill's selection: open listings only, each domain once, in name order after a
+  // cursor, skipping settled ratings and omissions or claims still waiting.
+  it('lists the domains the backfill should rate next', async () => {
+    const database = testDatabase()
+    const storage = createD1IngestionStorage(database, 'dynadot')
+    const run = await storage.startRun(new Date('2026-07-16T00:00:00.000Z'))
+    const names = ['a-ok', 'b-missing', 'c-wait', 'd-retry', 'e-pending', 'f-ended', 'g-gone']
+    await storage.upsertListings(run, [
+      ...names.map(name => listing(name, `${name}.test`, 100)),
+      // A second listing of the same domain is listed once.
+      listing('b-missing-2', 'b-missing.test', 200),
+      { ...listing('f-ended', 'f-ended.test', 100), endsAt: new Date('2026-07-14T00:00:00.000Z') }
+    ])
+    await database
+      .update(auctionListings)
+      .set({ status: 'inactive' })
+      .where(eq(auctionListings.externalId, 'g-gone'))
+    const now = new Date('2026-07-15T00:00:00.000Z')
+    const later = new Date(now.getTime() + 60_000)
+    const earlier = new Date(now.getTime() - 60_000)
+    await database.insert(domainMetrics).values([
+      { domainName: 'a-ok.test', metric: 'ahrefs_dr', status: 'ok', value: 3, fetchedAt: now },
+      {
+        domainName: 'c-wait.test',
+        metric: 'ahrefs_dr',
+        status: 'omitted',
+        value: null,
+        fetchedAt: now,
+        retryAfter: later
+      },
+      {
+        domainName: 'd-retry.test',
+        metric: 'ahrefs_dr',
+        status: 'omitted',
+        value: null,
+        fetchedAt: earlier,
+        retryAfter: earlier
+      },
+      {
+        domainName: 'e-pending.test',
+        metric: 'ahrefs_dr',
+        status: 'pending',
+        value: null,
+        fetchedAt: now,
+        retryAfter: later
+      }
+    ])
+    const store = createD1DomainRatingStore(database)
+
+    expect(await store.domainsToRate('', now, 10)).toEqual(['b-missing.test', 'd-retry.test'])
+    expect(await store.domainsToRate('b-missing.test', now, 10)).toEqual(['d-retry.test'])
+    expect(await store.domainsToRate('', now, 1)).toEqual(['b-missing.test'])
+
+    // It walks the domain-name index from the cursor, never sorting the open listings.
+    const { results } = await testEnv.DB.prepare(`explain query plan ${DOMAINS_TO_RATE_SQL}`)
+      .bind(now.getTime(), '', 1000)
+      .all<{ detail: string }>()
+    const plan = results.map(({ detail }) => detail).join('\n')
+    expect(plan).toContain('USING INDEX auction_listings_domain_name_idx (domain_name>?)')
+    expect(plan).not.toContain('TEMP B-TREE')
   })
 })

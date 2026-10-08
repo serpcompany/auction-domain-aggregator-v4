@@ -3,6 +3,7 @@ import { gt, max } from 'drizzle-orm'
 import { ahrefsRequests } from '../db/schema'
 import type { AppDatabase } from '../db/types'
 import type { DomainRatingStore } from './domain-rating'
+import type { DomainRatingBackfillStore } from './domain-rating-backfill'
 
 // One statement, so D1 decides each claim atomically: a domain is claimed by
 // inserting a `pending` row, or by taking over an omission or claim whose
@@ -47,13 +48,41 @@ const STORE_RESULTS_SQL = `
   RETURNING domain_name
 `
 
+// The next domains in name order after `?2` with a listing still open at `?1`
+// that need a rating: none stored, or an omission or claim whose retry time
+// has passed. Walking the domain-name index from a cursor keeps each batch's
+// cost flat however much of the inventory is already rated. `+` keeps the
+// status and end-time terms out of index selection, so SQLite always walks
+// that index rather than sorting every open listing.
+export const DOMAINS_TO_RATE_SQL = `
+  SELECT DISTINCT l.domain_name FROM auction_listings AS l
+  WHERE +l.status = 'active' AND +l.ends_at > ?1 AND l.domain_name > ?2
+    AND NOT EXISTS (
+      SELECT 1 FROM domain_metrics AS m
+      WHERE m.domain_name = l.domain_name AND m.metric = 'ahrefs_dr'
+        AND (m.status IN ('ok', 'not_found') OR m.retry_after > ?1)
+    )
+  ORDER BY l.domain_name
+  LIMIT ?3
+`
+
 const RECORD_REQUEST_SQL = `
   INSERT INTO ahrefs_requests (requested_at, domain_count, outcome, cool_down_until)
   VALUES (?, ?, ?, ?)
 `
 
-export function createD1DomainRatingStore(db: AppDatabase): DomainRatingStore {
+export function createD1DomainRatingStore(
+  db: AppDatabase
+): DomainRatingStore & DomainRatingBackfillStore {
   return {
+    async domainsToRate(after, now, limit) {
+      const { results } = await db.$client
+        .prepare(DOMAINS_TO_RATE_SQL)
+        .bind(now.getTime(), after, limit)
+        .all<{ domain_name: string }>()
+      return results.map(row => row.domain_name)
+    },
+
     async coolDownUntil(now) {
       const [row] = await db
         .select({ until: max(ahrefsRequests.coolDownUntil) })

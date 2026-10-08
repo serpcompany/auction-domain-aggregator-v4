@@ -12,6 +12,7 @@ Ahrefs published a separate Domain Rating licence (last modified 2026-06-11) and
 | Conditions | Every display must carry the attribution "Domain Rating by Ahrefs", clear, legible, adjacent to the value, with a working hyperlink to `https://ahrefs.com/`, and it "shall not be hidden, obscured or removed". Do not "re-package, sell or distribute DR Data in its original form" or as a substitute or competing product. Do not "harvest DR Data in bulk or systematically in order to compile, reconstruct" a competing dataset or index. Ahrefs may rate-limit, throttle, or withdraw the endpoint without notice. |
 | Evidence | Domain Rating License Terms of Use §§1 to 5; Ahrefs API reference for `domain-rating-free`. |
 | Confidence | **Verified** for display with attribution. **Inferred** risk: looking up DR for every auction domain each day and storing it could be read as systematic bulk harvesting under §4(b) if Ahrefs sees the result as a competing index. Ask Ahrefs about volume before building it. |
+| Decision | 2026-10-08: the owner chose to build the daily DR backfill for the whole inventory while the site is owner-only, accepting this risk before asking Ahrefs. The email below is still unsent. |
 
 ## Other Ahrefs metrics and "bring your own key"
 
