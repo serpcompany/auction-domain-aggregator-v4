@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { auctionListings, domainSeoMetrics, ingestionRuns } from '../db/schema'
 import { GODADDY_FEED_ENTRY } from '../providers/godaddy'
 import { testDatabase, testEnv } from '../test-database'
-import { listing, QUERY_NOW, queryAt, STARTED_AT } from '../test-listings'
+import { listing, QUERY_NOW, STARTED_AT, statusAt } from '../test-listings'
 import { createD1IngestionStorage } from './d1-storage'
 import { runProviderSync } from './provider-sync-workflow'
 import { buildZipFixture } from './zip-fixture'
@@ -76,8 +76,8 @@ describe('provider-sync Workflow on D1 and R2', () => {
   // pages, synced through the adapter, and the pages are deleted.
   it('stages, syncs, and cleans up the GoDaddy feed, then rebuilds every provider’s facets', async () => {
     const database = testDatabase()
-    const query = queryAt(database, QUERY_NOW)
-    const before = await query({})
+    const status = statusAt(database, QUERY_NOW)
+    const before = await status()
     // One active listing of another provider, which GoDaddy's rebuild must keep.
     const dynadot = createD1IngestionStorage(database, 'dynadot')
     await dynadot.upsertListings(await dynadot.startRun(STARTED_AT), [
@@ -116,7 +116,7 @@ describe('provider-sync Workflow on D1 and R2', () => {
     expect((await metricsFor('cloud-feed-2499.integration.test'))?.semrushAs).toBe(9)
 
     // The successful finalization rebuilt the facet values for every provider.
-    const after = await query({})
+    const after = await status()
     expect(before.sources).not.toContain('godaddy')
     expect(after.sources).toEqual(expect.arrayContaining(['godaddy', 'dynadot']))
     expect(after.auctionTypes).toContain('auction')
