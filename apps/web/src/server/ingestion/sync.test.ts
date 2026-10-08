@@ -193,6 +193,10 @@ class MemoryStorage implements IngestionStorage {
     this.completions.push(completion)
     this.running.delete(run.runId)
   }
+
+  async deleteEndedListings() {
+    return { listings: 0, seoMetrics: 0, domains: 0 }
+  }
 }
 
 function clock(...dates: string[]) {

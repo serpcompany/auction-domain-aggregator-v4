@@ -81,7 +81,13 @@ export type IngestionStorage = {
   finalizeSuccessfulRun(run: RunState, finalization: SuccessfulRunFinalization): Promise<number>
   updateRunProgress(run: RunState): Promise<void>
   completeRun(run: RunState, completion: RunCompletion): Promise<void>
+  // Deletes up to `limit` of the provider's inactive listings that ended
+  // before `before`, then the feed metrics and domains of theirs that nothing
+  // else uses. Returns how many of each it deleted.
+  deleteEndedListings(before: Date, limit: number): Promise<DeletedListings>
 }
+
+export type DeletedListings = { listings: number; seoMetrics: number; domains: number }
 
 export type SyncSummary = RunCounters & {
   provider: AuctionProvider

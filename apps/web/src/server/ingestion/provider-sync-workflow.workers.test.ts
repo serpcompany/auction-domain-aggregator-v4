@@ -98,7 +98,8 @@ describe('provider-sync Workflow on D1 and R2', () => {
       'start run',
       'stage feed',
       'sync pages, segment 1',
-      'delete staged pages'
+      'delete staged pages',
+      'delete ended listings, step 1'
     ])
     expect(await stagedObjects()).toBe(0)
 
@@ -192,7 +193,8 @@ describe('provider-sync Workflow on D1 and R2', () => {
       'start run',
       'stage feed',
       'sync pages, segment 1',
-      'delete staged pages'
+      'delete staged pages',
+      'delete ended listings, step 1'
     ])
     expect(await stagedObjects()).toBe(0)
 

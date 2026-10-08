@@ -6,6 +6,7 @@
 //   [stage feed]                  file feeds only: zip or CSV -> R2 page files
 //   sync pages, segment 1..n      runSyncSegment over 20 pages per step
 //   [delete staged pages]         file feeds only, also after a failure
+//   delete ended listings, 1..n   after a success: listings ended a week ago
 //
 // Each completed step's result is persisted by Workflows. A step may run
 // again: after a retryable error, or when the platform interrupts it before
@@ -36,6 +37,8 @@ import {
 import { type FeedErrorCode, feedErrorCode, stageZippedFeed } from './feed-stage'
 import { findNamesiloRecording, replayNamesiloRecording } from './namesilo-recording'
 import {
+  type DeletedListings,
+  errorMessage,
   failSyncRun,
   type IngestionStorage,
   runSyncSegment,
@@ -87,6 +90,13 @@ export const CLEANUP_STEP: StepConfig = {
   retries: { limit: 3, delay: '30 seconds', backoff: 'exponential' },
   timeout: '5 minutes'
 }
+
+// Inactive listings are kept this long after they end, then deleted.
+export const ENDED_LISTING_RETENTION_MS = 7 * 24 * 60 * 60_000
+// Deletes run in statements of this many listings, this many per step: about
+// 50,000 listings per step, so the first run's backlog takes a few steps.
+const DELETE_BATCH = 2_000
+const DELETE_BATCHES_PER_STEP = 25
 
 const SEGMENT_PAGES = 20
 // GoDaddy's archive is about 37 MB zipped and 450 MB unzipped. The download
@@ -335,7 +345,52 @@ export async function runProviderSync({
   // A failed step surfaces as a generic Workflows error unless its fixed
   // code is rethrown from `run`.
   if ('failure' in result) throw new Error(fixedErrorCode(result.failure))
+  await deleteEndedListings(step, storage)
   return result.summary
+}
+
+// After a successful run, the provider's listings that ended more than a week
+// ago and that it no longer publishes are deleted, a batch at a time, with
+// the feed metrics and domains nothing else uses. Best effort: the sync has
+// succeeded, so a failure is only logged and the next successful run carries on.
+async function deleteEndedListings(step: StepRunner, storage: IngestionStorage) {
+  const deleted: DeletedListings = { listings: 0, seoMetrics: 0, domains: 0 }
+  try {
+    for (let stepNumber = 1; ; stepNumber += 1) {
+      const batch = await step.do(
+        `delete ended listings, step ${stepNumber}`,
+        CLEANUP_STEP,
+        async () => {
+          const before = new Date(Date.now() - ENDED_LISTING_RETENTION_MS)
+          const counts: DeletedListings & { more: boolean } = {
+            listings: 0,
+            seoMetrics: 0,
+            domains: 0,
+            more: false
+          }
+          for (let index = 0; index < DELETE_BATCHES_PER_STEP; index += 1) {
+            const result = await storage.deleteEndedListings(before, DELETE_BATCH)
+            counts.listings += result.listings
+            counts.seoMetrics += result.seoMetrics
+            counts.domains += result.domains
+            counts.more = result.listings === DELETE_BATCH
+            if (!counts.more) break
+          }
+          return counts
+        }
+      )
+      deleted.listings += batch.listings
+      deleted.seoMetrics += batch.seoMetrics
+      deleted.domains += batch.domains
+      if (!batch.more) break
+    }
+    console.info('ended_listings_deleted', { provider: storage.provider, ...deleted })
+  } catch (error) {
+    console.warn('ended_listings_delete_failed', {
+      provider: storage.provider,
+      message: errorMessage(error)
+    })
+  }
 }
 
 // Workflows rejects `step.do` for a step that threw a NonRetryableError with

@@ -77,6 +77,8 @@ Metric sorts (#65) take one of two paths, chosen by the count the request alread
 
 The metric indexes replaced the single-column ones one for one (migration `0010_metric_sort_indexes.sql`), and the DR index holds one entry per rated domain, so the change adds no listing writes. Measured with `corepack pnpm benchmark:filters` on 2026-10-08 against copies of the local inventory (2,279,518 open listings), median whole requests went from 2.77 s to 0.24 s for a Trust Flow sort, 3.00 s to 0.27 s for its page 200, 2.74 s to 0.24 s for Semrush Authority, 0.94 s to 0.25 s for Ahrefs DR, and 0.35 s to 0.06 s for DR within `.com`; most of what remains is the count. Other shapes kept their times, a few milliseconds faster from the fewer round trips. A workerd test explains every metric sort, with and without TLD and price filters, and fails on `USE TEMP B-TREE FOR ORDER BY`.
 
+`auction_listings` has no single-column index on end time, price, bids, or age. Migration `0011_drop_unused_listing_indexes.sql` dropped them: in every measured plan SQLite chose `auction_listings_status_provider_idx` instead, and D1 bills a written row per index on every insert and change. Measured with D1's `rows_written` on the sync's own upsert, a new listing went from 10 written rows to 6 and a listing whose bid changed from 9 to 5; an unchanged listing still writes none.
+
 ## Ahrefs DR
 
 The page reads stored DR for the visible rows only. Fetching it, on demand from the browser, is in [Ahrefs Domain Rating enrichment](domain-rating-enrichment.md).
