@@ -81,7 +81,7 @@ describe('table columns', () => {
   it('writes widths and gives Domain and every column a default and a CSS width', () => {
     expect(serializeColumnWidths({ price: 120, domain: 300 })).toBe('price:120,domain:300')
     expect(parseColumnWidths(serializeColumnWidths({ price: 120 }))).toEqual({ price: 120 })
-    expect(defaultColumnWidth('domain')).toBe(240)
+    expect(defaultColumnWidth('domain')).toBe(192)
     for (const column of TABLE_COLUMNS) {
       expect(defaultColumnWidth(column.key)).toBe(column.width)
     }
@@ -176,9 +176,9 @@ describe('column layout', () => {
   it('offsets sticky columns by the widths between them and the edge', () => {
     expect(stickyOffsets(['domain', 'price', 'bids'], ['links', 'majesticTf'])).toEqual({
       domain: { left: `${SELECTION_COLUMN_WIDTH}px` },
-      price: { left: 'calc(40px + var(--column-domain-width, 240px))' },
+      price: { left: 'calc(40px + var(--column-domain-width, 192px))' },
       bids: {
-        left: 'calc(40px + var(--column-domain-width, 240px) + var(--column-price-width, 80px))'
+        left: 'calc(40px + var(--column-domain-width, 192px) + var(--column-price-width, 80px))'
       },
       links: { right: 'calc(40px + var(--column-majesticTf-width, 56px))' },
       majesticTf: { right: `${ROW_ACTIONS_COLUMN_WIDTH}px` }

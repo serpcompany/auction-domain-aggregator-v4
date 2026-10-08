@@ -565,6 +565,27 @@ test('opens listing details beside the table from the row menu on desktop', asyn
   await expect(sheet).toBeHidden()
 })
 
+test('fits every default column beside the row actions at 1440 with the sidebar open', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/')
+  const table = page.getByRole('table')
+  await expect(page.getByRole('link', { name: 'Sync status' })).toBeVisible()
+  const dr = await table.getByRole('columnheader', { name: 'DR', exact: true }).boundingBox()
+  const actions = await table
+    .getByRole('columnheader', { name: 'Actions', exact: true })
+    .boundingBox()
+  expect(dr).not.toBeNull()
+  expect(actions).not.toBeNull()
+  if (!dr || !actions) return
+  expect(dr.x + dr.width).toBeLessThanOrEqual(actions.x)
+  // The frame does not scroll sideways.
+  const frame = page.getByTestId('domain-results-scroll-container')
+  const sideways = await frame.evaluate(element => element.scrollWidth - element.clientWidth)
+  expect(sideways).toBeLessThanOrEqual(0)
+})
+
 test('keeps Columns on the search row while many rules wrap', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto(
@@ -625,7 +646,9 @@ test('pins and moves columns in the browser only, keeping them across a reload',
   expect(pageRequests).toEqual([])
   await expect(page).toHaveURL(opened)
 
-  // The pinned column stays put while the table scrolls sideways.
+  // The pinned column stays put while the table scrolls sideways. The default
+  // columns fit at 1440, so a narrower window makes the table scroll.
+  await page.setViewportSize({ width: 1100, height: 900 })
   const container = page.getByTestId('domain-results-scroll-container')
   const left = (name: string) => header(name).evaluate(cell => cell.getBoundingClientRect().x)
   const priceBefore = await left('Price')

@@ -165,7 +165,7 @@ export const MIN_COLUMN_WIDTH = 48
 export const MAX_COLUMN_WIDTH = 640
 
 const DEFAULT_COLUMN_WIDTHS = Object.fromEntries([
-  ['domain', 240],
+  ['domain', 192],
   ...TABLE_COLUMNS.map(column => [column.key, column.width])
 ]) as Record<ResizableColumnKey, number>
 
