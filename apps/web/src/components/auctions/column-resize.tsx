@@ -34,7 +34,17 @@ function saveColumnWidths(widths: ColumnWidths) {
 
 type Resize = (key: ResizableColumnKey, width: number | undefined, save?: boolean) => void
 
-const Widths = createContext<{ widths: ColumnWidths; resize: Resize } | null>(null)
+const Widths = createContext<{
+  widths: ColumnWidths
+  resize: Resize
+  resetAll: () => void
+} | null>(null)
+
+export function useColumnWidths() {
+  const context = useContext(Widths)
+  if (!context) throw new Error('Column widths need a ColumnWidthsProvider')
+  return context
+}
 
 // Holds the chosen column widths as the CSS variables that the table's `<col>`
 // elements read, so a drag re-lays out the table without re-rendering its
@@ -57,6 +67,12 @@ export function ColumnWidthsProvider({
     setWidths(next)
     if (save) saveColumnWidths(next)
   }
+  // Every column back to its default width.
+  const resetAll = () => {
+    latest.current = {}
+    setWidths({})
+    saveColumnWidths({})
+  }
   const style = Object.fromEntries(
     Object.entries(widths).map(([key, width]) => [
       columnWidthVariable(key as ResizableColumnKey),
@@ -64,7 +80,7 @@ export function ColumnWidthsProvider({
     ])
   ) as CSSProperties
   return (
-    <Widths.Provider value={{ widths, resize }}>
+    <Widths.Provider value={{ widths, resize, resetAll }}>
       <div className="contents" style={style}>
         {children}
       </div>
@@ -81,14 +97,15 @@ export function ColumnResizeHandle({
   column: ResizableColumnKey
   label: string
 }) {
-  const context = useContext(Widths)
-  if (!context) throw new Error('ColumnResizeHandle needs a ColumnWidthsProvider')
-  const { widths, resize } = context
+  const { widths, resize } = useColumnWidths()
   const width = columnWidth(widths, column)
 
   const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    // The handle sits in a header beside its menu trigger: a press here never
+    // reaches the header's menu.
+    event.stopPropagation()
     if (event.button !== 0) return
-    // Keeps the drag from selecting text or following the header's sort link.
+    // Keeps the drag from selecting text.
     event.preventDefault()
     const startX = event.clientX
     let dragged = width
@@ -117,6 +134,7 @@ export function ColumnResizeHandle({
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (!(event.key in keyWidths)) return
     event.preventDefault()
+    event.stopPropagation()
     resize(column, keyWidths[event.key])
   }
 
@@ -133,7 +151,11 @@ export function ColumnResizeHandle({
       tabIndex={0}
       title="Drag to resize. Double-click to reset."
       onPointerDown={startDrag}
-      onDoubleClick={() => resize(column, undefined)}
+      onClick={event => event.stopPropagation()}
+      onDoubleClick={event => {
+        event.stopPropagation()
+        resize(column, undefined)
+      }}
       onKeyDown={onKeyDown}
       data-slot="column-resize-handle"
       className="absolute inset-y-0 right-0 z-10 flex w-2 cursor-col-resize touch-none justify-end select-none after:h-full after:w-px after:bg-transparent after:transition-colors hover:after:bg-ring focus-visible:outline-none focus-visible:after:w-0.5 focus-visible:after:bg-ring"

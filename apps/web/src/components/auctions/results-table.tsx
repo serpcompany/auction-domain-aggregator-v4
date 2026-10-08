@@ -1,10 +1,34 @@
-import { ArrowDownIcon, ArrowUpIcon, ChevronsUpDownIcon, ExternalLinkIcon } from 'lucide-react'
+'use client'
+
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  CheckIcon,
+  ChevronsUpDownIcon,
+  Columns3Icon,
+  ExternalLinkIcon,
+  EyeOffIcon
+} from 'lucide-react'
 import Link from 'next/link'
 import type * as React from 'react'
 
-import { ColumnResizeHandle, ColumnWidthsProvider } from '@/components/auctions/column-resize'
+import { ColumnResizeHandle } from '@/components/auctions/column-resize'
+import { ColumnCheckboxItems } from '@/components/auctions/columns-menu'
 import { PendingRating } from '@/components/auctions/domain-ratings'
 import { ListingDetailsTrigger } from '@/components/auctions/listing-details'
+import { useVisibleColumns } from '@/components/auctions/table-layout'
+import { Button } from '@/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger
+} from '@/components/ui/dropdown-menu'
 import {
   Table,
   TableBody,
@@ -13,6 +37,7 @@ import {
   TableHeader,
   TableRow
 } from '@/components/ui/table'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import {
   buildDomainTableHref,
   type DomainTableFilters,
@@ -23,23 +48,17 @@ import {
   formatCompactCount,
   formatEndTime,
   formatMoney,
-  formatProvider,
-  nextSortDirection
+  formatProvider
 } from '@/domain/domain-table'
 import {
-  type ColumnGroup,
   type ColumnKey,
-  type ColumnWidths,
   columnWidthCss,
+  type ResizableColumnKey,
   TABLE_COLUMNS,
   type TableColumn
 } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
 import type { DomainListingRow } from '@/server/queries/domain-listings'
-
-const GROUPS: ColumnGroup[] = ['Majestic', 'Semrush', 'Ahrefs']
-
-type GroupedColumn = Extract<TableColumn, { group: ColumnGroup }>
 
 const urgency: Record<EndTimeState, string> = {
   neutral: '',
@@ -149,47 +168,36 @@ function cellContent(key: ColumnKey, row: DomainListingRow, now: Date): React.Re
   }
 }
 
-function SortLink({
-  filters,
-  sort,
-  label,
-  numeric
-}: {
-  filters: DomainTableFilters
-  sort: DomainTableSort
+// What a header needs: Domain is not in the column registry and cannot be
+// hidden.
+type Header = {
+  key: ResizableColumnKey
   label: string
-  numeric?: boolean
-}) {
-  const active = filters.sort === sort
-  const Icon = active
-    ? filters.direction === 'asc'
-      ? ArrowUpIcon
-      : ArrowDownIcon
-    : ChevronsUpDownIcon
-  return (
-    <Link
-      prefetch={false}
-      href={buildDomainTableHref(filters, {
-        sort,
-        direction: nextSortDirection(filters, sort),
-        page: 1
-      })}
-      className={cn(
-        '-mx-1 inline-flex items-center gap-1 rounded-md px-1 py-0.5 hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none',
-        numeric && 'flex-row-reverse'
-      )}
-    >
-      {label}
-      <Icon
-        className={cn('size-3.5', active ? 'text-foreground' : 'text-muted-foreground')}
-        aria-hidden="true"
-      />
-    </Link>
-  )
+  // The full name, for the tooltip of a short label and the resize handle.
+  name: string
+  tooltip?: string
+  sort: DomainTableSort
+  numeric: boolean
 }
 
-function columnName(column: TableColumn) {
-  return 'menuLabel' in column ? column.menuLabel : column.label
+const domainHeader: Header = {
+  key: 'domain',
+  label: 'Domain',
+  name: 'Domain',
+  sort: 'domain',
+  numeric: false
+}
+
+function header(column: TableColumn): Header {
+  const tooltip = 'tooltip' in column ? column.tooltip : undefined
+  return {
+    key: column.key,
+    label: column.label,
+    name: tooltip ?? ('menuLabel' in column ? column.menuLabel : column.label),
+    tooltip,
+    sort: column.sort,
+    numeric: 'numeric' in column
+  }
 }
 
 function ariaSort(filters: DomainTableFilters, sort: DomainTableSort) {
@@ -197,174 +205,222 @@ function ariaSort(filters: DomainTableFilters, sort: DomainTableSort) {
   return filters.direction === 'asc' ? 'ascending' : 'descending'
 }
 
-function groupLabel(group: ColumnGroup) {
-  if (group !== 'Ahrefs') return group
-  // Required by the Ahrefs Domain Rating licence: visible, linked, next to the values.
+// Sorting stays a server navigation: each item is a link to the sorted URL.
+// The current order is marked and not a link, so it never re-reads D1.
+function SortItem({
+  filters,
+  sort,
+  direction
+}: {
+  filters: DomainTableFilters
+  sort: DomainTableSort
+  direction: 'asc' | 'desc'
+}) {
+  const Icon = direction === 'asc' ? ArrowUpIcon : ArrowDownIcon
+  const label = direction === 'asc' ? 'Sort ascending' : 'Sort descending'
+  if (filters.sort === sort && filters.direction === direction) {
+    return (
+      <DropdownMenuItem disabled>
+        <Icon aria-hidden="true" />
+        {label}
+        <CheckIcon className="ml-auto" aria-label="Current order" />
+      </DropdownMenuItem>
+    )
+  }
   return (
-    <a
-      href="https://ahrefs.com/"
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-block leading-tight underline-offset-2 hover:text-foreground hover:underline"
+    <DropdownMenuItem
+      render={
+        <Link prefetch={false} href={buildDomainTableHref(filters, { sort, direction, page: 1 })} />
+      }
     >
-      Domain Rating
-      <br />
-      by Ahrefs
-    </a>
+      <Icon aria-hidden="true" />
+      {label}
+    </DropdownMenuItem>
   )
 }
 
+// A header: a menu button with the label and sort indicator, a tooltip with
+// the full name of a short label, and the resize handle on its right edge.
+function ColumnHeader({
+  header,
+  filters,
+  className
+}: {
+  header: Header
+  filters: DomainTableFilters
+  className?: string
+}) {
+  const { toggle } = useVisibleColumns()
+  const hideable = header.key === 'domain' ? null : header.key
+  const active = filters.sort === header.sort
+  const Icon = active
+    ? filters.direction === 'asc'
+      ? ArrowUpIcon
+      : ArrowDownIcon
+    : ChevronsUpDownIcon
+  const trigger = (
+    <DropdownMenuTrigger
+      render={
+        <Button
+          variant="ghost"
+          size="sm"
+          className={cn(
+            '-mx-1 max-w-[calc(100%+0.5rem)] px-1 text-sm text-foreground',
+            header.numeric && 'flex-row-reverse'
+          )}
+        />
+      }
+    >
+      <span className="truncate">{header.label}</span>
+      <Icon
+        className={cn('size-3.5', active ? 'text-foreground' : 'text-muted-foreground')}
+        aria-hidden="true"
+      />
+    </DropdownMenuTrigger>
+  )
+
+  return (
+    <TableHead
+      scope="col"
+      // Keeps the resize handle's label out of the header's name.
+      aria-label={header.label}
+      aria-sort={ariaSort(filters, header.sort)}
+      className={cn(
+        'sticky top-0 z-20 truncate bg-background',
+        header.numeric && 'text-right',
+        className
+      )}
+    >
+      <DropdownMenu>
+        {header.tooltip ? (
+          <Tooltip>
+            <TooltipTrigger render={trigger} />
+            <TooltipContent>{header.tooltip}</TooltipContent>
+          </Tooltip>
+        ) : (
+          trigger
+        )}
+        <DropdownMenuContent align={header.numeric ? 'end' : 'start'} className="w-48">
+          <DropdownMenuGroup>
+            <SortItem filters={filters} sort={header.sort} direction="asc" />
+            <SortItem filters={filters} sort={header.sort} direction="desc" />
+          </DropdownMenuGroup>
+          {hideable ? (
+            <>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => toggle(hideable, false)}>
+                <EyeOffIcon aria-hidden="true" />
+                Hide column
+              </DropdownMenuItem>
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger>
+                  <Columns3Icon aria-hidden="true" />
+                  Columns
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent className="w-64">
+                  <ColumnCheckboxItems />
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </>
+          ) : null}
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <ColumnResizeHandle column={header.key} label={header.name} />
+    </TableHead>
+  )
+}
+
+// The licence-required Ahrefs attribution under the table: visible and linked
+// whenever the DR column shows. Phones have it above the list instead.
+export function DomainRatingAttribution() {
+  const { columns } = useVisibleColumns()
+  if (!columns.includes('domainRating')) return null
+  return (
+    <p className="hidden text-xs text-muted-foreground md:block">
+      DR ={' '}
+      <a
+        href="https://ahrefs.com/"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="underline underline-offset-2 hover:text-foreground"
+      >
+        Domain Rating by Ahrefs
+      </a>
+    </p>
+  )
+}
+
+// A client component the server renders first. The columns and their widths
+// come from the browser's layout, so hiding a column re-renders here without
+// a page request; sorting navigates.
 export function ResultsTable({
   rows,
   filters,
-  visibleColumns,
-  columnWidths,
   now
 }: {
   rows: DomainListingRow[]
   filters: DomainTableFilters
-  visibleColumns: readonly ColumnKey[]
-  columnWidths: ColumnWidths
   now: Date
 }) {
-  const visible = TABLE_COLUMNS.filter(column => visibleColumns.includes(column.key))
-  // Metric columns sit under their group's header; the rest span both header rows.
-  const listing = visible.filter(column => !('group' in column))
-  const metrics = visible.filter((column): column is GroupedColumn => 'group' in column)
-  const groups = GROUPS.map(group => ({
-    group,
-    columns: metrics.filter(column => column.group === group)
-  })).filter(({ columns }) => columns.length > 0)
-  const grouped = groups.flatMap(({ columns }) => columns)
-  const firstInGroup = new Set<ColumnKey>(groups.map(({ columns }) => columns[0].key))
-  const ordered: TableColumn[] = [...listing, ...grouped]
-  const rowSpan = groups.length > 0 ? 2 : 1
-  // Every header sticks to the top; the Domain header also sticks left, above the rest.
-  const headClass = 'sticky top-0 z-20 truncate bg-background'
+  const { columns } = useVisibleColumns()
+  const visible = TABLE_COLUMNS.filter(column => columns.includes(column.key))
   // Fixed layout takes each width from the `<col>` elements. The Details
   // column has none, so it absorbs the space the others leave.
-  const resizable = ['domain' as const, ...ordered.map(column => column.key)]
+  const resizable: ResizableColumnKey[] = ['domain', ...visible.map(column => column.key)]
   const tableWidth = `max(100%, calc(${resizable.map(columnWidthCss).join(' + ')} + 2.5rem))`
 
   return (
-    <ColumnWidthsProvider key={JSON.stringify(columnWidths)} initialWidths={columnWidths}>
-      <Table className="table-fixed [&_td]:h-10 [&_td]:truncate" style={{ width: tableWidth }}>
-        <colgroup>
-          {resizable.map(key => (
-            <col key={key} style={{ width: columnWidthCss(key) }} />
+    <Table className="table-fixed [&_td]:h-10 [&_td]:truncate" style={{ width: tableWidth }}>
+      <colgroup>
+        {resizable.map(key => (
+          <col key={key} style={{ width: columnWidthCss(key) }} />
+        ))}
+        <col />
+      </colgroup>
+      <TableHeader>
+        <TableRow className="hover:bg-transparent">
+          {/* The Domain header sticks to the top and the left, above the rest. */}
+          <ColumnHeader header={domainHeader} filters={filters} className="left-0 z-30" />
+          {visible.map(column => (
+            <ColumnHeader key={column.key} header={header(column)} filters={filters} />
           ))}
-          <col />
-        </colgroup>
-        <TableHeader>
-          <TableRow className="hover:bg-transparent">
-            <TableHead
-              scope="col"
-              rowSpan={rowSpan}
-              // Keeps the resize handle's label out of the header's name.
-              aria-label="Domain"
-              aria-sort={ariaSort(filters, 'domain')}
-              className={cn(headClass, 'left-0 z-30')}
-            >
-              <SortLink filters={filters} sort="domain" label="Domain" />
-              <ColumnResizeHandle column="domain" label="Domain" />
-            </TableHead>
-            {listing.map(column => (
-              <TableHead
-                key={column.key}
-                scope="col"
-                rowSpan={rowSpan}
-                aria-label={column.label}
-                aria-sort={ariaSort(filters, column.sort)}
-                className={cn(headClass, 'numeric' in column && 'text-right')}
+          <TableHead scope="col" className="sticky top-0 z-20 bg-background">
+            <span className="sr-only">Details</span>
+          </TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {rows.map(row => (
+          <TableRow key={`${row.provider}:${row.externalId}`} className="group">
+            <TableCell className={cn(stickyColumn, 'group-hover:bg-muted')}>
+              <a
+                href={row.auctionUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex max-w-full items-center gap-1.5 rounded-sm font-mono text-[13px] font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
               >
-                <SortLink
-                  filters={filters}
-                  sort={column.sort}
-                  label={column.label}
-                  numeric={'numeric' in column}
+                <span className="min-w-0 truncate">{row.domainName}</span>
+                <ExternalLinkIcon
+                  className="size-3 shrink-0 text-muted-foreground"
+                  aria-hidden="true"
                 />
-                <ColumnResizeHandle column={column.key} label={columnName(column)} />
-              </TableHead>
-            ))}
-            {groups.map(({ group, columns }) => (
-              <TableHead
-                key={group}
-                scope="colgroup"
-                colSpan={columns.length}
-                className={cn(
-                  headClass,
-                  'h-7 border-l text-center text-xs font-normal text-muted-foreground'
-                )}
+                <span className="sr-only"> (opens auction in a new tab)</span>
+              </a>
+            </TableCell>
+            {visible.map(column => (
+              <TableCell
+                key={column.key}
+                className={cn('tabular-nums', 'numeric' in column && 'text-right')}
               >
-                {groupLabel(group)}
-              </TableHead>
+                {cellContent(column.key, row, now)}
+              </TableCell>
             ))}
-            <TableHead scope="col" rowSpan={rowSpan} className={headClass}>
-              <span className="sr-only">Details</span>
-            </TableHead>
+            <TableCell className="px-1">
+              <ListingDetailsTrigger row={row} />
+            </TableCell>
           </TableRow>
-          {groups.length > 0 ? (
-            <TableRow className="hover:bg-transparent">
-              {grouped.map(column => (
-                <TableHead
-                  key={column.key}
-                  scope="col"
-                  title={`${column.group} ${column.menuLabel}`}
-                  aria-label={column.label}
-                  aria-sort={ariaSort(filters, column.sort)}
-                  className={cn(
-                    headClass,
-                    'top-7 h-8 text-right',
-                    firstInGroup.has(column.key) && 'border-l'
-                  )}
-                >
-                  <SortLink filters={filters} sort={column.sort} label={column.label} numeric />
-                  <ColumnResizeHandle
-                    column={column.key}
-                    label={`${column.group} ${columnName(column)}`}
-                  />
-                </TableHead>
-              ))}
-            </TableRow>
-          ) : null}
-        </TableHeader>
-        <TableBody>
-          {rows.map(row => (
-            <TableRow key={`${row.provider}:${row.externalId}`} className="group">
-              <TableCell className={cn(stickyColumn, 'group-hover:bg-muted')}>
-                <a
-                  href={row.auctionUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex max-w-full items-center gap-1.5 rounded-sm font-mono text-[13px] font-medium underline-offset-4 hover:underline focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-                >
-                  <span className="min-w-0 truncate">{row.domainName}</span>
-                  <ExternalLinkIcon
-                    className="size-3 shrink-0 text-muted-foreground"
-                    aria-hidden="true"
-                  />
-                  <span className="sr-only"> (opens auction in a new tab)</span>
-                </a>
-              </TableCell>
-              {ordered.map(column => (
-                <TableCell
-                  key={column.key}
-                  className={cn(
-                    'tabular-nums',
-                    'numeric' in column && 'text-right',
-                    firstInGroup.has(column.key) && 'border-l'
-                  )}
-                >
-                  {cellContent(column.key, row, now)}
-                </TableCell>
-              ))}
-              <TableCell className="px-1">
-                <ListingDetailsTrigger row={row} />
-              </TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </ColumnWidthsProvider>
+        ))}
+      </TableBody>
+    </Table>
   )
 }

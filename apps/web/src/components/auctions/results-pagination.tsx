@@ -5,6 +5,7 @@ import {
   ChevronsRightIcon
 } from 'lucide-react'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Pagination, PaginationContent, PaginationItem } from '@/components/ui/pagination'
@@ -45,11 +46,14 @@ function PageLink({
 export function ResultsPagination({
   filters,
   page,
-  total
+  total,
+  children
 }: {
   filters: DomainTableFilters
   page: number
   total: number
+  // Shown between the count and the page links: the DR attribution.
+  children?: ReactNode
 }) {
   const lastPage = Math.min(Math.max(1, Math.ceil(total / filters.pageSize)), MAX_DOMAIN_TABLE_PAGE)
   const first = total === 0 ? 0 : (page - 1) * filters.pageSize + 1
@@ -63,8 +67,9 @@ export function ResultsPagination({
     <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
       <p className="text-muted-foreground tabular-nums" aria-live="polite">
         Showing {first.toLocaleString('en-US')}–{last.toLocaleString('en-US')} of{' '}
-        {total.toLocaleString('en-US')}
+        {total.toLocaleString('en-US')} · {filters.pageSize} per page
       </p>
+      {children}
       <Pagination aria-label="Domain results pages" className="mx-0 w-auto justify-end">
         <PaginationContent>
           <PaginationItem className="mr-2 tabular-nums">

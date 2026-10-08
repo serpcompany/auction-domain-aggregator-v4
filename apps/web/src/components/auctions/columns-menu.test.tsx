@@ -2,7 +2,8 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
-import { DEFAULT_COLUMNS } from '@/domain/table-columns'
+import { TableLayoutProvider } from '@/components/auctions/table-layout'
+import { type ColumnKey, type ColumnWidths, DEFAULT_COLUMNS } from '@/domain/table-columns'
 
 const refresh = vi.fn()
 vi.mock('next/navigation', () => ({ useRouter: () => ({ refresh }) }))
@@ -14,8 +15,29 @@ beforeEach(() => {
   refresh.mockClear()
   // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie the menu writes.
   document.cookie = 'columns=; max-age=0; path=/'
+  // biome-ignore lint/suspicious/noDocumentCookie: clears the cookie Reset layout writes.
+  document.cookie = 'column-widths=; max-age=0; path=/'
 })
 afterEach(cleanup)
+
+function renderWithLayout(
+  ui: React.ReactNode,
+  columns: readonly ColumnKey[] = DEFAULT_COLUMNS,
+  widths: ColumnWidths = {}
+) {
+  return render(
+    <TableLayoutProvider initialColumns={columns} initialWidths={widths}>
+      {ui}
+    </TableLayoutProvider>
+  )
+}
+
+function cookie(name: string) {
+  return document.cookie
+    .split('; ')
+    .find(entry => entry.startsWith(`${name}=`))
+    ?.slice(name.length + 1)
+}
 
 async function openMenu() {
   fireEvent.click(screen.getByRole('button', { name: /^Columns/ }))
@@ -24,7 +46,7 @@ async function openMenu() {
 
 describe('ColumnsMenu', () => {
   it('lists every column, Domain always on, with the optional ones marked', async () => {
-    render(<ColumnsMenu visibleColumns={DEFAULT_COLUMNS} />)
+    renderWithLayout(<ColumnsMenu />)
     expect(screen.getByRole('button', { name: 'Columns' })).toBeInTheDocument()
     await openMenu()
 
@@ -38,41 +60,46 @@ describe('ColumnsMenu', () => {
     expect(
       screen.getByRole('menuitemcheckbox', { name: 'Renewal Off by default' })
     ).toHaveAttribute('aria-checked', 'false')
+    expect(
+      screen.getByRole('menuitemcheckbox', { name: 'Authority Score Semrush' })
+    ).toHaveAttribute('aria-checked', 'false')
     expect(screen.getByRole('menuitemcheckbox', { name: 'Domain Rating Ahrefs' })).toHaveAttribute(
       'aria-checked',
       'true'
     )
   })
 
-  it('saves a change in the cookie the server reads and refreshes the table', async () => {
-    render(<ColumnsMenu visibleColumns={DEFAULT_COLUMNS} />)
+  it('saves a change in the cookie the server reads, without a refresh', async () => {
+    renderWithLayout(<ColumnsMenu />)
     await openMenu()
 
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Renewal Off by default' }))
-    expect(document.cookie).toContain(
-      'columns=source,type,price,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
+    expect(cookie('columns')).toBe(
+      'source,type,price,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,domainRating'
     )
-    expect(refresh).toHaveBeenCalledTimes(1)
     expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Custom')
 
     fireEvent.click(screen.getByRole('menuitemcheckbox', { name: 'Price' }))
-    expect(document.cookie).toContain(
-      'columns=source,type,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,semrushAs,domainRating'
+    expect(cookie('columns')).toBe(
+      'source,type,bids,ends,age,links,appraisal,renewal,majesticTf,majesticCf,domainRating'
     )
+    expect(refresh).not.toHaveBeenCalled()
   })
 
-  it('resets to the default columns', async () => {
-    render(<ColumnsMenu visibleColumns={['price']} />)
+  it('resets the layout: default columns at default widths', async () => {
+    renderWithLayout(<ColumnsMenu />, ['price'], { price: 200 })
     expect(screen.getByRole('button', { name: /Columns/ })).toHaveTextContent('Custom')
     await openMenu()
 
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset to default' }))
-    expect(document.cookie).toContain(`columns=${DEFAULT_COLUMNS.join(',')}`)
-    expect(refresh).toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Reset layout' }))
+    expect(cookie('columns')).toBe(DEFAULT_COLUMNS.join(','))
+    expect(cookie('column-widths')).toBe('')
+    expect(screen.getByRole('button', { name: /Columns/ })).not.toHaveTextContent('Custom')
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('lets phones choose the metrics under each listing', async () => {
-    render(<FieldsDrawer visibleColumns={DEFAULT_COLUMNS} />)
+    renderWithLayout(<FieldsDrawer />)
     fireEvent.click(screen.getByRole('button', { name: 'Fields shown' }))
 
     const drawer = await screen.findByRole('dialog')
@@ -80,11 +107,17 @@ describe('ColumnsMenu', () => {
     expect(screen.queryByRole('checkbox', { name: 'Price' })).not.toBeInTheDocument()
     expect(screen.getByRole('checkbox', { name: /Domain Rating/ })).toBeChecked()
     fireEvent.click(screen.getByRole('checkbox', { name: 'Visitors' }))
-    expect(document.cookie).toContain(
-      'columns=source,type,price,bids,ends,age,links,appraisal,visitors,majesticTf,majesticCf,semrushAs,domainRating'
+    expect(cookie('columns')).toBe(
+      'source,type,price,bids,ends,age,links,appraisal,visitors,majesticTf,majesticCf,domainRating'
     )
     fireEvent.click(screen.getByRole('button', { name: 'Reset to default' }))
-    expect(document.cookie).toContain(`columns=${DEFAULT_COLUMNS.join(',')}`)
-    expect(refresh).toHaveBeenCalledTimes(2)
+    expect(cookie('columns')).toBe(DEFAULT_COLUMNS.join(','))
+    expect(refresh).not.toHaveBeenCalled()
+  })
+
+  it('needs the layout provider', () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    expect(() => render(<ColumnsMenu />)).toThrow('Visible columns need a TableLayoutProvider')
+    consoleError.mockRestore()
   })
 })

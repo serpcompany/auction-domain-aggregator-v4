@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from '@testing-library/rea
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { AuctionsToolbar } from '@/components/auctions/auctions-toolbar'
+import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { parseDomainTableFilters } from '@/domain/domain-table'
 import { DEFAULT_COLUMNS } from '@/domain/table-columns'
 
@@ -24,14 +25,15 @@ afterEach(cleanup)
 
 function renderToolbar(params: Record<string, string | string[]> = {}) {
   return render(
-    <AuctionsToolbar
-      filters={parseDomainTableFilters({ sort: 'price', direction: 'desc', ...params })}
-      sources={['dynadot', 'godaddy']}
-      auctionTypes={['auction', 'buy_now', 'expired']}
-      tlds={['co', 'com', 'net']}
-      count={<span>857,412 listings</span>}
-      visibleColumns={DEFAULT_COLUMNS}
-    />
+    <TableLayoutProvider initialColumns={DEFAULT_COLUMNS} initialWidths={{}}>
+      <AuctionsToolbar
+        filters={parseDomainTableFilters({ sort: 'price', direction: 'desc', ...params })}
+        sources={['dynadot', 'godaddy']}
+        auctionTypes={['auction', 'buy_now', 'expired']}
+        tlds={['co', 'com', 'net']}
+        count={<span>857,412 listings</span>}
+      />
+    </TableLayoutProvider>
   )
 }
 

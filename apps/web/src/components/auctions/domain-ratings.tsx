@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { createContext, type ReactNode, useContext, useEffect, useRef, useState } from 'react'
 
+import { useVisibleColumns } from '@/components/auctions/table-layout'
 import { Badge } from '@/components/ui/badge'
 import { Spinner } from '@/components/ui/spinner'
 
@@ -28,8 +29,10 @@ async function requestRatings(domains: string[], signal: AbortSignal) {
   }
 }
 
-// Asks the server to fetch Ahrefs DR for the shown rows that have none stored,
-// marks those cells as loading meanwhile, then re-renders the page from D1.
+// While the DR column shows, asks the server to fetch Ahrefs DR for the rows
+// that have none stored, marks those cells as loading meanwhile, then
+// re-renders the page from D1. Whether DR shows is the browser's layout, so
+// showing the column again asks for the missing ratings without a page request.
 // The requests go out together; the page refreshes once, after all of them
 // settle, because a refresh re-runs every D1 read of the page. On any failure
 // the cells go back to "not collected".
@@ -42,8 +45,11 @@ export function DomainRatingsProvider({
 }) {
   // The effect depends on the domains only; a ref keeps the router out of it.
   const router = useRef(useRouter())
-  const key = domains.join(',')
-  const [pending, setPending] = useState<ReadonlySet<string>>(() => new Set(domains))
+  const { columns } = useVisibleColumns()
+  const key = columns.includes('domainRating') ? domains.join(',') : ''
+  const [pending, setPending] = useState<ReadonlySet<string>>(
+    () => new Set(key === '' ? [] : domains)
+  )
 
   useEffect(() => {
     if (key === '') return

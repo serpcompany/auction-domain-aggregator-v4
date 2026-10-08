@@ -72,8 +72,10 @@ test('serves the deterministic domain inventory with a healthy database', async 
     await expect(table.getByRole('columnheader', { name: header, exact: true })).toBeVisible()
   }
 
-  // Seeded Ahrefs DR renders under the licence-required attribution link.
-  await expect(table.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toHaveAttribute(
+  // Seeded Ahrefs DR renders with the licence-required attribution link in the
+  // footer, visible while the DR column shows.
+  await expect(page.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toHaveAttribute(
     'href',
     'https://ahrefs.com/'
   )
@@ -113,7 +115,9 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await page.getByRole('button', { name: 'Apply', exact: true }).click()
   await expectUrlParameter(page, 'priceMax', '30')
 
-  await page.getByRole('button', { name: /^Ends/ }).click()
+  // The toolbar's Ends filter, not the Ends header's menu button after it.
+  const endsFilter = page.getByRole('button', { name: /^Ends/ }).first()
+  await endsFilter.click()
   await page.getByRole('option', { name: 'Within 1 hour' }).click()
   await expectUrlParameter(page, 'endingWithin', '1h')
   await expectUrlParameter(page, 'q', 'garden')
@@ -137,7 +141,8 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'noHyphens', '1')
   await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
-  await page.getByRole('columnheader', { name: 'Price', exact: true }).getByRole('link').click()
+  await page.getByRole('columnheader', { name: 'Price', exact: true }).getByRole('button').click()
+  await page.getByRole('menuitem', { name: 'Sort ascending' }).click()
   await expectUrlParameter(page, 'sort', 'price')
   await expectUrlParameter(page, 'q', 'garden')
   await expectUrlParameter(page, 'noDigits', '1')
@@ -146,7 +151,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expectUrlParameter(page, 'sort', 'endsAt')
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('garden')
   await expect(page.getByRole('button', { name: /^Max bid/ })).toContainText('$30')
-  await expect(page.getByRole('button', { name: /^Ends/ })).toContainText('1 hour')
+  await expect(endsFilter).toContainText('1 hour')
   await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
   await page.getByRole('link', { name: /^All filters/ }).click()
@@ -189,14 +194,14 @@ for (const viewport of [
     })
     await expect(container).toBeVisible()
 
-    const domainSortLink = domainHeader.getByRole('link')
-    const headerLinkBackground = await domainSortLink.evaluate(
+    const domainMenuButton = domainHeader.getByRole('button')
+    const headerButtonBackground = await domainMenuButton.evaluate(
       element => getComputedStyle(element).backgroundColor
     )
-    await domainSortLink.hover()
+    await domainMenuButton.hover()
     await expect
-      .poll(() => domainSortLink.evaluate(element => getComputedStyle(element).backgroundColor))
-      .not.toBe(headerLinkBackground)
+      .poll(() => domainMenuButton.evaluate(element => getComputedStyle(element).backgroundColor))
+      .not.toBe(headerButtonBackground)
 
     const layout = await container.evaluate(element => ({
       clientWidth: element.clientWidth,
@@ -382,8 +387,9 @@ test('resizes a column by dragging its header edge, keeps the width, and resets 
   await page.mouse.move(box!.x + box!.width / 2 + 60, y, { steps: 5 })
   await page.mouse.up()
   await expect.poll(width).toBe(before + 60)
-  // The drag neither sorted the table nor selected text.
+  // The drag neither sorted the table, opened the header's menu, nor selected text.
   await expect(page).toHaveURL(opened)
+  await expect(page.getByRole('menu')).toBeHidden()
 
   await page.reload()
   await expect.poll(width).toBe(before + 60)
@@ -391,6 +397,73 @@ test('resizes a column by dragging its header edge, keeps the width, and resets 
 
   await handle.dblclick()
   await expect.poll(width).toBe(before)
+  await handle.focus()
+  await page.keyboard.press('ArrowRight')
+  await page.keyboard.press('Enter')
+  await expect.poll(width).toBe(before)
+  await expect(page.getByRole('menu')).toBeHidden()
+})
+
+test('sorts and hides columns from the header menus without a page request to hide', async ({
+  page
+}) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
+  const table = page.getByRole('table')
+  const header = (name: string) => table.getByRole('columnheader', { name, exact: true })
+
+  // One header row; Semrush AS is off by default; short labels have tooltips.
+  await expect(table.getByRole('row').first().getByRole('columnheader')).toHaveCount(13)
+  await expect(header('AS')).toHaveCount(0)
+  const tooltip = page.locator('[data-slot=tooltip-content]')
+  await header('TF').getByRole('button').hover()
+  await expect(tooltip.filter({ hasText: /^Majestic Trust Flow$/ })).toBeVisible()
+  await header('DR').getByRole('button').hover()
+  await expect(tooltip.filter({ hasText: /^Domain Rating by Ahrefs$/ })).toBeVisible()
+  await expect(page.getByText(/^Showing 1–\d+ of \d+ · 96 per page$/)).toBeVisible()
+
+  // Domain's menu sorts only.
+  await header('Domain').getByRole('button').click()
+  await expect(page.getByRole('menuitem')).toHaveText(['Sort ascending', 'Sort descending'])
+  await page.keyboard.press('Escape')
+
+  // Hiding a column and resetting the layout change only the cookie.
+  const pageRequests: string[] = []
+  page.on('request', request => {
+    if (new URL(request.url()).pathname === '/') pageRequests.push(request.url())
+  })
+  await header('Bids').getByRole('button').click()
+  await page.getByRole('menuitem', { name: 'Hide column' }).click()
+  await expect(header('Bids')).toHaveCount(0)
+  await header('Price').getByRole('button').click()
+  await page.getByRole('menuitem', { name: 'Columns' }).click()
+  await page.getByRole('menuitemcheckbox', { name: /^Domain Rating/ }).click()
+  await expect(header('DR')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Domain Rating by Ahrefs' })).toBeHidden()
+  await page.keyboard.press('Escape')
+  await page.keyboard.press('Escape')
+  expect(pageRequests).toEqual([])
+
+  await page.reload()
+  await expect(header('Price')).toBeVisible()
+  await expect(header('Bids')).toHaveCount(0)
+  pageRequests.length = 0
+  await page.getByRole('button', { name: /^Columns/ }).click()
+  await page.getByRole('menuitem', { name: 'Reset layout' }).click()
+  await expect(header('Bids')).toBeVisible()
+  await expect(header('DR')).toBeVisible()
+  expect(pageRequests).toEqual([])
+
+  // Sorting from the menu navigates, and aria-sort follows.
+  await header('Price').getByRole('button').click()
+  await page.getByRole('menuitem', { name: 'Sort descending' }).click()
+  await expect(page).toHaveURL('/?sort=price&direction=desc&page=1')
+  await expect(header('Price')).toHaveAttribute('aria-sort', 'descending')
+  await header('Price').getByRole('button').click()
+  await expect(page.getByRole('menuitem', { name: /^Sort descending/ })).toHaveAttribute(
+    'aria-disabled',
+    'true'
+  )
 })
 
 test('opens listing details beside the table on desktop', async ({ page }) => {

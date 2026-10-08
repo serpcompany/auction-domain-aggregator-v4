@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { ListingDetailsProvider } from '@/components/auctions/listing-details'
 import { ResultsList } from '@/components/auctions/results-list'
+import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { emptyRow, fullRow, now } from '@/components/auctions/test-rows'
 import { DEFAULT_COLUMNS, TABLE_COLUMNS } from '@/domain/table-columns'
 
@@ -10,9 +11,11 @@ afterEach(cleanup)
 
 function renderList(rows = [fullRow, emptyRow], columns = TABLE_COLUMNS.map(c => c.key)) {
   render(
-    <ListingDetailsProvider now={now}>
-      <ResultsList rows={rows} visibleColumns={columns} now={now} />
-    </ListingDetailsProvider>
+    <TableLayoutProvider initialColumns={columns} initialWidths={{}}>
+      <ListingDetailsProvider now={now}>
+        <ResultsList rows={rows} now={now} />
+      </ListingDetailsProvider>
+    </TableLayoutProvider>
   )
   return within(screen.getByRole('list', { name: 'Domain results' })).getAllByRole('listitem')
 }
