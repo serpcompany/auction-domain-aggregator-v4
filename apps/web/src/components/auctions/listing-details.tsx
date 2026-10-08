@@ -1,6 +1,6 @@
 'use client'
 
-import { CopyIcon, ExternalLinkIcon, PanelRightOpenIcon } from 'lucide-react'
+import { CopyIcon, ExternalLinkIcon } from 'lucide-react'
 import { createContext, type ReactNode, useContext, useState } from 'react'
 import { toast } from 'sonner'
 
@@ -42,37 +42,32 @@ const urgency: Record<EndTimeState, string> = {
   ended: 'font-semibold text-destructive'
 }
 
-// Opens the panel for one row. `stretched` makes the whole list item the
-// target while links inside it (raised above it) keep working.
-export function ListingDetailsTrigger({
-  row,
-  stretched = false
-}: {
-  row: DomainListingRow
-  stretched?: boolean
-}) {
-  const open = useContext(OpenDetails)
-  if (stretched) {
-    return (
-      <button
-        type="button"
-        onClick={() => open(row)}
-        className="absolute inset-0 rounded-[inherit] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
-      >
-        <span className="sr-only">Details for {row.domainName}</span>
-      </button>
-    )
+// Opens the details panel for a row; the table's row menu uses it.
+export function useOpenListingDetails() {
+  return useContext(OpenDetails)
+}
+
+export async function copyDomain(domain: string) {
+  try {
+    await navigator.clipboard.writeText(domain)
+    toast.success(`Copied ${domain}`)
+  } catch {
+    toast.error('Copying is blocked in this browser.')
   }
+}
+
+// Opens the panel for one phone-list row: the whole list item is the target,
+// while links inside it (raised above it) keep working.
+export function ListingDetailsTrigger({ row }: { row: DomainListingRow }) {
+  const open = useContext(OpenDetails)
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
+    <button
+      type="button"
       onClick={() => open(row)}
-      aria-label={`Details for ${row.domainName}`}
-      className="text-muted-foreground"
+      className="absolute inset-0 rounded-[inherit] focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none"
     >
-      <PanelRightOpenIcon aria-hidden="true" />
-    </Button>
+      <span className="sr-only">Details for {row.domainName}</span>
+    </button>
   )
 }
 
@@ -113,14 +108,7 @@ function DetailsBody({ row, now }: { row: DomainListingRow; now: Date }) {
   const provider = formatProvider(row.provider)
   const end = formatEndTime(row.endsAt, now)
   const seo = row.seoMetrics
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(row.domainName)
-      toast.success(`Copied ${row.domainName}`)
-    } catch {
-      toast.error('Copying is blocked in this browser.')
-    }
-  }
+  const copy = () => copyDomain(row.domainName)
   const rating =
     row.domainRating !== null ? (
       Math.round(row.domainRating)

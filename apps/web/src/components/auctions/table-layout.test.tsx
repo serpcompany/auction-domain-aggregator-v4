@@ -2,13 +2,20 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ColumnResizeHandle } from '@/components/auctions/column-resize'
-import { TableLayoutProvider, useVisibleColumns } from '@/components/auctions/table-layout'
+import {
+  TableLayoutProvider,
+  useColumnLayout,
+  useVisibleColumns
+} from '@/components/auctions/table-layout'
+import { parseColumnLayout, pinColumn } from '@/domain/table-columns'
 
 beforeEach(() => {
   // biome-ignore lint/suspicious/noDocumentCookie: clears the cookies the layout writes.
   document.cookie = 'columns=; max-age=0; path=/'
   // biome-ignore lint/suspicious/noDocumentCookie: clears the cookies the layout writes.
   document.cookie = 'column-widths=; max-age=0; path=/'
+  // biome-ignore lint/suspicious/noDocumentCookie: clears the cookies the layout writes.
+  document.cookie = 'column-layout=; max-age=0; path=/'
 })
 afterEach(cleanup)
 
@@ -21,9 +28,14 @@ function cookie(name: string) {
 
 function Probe() {
   const { columns, toggle, resetLayout } = useVisibleColumns()
+  const { layout, update } = useColumnLayout()
   return (
     <>
       <output>{columns.join(',')}</output>
+      <output aria-label="Pins">{JSON.stringify(layout.pins)}</output>
+      <button type="button" onClick={() => update(pinColumn(layout, 'bids', 'right'))}>
+        Pin bids
+      </button>
       <button type="button" onClick={() => toggle('renewal', true)}>
         Show renewal
       </button>
@@ -41,7 +53,11 @@ function Probe() {
 describe('TableLayoutProvider', () => {
   it('shows, hides, and resets columns and widths in the browser and its cookies', () => {
     render(
-      <TableLayoutProvider initialColumns={['price']} initialWidths={{ price: 200 }}>
+      <TableLayoutProvider
+        initialColumns={['price']}
+        initialLayout={parseColumnLayout('order:bids|left:price')}
+        initialWidths={{ price: 200 }}
+      >
         <Probe />
       </TableLayoutProvider>
     )
@@ -49,13 +65,21 @@ describe('TableLayoutProvider', () => {
     expect(handle).toHaveAttribute('aria-valuenow', '200')
 
     fireEvent.click(screen.getByRole('button', { name: 'Show renewal' }))
-    expect(screen.getByRole('status')).toHaveTextContent('price,renewal')
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent('price,renewal')
     expect(cookie('columns')).toBe('price,renewal')
     fireEvent.click(screen.getByRole('button', { name: 'Hide price' }))
     expect(cookie('columns')).toBe('renewal')
 
+    const pins = screen.getByRole('status', { name: 'Pins' })
+    expect(pins).toHaveTextContent('{"price":"left"}')
+    fireEvent.click(screen.getByRole('button', { name: 'Pin bids' }))
+    expect(pins).toHaveTextContent('{"price":"left","bids":"right"}')
+    expect(cookie('column-layout')).toMatch(/^order:bids,source,.*\|left:price\|right:bids$/)
+
     fireEvent.click(screen.getByRole('button', { name: 'Reset' }))
-    expect(screen.getByRole('status')).toHaveTextContent(
+    expect(pins).toHaveTextContent('{}')
+    expect(cookie('column-layout')).toBeUndefined()
+    expect(screen.getAllByRole('status')[0]).toHaveTextContent(
       'source,type,price,bids,ends,age,links,appraisal,majesticTf,majesticCf,domainRating'
     )
     expect(handle).toHaveAttribute('aria-valuenow', '80')
@@ -65,6 +89,11 @@ describe('TableLayoutProvider', () => {
   it('needs the provider', () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     expect(() => render(<Probe />)).toThrow('Visible columns need a TableLayoutProvider')
+    function LayoutProbe() {
+      useColumnLayout()
+      return null
+    }
+    expect(() => render(<LayoutProbe />)).toThrow('Column layout needs a TableLayoutProvider')
     consoleError.mockRestore()
   })
 })

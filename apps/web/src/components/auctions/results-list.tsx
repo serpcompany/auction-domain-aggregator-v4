@@ -136,7 +136,7 @@ export function ResultsList({ rows, now }: { rows: DomainListingRow[]; now: Date
                   {pendingRating ? <PendingRatingBadge domain={row.domainName} /> : null}
                 </div>
               ) : null}
-              <ListingDetailsTrigger row={row} stretched />
+              <ListingDetailsTrigger row={row} />
             </li>
           )
         })}

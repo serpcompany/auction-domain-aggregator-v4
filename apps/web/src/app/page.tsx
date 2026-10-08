@@ -10,8 +10,10 @@ import {
   parseDomainTableFilters
 } from '@/domain/domain-table'
 import {
+  COLUMN_LAYOUT_COOKIE,
   COLUMN_WIDTHS_COOKIE,
   COLUMNS_COOKIE,
+  parseColumnLayout,
   parseColumnWidths,
   parseVisibleColumns
 } from '@/domain/table-columns'
@@ -30,6 +32,7 @@ export default async function Home({
   const filters = parseDomainTableFilters(params)
   const cookieStore = await cookies()
   const visibleColumns = parseVisibleColumns(cookieStore.get(COLUMNS_COOKIE)?.value)
+  const columnLayout = parseColumnLayout(cookieStore.get(COLUMN_LAYOUT_COOKIE)?.value)
   const columnWidths = parseColumnWidths(cookieStore.get(COLUMN_WIDTHS_COOKIE)?.value)
   // D1 reads stay sequential: the status read finishes before the listing
   // query starts, and the listing query streams in behind a skeleton.
@@ -47,6 +50,7 @@ export default async function Home({
         status={status}
         result={result}
         visibleColumns={visibleColumns}
+        columnLayout={columnLayout}
         columnWidths={columnWidths}
         now={now}
       />

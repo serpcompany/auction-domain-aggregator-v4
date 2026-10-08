@@ -26,11 +26,11 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-function renderTriggers(stretched = false) {
+function renderTriggers() {
   render(
     <ListingDetailsProvider now={now}>
-      <ListingDetailsTrigger row={fullRow} stretched={stretched} />
-      <ListingDetailsTrigger row={emptyRow} stretched={stretched} />
+      <ListingDetailsTrigger row={fullRow} />
+      <ListingDetailsTrigger row={emptyRow} />
     </ListingDetailsProvider>
   )
 }
@@ -123,7 +123,7 @@ describe('ListingDetails', () => {
 
   it('opens a drawer from a whole list item on phones, with Ahrefs "no rating"', async () => {
     width = 390
-    renderTriggers(true)
+    renderTriggers()
     fireEvent.click(screen.getByRole('button', { name: 'Details for fresh2example.net' }))
 
     const dialog = await screen.findByRole('dialog')
@@ -140,7 +140,7 @@ describe('ListingDetails', () => {
 function renderTriggersWithRating() {
   render(
     <ListingDetailsProvider now={now}>
-      <ListingDetailsTrigger row={{ ...emptyRow, domainRatingFetched: true }} stretched />
+      <ListingDetailsTrigger row={{ ...emptyRow, domainRatingFetched: true }} />
     </ListingDetailsProvider>
   )
 }

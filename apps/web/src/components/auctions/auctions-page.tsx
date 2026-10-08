@@ -12,6 +12,7 @@ import { ResultsList } from '@/components/auctions/results-list'
 import { ResultsPagination } from '@/components/auctions/results-pagination'
 import { ResultsSkeleton } from '@/components/auctions/results-skeleton'
 import { DomainRatingAttribution, ResultsTable } from '@/components/auctions/results-table'
+import { RowSelectionProvider, SelectionBar } from '@/components/auctions/row-selection'
 import { TableLayoutProvider } from '@/components/auctions/table-layout'
 import { Alert, AlertAction, AlertDescription, AlertTitle } from '@/components/ui/alert'
 import { buttonVariants } from '@/components/ui/button'
@@ -30,10 +31,11 @@ import {
   formatSyncRecency,
   getDomainTableFilterChips,
   isInventoryStale,
+  listingKey,
   parseDomainTableFilters
 } from '@/domain/domain-table'
 import { buildFiltersPageHref } from '@/domain/filter-form'
-import type { ColumnKey, ColumnWidths } from '@/domain/table-columns'
+import type { ColumnKey, ColumnLayout, ColumnWidths } from '@/domain/table-columns'
 import { DOMAIN_RATING_MATCHING_LIMIT } from '@/server/enrichment/domain-rating'
 import type { DomainListingsResult, InventoryStatus } from '@/server/queries/domain-listings'
 
@@ -156,17 +158,20 @@ export async function Results({
     <DomainRatingsProvider
       domains={result.rows.filter(row => !row.domainRatingFetched).map(row => row.domainName)}
     >
-      <section
-        aria-label="Domain results"
-        // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable to scroll.
-        tabIndex={0}
-        data-testid="domain-results-scroll-container"
-        // The frame scrolls both ways so the header and Domain column stay
-        // sticky; the stock Table's own scroll wrapper becomes a pass-through.
-        className="relative hidden min-h-0 overflow-auto overscroll-contain rounded-lg border focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:block md:flex-1 [&_[data-slot=table-container]]:overflow-visible"
-      >
-        <ResultsTable rows={result.rows} filters={effectiveFilters} now={now} />
-      </section>
+      <RowSelectionProvider rowKeys={result.rows.map(listingKey)}>
+        <SelectionBar />
+        <section
+          aria-label="Domain results"
+          // biome-ignore lint/a11y/noNoninteractiveTabindex: a scrollable region must be keyboard-focusable to scroll.
+          tabIndex={0}
+          data-testid="domain-results-scroll-container"
+          // The frame scrolls both ways so the header and Domain column stay
+          // sticky; the stock Table's own scroll wrapper becomes a pass-through.
+          className="relative hidden min-h-0 overflow-auto overscroll-contain rounded-lg border focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none md:block md:flex-1 [&_[data-slot=table-container]]:overflow-visible"
+        >
+          <ResultsTable rows={result.rows} filters={effectiveFilters} now={now} />
+        </section>
+      </RowSelectionProvider>
       {/* Phones get a list instead of the wide table. */}
       <div className="-mx-4 border-y md:hidden">
         <ResultsList rows={result.rows} now={now} />
@@ -186,6 +191,7 @@ export function AuctionsPage({
   status,
   result,
   visibleColumns,
+  columnLayout,
   columnWidths,
   now
 }: {
@@ -193,6 +199,7 @@ export function AuctionsPage({
   status: InventoryStatus
   result: Promise<DomainListingsResult>
   visibleColumns: ColumnKey[]
+  columnLayout: ColumnLayout
   columnWidths: ColumnWidths
   now: Date
 }) {
@@ -200,7 +207,11 @@ export function AuctionsPage({
   const key = buildDomainTableHref(filters)
 
   return (
-    <TableLayoutProvider initialColumns={visibleColumns} initialWidths={columnWidths}>
+    <TableLayoutProvider
+      initialColumns={visibleColumns}
+      initialLayout={columnLayout}
+      initialWidths={columnWidths}
+    >
       <ListingDetailsProvider now={now}>
         <div className="flex min-h-0 flex-col gap-3 px-4 pt-3 pb-3 md:h-[calc(100svh-3rem)]">
           <h1 className="sr-only">Auctions</h1>
