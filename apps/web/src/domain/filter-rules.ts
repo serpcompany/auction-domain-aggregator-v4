@@ -1,6 +1,9 @@
 import {
   buildDomainTableHref,
+  type DomainTableEndingWindow,
   type DomainTableFilters,
+  formatAuctionType,
+  formatProvider,
   parseDomainTableFilters,
   queryStringToSearchParams
 } from '@/domain/domain-table'
@@ -21,6 +24,14 @@ export const RULE_OPERATOR_LABELS = {
 } as const
 
 export type RuleOperator = keyof typeof RULE_OPERATOR_LABELS
+
+export const ENDING_WINDOW_LABELS: Record<DomainTableEndingWindow, string> = {
+  '1h': '1 hour',
+  '6h': '6 hours',
+  '24h': '24 hours',
+  '3d': '3 days',
+  '7d': '7 days'
+}
 
 // How a rule's value is entered: free text, nothing (a flag), several known
 // values, a whole number, a dollar amount, or an ending window.
@@ -215,4 +226,28 @@ export function changeRuleOperator(rule: Rule, operator: RuleOperator): Rule {
   // Leaving between keeps the end the new operator names.
   const kept = rule.operator === 'between' && operator === 'lte' ? second : first
   return { ...rule, operator, values: [kept] }
+}
+
+// A value as a person reads it: "$12.50", "GoDaddy", ".com", or "24 hours".
+function describeValue(field: RuleField, value: string) {
+  const { kind } = ruleField(field)
+  if (kind === 'money') return `$${value}`
+  if (kind === 'window') return ENDING_WINDOW_LABELS[value as DomainTableEndingWindow]
+  if (field === 'source') return formatProvider(value)
+  if (field === 'type') return formatAuctionType(value)
+  if (field === 'tld') return `.${value}`
+  return value
+}
+
+// A rule in words, for a saved view's suggested name: "Majestic TF ≥ 25",
+// "Type is Auction", "Price between $10 and $50".
+export function describeRule({ field, operator, values }: Rule) {
+  const { label } = ruleField(field)
+  const shown = values.map(value => describeValue(field, value))
+  if (operator === 'noHyphens' || operator === 'noDigits')
+    return `${label} ${RULE_OPERATOR_LABELS[operator]}`
+  if (operator === 'between') return `${label} between ${shown[0]} and ${shown[1]}`
+  if (operator === 'anyOf')
+    return `${label} ${shown.length === 1 ? 'is' : 'is any of'} ${shown.join(', ')}`
+  return `${label} ${RULE_OPERATOR_LABELS[operator]} ${shown[0]}`
 }

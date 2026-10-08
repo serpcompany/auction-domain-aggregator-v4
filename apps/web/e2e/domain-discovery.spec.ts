@@ -665,6 +665,68 @@ test('pins and moves columns in the browser only, keeping them across a reload',
     .toEqual(['', 'Domain', 'Source', 'Type'])
 })
 
+test('saves a named view and opens it to restore the URL and layout', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 })
+  await page.goto('/?type=auction&tld=net&sort=price&direction=desc&page=1')
+  const saved = page.url()
+  const header = (name: string) =>
+    page.getByRole('table').getByRole('columnheader', { name, exact: true })
+
+  // A view keeps the layout as well: hide Bids before saving.
+  await expect(async () => {
+    await header('Bids').getByRole('button').click()
+    await expect(page.getByRole('menuitem', { name: 'Hide column' })).toBeVisible({
+      timeout: 1000
+    })
+  }).toPass()
+  await page.getByRole('menuitem', { name: 'Hide column' }).click()
+  await expect(header('Bids')).toHaveCount(0)
+
+  // Save suggests a name from the rules; Enter saves under the typed one.
+  await page.getByRole('button', { name: 'Save', exact: true }).click()
+  const name = page.getByRole('textbox', { name: 'Name' })
+  await expect(name).toHaveAttribute('placeholder', 'Type is Auction, TLD is .net')
+  await name.fill('Net auctions')
+  await name.press('Enter')
+  await expect(page.getByText('Saved view “Net auctions”')).toBeVisible()
+  await expect(name).toBeHidden()
+
+  // Change the rules, the sort, and the layout, then reload: the view stays.
+  await page.getByRole('button', { name: 'Remove TLD rule' }).click()
+  await expect(page).toHaveURL('/?type=auction&sort=price&direction=desc&page=1')
+  await page.getByRole('button', { name: /^Columns/ }).click()
+  await page.getByRole('menuitem', { name: 'Reset layout' }).click()
+  await page.keyboard.press('Escape')
+  await expect(header('Bids')).toBeVisible()
+  await page.reload()
+
+  const views = page.getByRole('button', { name: 'Views', exact: true })
+  await expect(async () => {
+    await views.click()
+    await expect(page.getByRole('menuitem', { name: 'Net auctions', exact: true })).toBeVisible({
+      timeout: 1000
+    })
+  }).toPass()
+  await page.getByRole('menuitem', { name: 'Net auctions', exact: true }).click()
+  await expect(page).toHaveURL(saved)
+  await expect(page.getByRole('group', { name: 'TLD rule' })).toBeVisible()
+  await expect(header('Price')).toBeVisible()
+  await expect(header('Bids')).toHaveCount(0)
+  await expect(page.getByText('Opened view “Net auctions”')).toBeVisible()
+
+  // × deletes it, and it stays gone after a reload.
+  await views.click()
+  await page.getByRole('menuitem', { name: 'Delete view Net auctions' }).click()
+  await expect(page.getByRole('menuitem', { name: 'Net auctions', exact: true })).toHaveCount(0)
+  await expect(page.getByText('Deleted view “Net auctions”')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.reload()
+  await expect(async () => {
+    await views.click()
+    await expect(page.getByRole('menu')).toContainText('None yet.', { timeout: 1000 })
+  }).toPass()
+})
+
 test('selects rows on the page and clears the selection on navigation', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 })
   await page.goto('/?sort=endsAt&direction=asc&page=1')

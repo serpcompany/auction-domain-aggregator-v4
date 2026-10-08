@@ -3,6 +3,7 @@
 import { createContext, type ReactNode, useContext, useState } from 'react'
 
 import { ColumnWidthsProvider, useColumnWidths } from '@/components/auctions/column-resize'
+import type { SavedViewLayout } from '@/domain/saved-views'
 import {
   COLUMN_LAYOUT_COOKIE,
   COLUMNS_COOKIE,
@@ -12,7 +13,11 @@ import {
   type ColumnWidths,
   DEFAULT_COLUMN_LAYOUT,
   DEFAULT_COLUMNS,
+  parseColumnLayout,
+  parseColumnWidths,
+  parseVisibleColumns,
   serializeColumnLayout,
+  serializeColumnWidths,
   serializeVisibleColumns
 } from '@/domain/table-columns'
 
@@ -51,6 +56,26 @@ export function useColumnLayout() {
   return context
 }
 
+// The whole layout as the cookie values a saved view stores, and applying a
+// view's: like any layout change, it writes the cookies without a page request.
+export function useViewLayout() {
+  const { columns, update } = useVisibleColumns()
+  const { layout, update: updateLayout } = useColumnLayout()
+  const { widths, replaceAll } = useColumnWidths()
+  return {
+    current: {
+      columns: serializeVisibleColumns(columns),
+      layout: serializeColumnLayout(layout),
+      widths: serializeColumnWidths(widths)
+    } satisfies SavedViewLayout,
+    apply: (view: SavedViewLayout) => {
+      update(parseVisibleColumns(view.columns))
+      updateLayout(parseColumnLayout(view.layout))
+      replaceAll(parseColumnWidths(view.widths))
+    }
+  }
+}
+
 function VisibleColumnsProvider({
   initialColumns,
   initialLayout,
@@ -60,7 +85,7 @@ function VisibleColumnsProvider({
   initialLayout: ColumnLayout
   children: ReactNode
 }) {
-  const { resetAll } = useColumnWidths()
+  const { replaceAll } = useColumnWidths()
   const [columns, setColumns] = useState(initialColumns)
   const [layout, setLayout] = useState(initialLayout)
   const update = (next: readonly ColumnKey[]) => {
@@ -77,7 +102,7 @@ function VisibleColumnsProvider({
     update(DEFAULT_COLUMNS)
     setLayout(DEFAULT_COLUMN_LAYOUT)
     saveCookie(COLUMN_LAYOUT_COOKIE, '', 0)
-    resetAll()
+    replaceAll({})
   }
   return (
     <Visible.Provider value={{ columns, update, toggle, resetLayout }}>

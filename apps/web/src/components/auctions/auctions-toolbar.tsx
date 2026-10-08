@@ -7,6 +7,7 @@ import { type FormEvent, type ReactNode, useEffect, useRef, useTransition } from
 
 import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
 import { RuleBar, ruleOptions } from '@/components/auctions/rule-bar'
+import { SaveViewButton, ViewsMenu } from '@/components/auctions/saved-views'
 import { Badge } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
 import {
@@ -186,6 +187,7 @@ export function AuctionsToolbar({
             options={ruleOptions({ sources, auctionTypes, tlds })}
             onNavigate={navigate}
           />
+          <SaveViewButton filters={filters} />
         </div>
         <div className="flex items-center gap-2 md:hidden">
           <Link
@@ -208,6 +210,8 @@ export function AuctionsToolbar({
             }
           />
           <FieldsDrawer />
+          <ViewsMenu filters={filters} onNavigate={navigate} compact />
+          <SaveViewButton filters={filters} compact />
         </div>
       </div>
       <div className="ml-auto flex h-8 shrink-0 items-center gap-2">
@@ -218,6 +222,9 @@ export function AuctionsToolbar({
           )}
         >
           {count}
+        </div>
+        <div className="hidden md:block">
+          <ViewsMenu filters={filters} onNavigate={navigate} />
         </div>
         {actions ? <div className="hidden md:flex">{actions}</div> : null}
         <div className="hidden md:block">

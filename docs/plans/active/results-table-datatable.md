@@ -23,7 +23,7 @@ and never appears in a shared URL.
 - [x] (2026-10-08) M3 Pin and move, row selection column and bar, row action menu.
 - [x] (2026-10-08) M4 Rule bar, Filters menu, Clear all; the worst statements bind 89 (tested).
 - [x] (2026-10-08) M5 Cells (source pills and tokens, countdown pill, DR ring) and the phone list.
-- [ ] M6 Save and Views (named saved views, #106), built last.
+- [x] (2026-10-08) M6 Save and Views: named saved views, in localStorage until sign-in (#27).
 - [ ] M7 (deferred) Maximum filters, only after the bind-budget decision below.
 - [ ] Move this plan to `docs/plans/completed/` with an outcome summary.
 
@@ -88,10 +88,8 @@ All 2026-10-08. "Owner" decisions come from the owner directly or through #125.
   placeholder that says it comes in a later feature; lists need their own issue.
 - Owner: a row action menu (⋮, pinned right) with Details, Open auction, and Copy domain replaces the
   Details button.
-- Owner: Save and Views store named views (domain search, rules, sort, and layout: order, hidden
-  columns, pins), folding in #106, built last. In the product, views belong to the signed-in account
-  (#106, after #27); localStorage only if the owner wants them sooner. The layout cookie stays the
-  default when no view is open.
+- Owner: Save and Views store named views (search, rules, sort, and layout), folding in #106. They
+  start in localStorage; #27 moves them to the account. The layout cookie stays the default.
 - Owner: Semrush AS is hidden by default.
 - Owner: keep the shared category cap at 64; the owner expects to leave D1 eventually, not now. The
   worst listing query binds 89 of 100 values after #122. Maximum filters would reach 98, so any filter
@@ -118,6 +116,9 @@ offset on page 1.
 
 M5: one Tooltip serves every countdown (a Base UI handle, not 96 roots); the ring is a masked conic
 gradient; a header shows one indicator (sort arrow, else pin); toolbar actions never wrap.
+
+M6 (2026-10-08): a view stores the layout as the three cookie values and opens through their
+parsers; opening the current URL's view pushes nothing (no D1 read). Phones get both as icons.
 
 ## Context and Orientation
 
@@ -200,11 +201,9 @@ Source and Type pills (Source with a dot from new light and dark tokens), the En
 
 ### M6 Saved views
 
-Save opens a Popover with a name field (suggested from the rules, for example "Majestic TF ≥ 25")
-and Save view; Enter saves, and an existing name is replaced. A view stores the URL's search, rules,
-and sort plus the layout (order, hidden columns, pins). Views lists them; choosing one navigates to
-its URL and applies its layout; × deletes. Storage belongs to the signed-in account (#106, after
-#27). If the owner wants views sooner, keep them in localStorage behind the same interface.
+Done (2026-10-08): Save (Popover, name suggested from the rules) and Views (menu, × deletes) over
+`src/domain/saved-views.ts`, localStorage key `saved-views:v1`, at most 50 views. Details are in
+`domain-discovery.md`; the account move is #27's last comment.
 
 ### M7 Maximum filters (deferred)
 
