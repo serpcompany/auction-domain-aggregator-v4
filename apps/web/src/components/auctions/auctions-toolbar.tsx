@@ -1,15 +1,14 @@
 'use client'
 
-import { CheckIcon, ListFilterIcon, SearchIcon, XIcon } from 'lucide-react'
+import { ListFilterIcon, SearchIcon } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { type FormEvent, type ReactNode, useEffect, useRef, useState, useTransition } from 'react'
+import { type FormEvent, type ReactNode, useEffect, useRef, useTransition } from 'react'
 
 import { ColumnsMenu, FieldsDrawer } from '@/components/auctions/columns-menu'
-import { FacetedFilter, FacetTrigger } from '@/components/auctions/faceted-filter'
+import { RuleBar, ruleOptions } from '@/components/auctions/rule-bar'
 import { Badge } from '@/components/ui/badge'
-import { Button, buttonVariants } from '@/components/ui/button'
-import { Command, CommandGroup, CommandItem, CommandList } from '@/components/ui/command'
+import { buttonVariants } from '@/components/ui/button'
 import {
   InputGroup,
   InputGroupAddon,
@@ -18,34 +17,16 @@ import {
 } from '@/components/ui/input-group'
 import { Kbd } from '@/components/ui/kbd'
 import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
-import { Popover, PopoverContent } from '@/components/ui/popover'
 import {
-  type AuctionSource,
-  type AuctionType,
   buildDomainTableHref,
-  countAdvancedDomainTableFilters,
-  DOMAIN_TABLE_ENDING_WINDOWS,
-  type DomainTableEndingWindow,
   type DomainTableFilters,
   type DomainTableSort,
-  formatAuctionType,
-  formatMoney,
-  formatProvider,
-  hasActiveDomainTableFilters,
   parseDomainTableFilters,
   type SortDirection
 } from '@/domain/domain-table'
 import { buildFiltersPageHref, countFiltersBySection } from '@/domain/filter-form'
 import { TABLE_COLUMNS } from '@/domain/table-columns'
 import { cn } from '@/lib/utils'
-
-const ENDING_LABELS: Record<DomainTableEndingWindow, string> = {
-  '1h': '1 hour',
-  '6h': '6 hours',
-  '24h': '24 hours',
-  '3d': '3 days',
-  '7d': '7 days'
-}
 
 function SearchField({ query, onSearch }: { query?: string; onSearch: (query: string) => void }) {
   const input = useRef<HTMLInputElement>(null)
@@ -67,12 +48,16 @@ function SearchField({ query, onSearch }: { query?: string; onSearch: (query: st
     onSearch(new FormData(event.currentTarget).get('q') as string)
   }
 
+  // On md and wider it is the rule bar's permanent first rule.
   return (
-    <search className="w-full sm:w-60">
+    <search className="w-full sm:w-60 md:w-72">
       <form onSubmit={submit}>
         <InputGroup>
           <InputGroupAddon>
-            <SearchIcon aria-hidden="true" />
+            <SearchIcon aria-hidden="true" className="md:hidden" />
+            <InputGroupText aria-hidden="true" className="hidden gap-1 md:flex">
+              <span className="text-foreground">Domain</span> contains
+            </InputGroupText>
           </InputGroupAddon>
           <InputGroupInput
             ref={input}
@@ -83,6 +68,10 @@ function SearchField({ query, onSearch }: { query?: string; onSearch: (query: st
             autoComplete="off"
             maxLength={253}
             defaultValue={query}
+            onBlur={event => {
+              const value = event.currentTarget.value
+              if (parseDomainTableFilters({ q: value }).query !== query) onSearch(value)
+            }}
           />
           <InputGroupAddon align="inline-end">
             <Kbd>/</Kbd>
@@ -90,117 +79,6 @@ function SearchField({ query, onSearch }: { query?: string; onSearch: (query: st
         </InputGroup>
       </form>
     </search>
-  )
-}
-
-function MaxBidFilter({
-  filters,
-  onApply
-}: {
-  filters: DomainTableFilters
-  onApply: (priceMaxCents?: number) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const current = filters.priceMaxCents
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault()
-    const value = new FormData(event.currentTarget).get('priceMax') as string
-    setOpen(false)
-    onApply(parseDomainTableFilters({ priceMax: value }).priceMaxCents)
-  }
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <FacetTrigger
-        title="Max bid"
-        selectedLabels={current === undefined ? [] : [formatMoney(current, 'USD')]}
-      />
-      <PopoverContent className="w-60" align="start">
-        <form onSubmit={submit} className="grid gap-3">
-          <InputGroup>
-            <InputGroupAddon>
-              <InputGroupText>$</InputGroupText>
-            </InputGroupAddon>
-            <InputGroupInput
-              name="priceMax"
-              type="number"
-              min="0"
-              step="0.01"
-              inputMode="decimal"
-              autoComplete="off"
-              aria-label="Max bid"
-              placeholder="Any"
-              defaultValue={current === undefined ? undefined : current / 100}
-            />
-          </InputGroup>
-          <div className="flex justify-end gap-2">
-            {current === undefined ? null : (
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => {
-                  setOpen(false)
-                  onApply(undefined)
-                }}
-              >
-                Clear
-              </Button>
-            )}
-            <Button type="submit" size="sm">
-              Apply
-            </Button>
-          </div>
-        </form>
-      </PopoverContent>
-    </Popover>
-  )
-}
-
-function EndsFilter({
-  value,
-  onChange
-}: {
-  value?: DomainTableEndingWindow
-  onChange: (value?: DomainTableEndingWindow) => void
-}) {
-  const [open, setOpen] = useState(false)
-  const options: Array<[DomainTableEndingWindow | undefined, string]> = [
-    [undefined, 'Any time'],
-    ...DOMAIN_TABLE_ENDING_WINDOWS.map(
-      window => [window, `Within ${ENDING_LABELS[window]}`] as [DomainTableEndingWindow, string]
-    )
-  ]
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <FacetTrigger title="Ends" selectedLabels={value ? [ENDING_LABELS[value]] : []} />
-      <PopoverContent className="w-48 p-0" align="start">
-        <Command>
-          <CommandList>
-            <CommandGroup>
-              {options.map(([option, label]) => (
-                <CommandItem
-                  key={label}
-                  value={label}
-                  onSelect={() => {
-                    setOpen(false)
-                    onChange(option)
-                  }}
-                >
-                  {label}
-                  {option === value ? (
-                    <>
-                      <CheckIcon className="ml-auto" aria-hidden="true" />
-                      <span className="sr-only">(selected)</span>
-                    </>
-                  ) : null}
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
   )
 }
 
@@ -264,81 +142,43 @@ export function AuctionsToolbar({
   sources,
   auctionTypes,
   tlds,
-  count
+  count,
+  actions
 }: {
   filters: DomainTableFilters
   sources: string[]
   auctionTypes: string[]
   tlds: string[]
   count: ReactNode
+  // Actions on the matching listings, at the end of the row on md and wider.
+  actions?: ReactNode
 }) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
-  const apply = (overrides: Partial<DomainTableFilters>) =>
-    startTransition(() => router.push(buildDomainTableHref(filters, { ...overrides, page: 1 })))
-  const advanced = countAdvancedDomainTableFilters(filters)
+  const navigate = (href: string) => startTransition(() => router.push(href))
   const active = Object.values(countFiltersBySection(filters)).reduce((sum, n) => sum + n, 0)
 
   return (
     <div className="flex flex-wrap items-center gap-2" aria-busy={pending || undefined}>
       <SearchField
-        // Remount on navigation so Back, chips, and Clear all show the URL's query.
+        // Remount on navigation so Back, rules, and Clear all show the URL's query.
         key={filters.query ?? ''}
         query={filters.query}
-        onSearch={query => apply({ query: parseDomainTableFilters({ q: query }).query })}
+        onSearch={query =>
+          navigate(
+            buildDomainTableHref(filters, {
+              query: parseDomainTableFilters({ q: query }).query,
+              page: 1
+            })
+          )
+        }
       />
-      <div className="hidden flex-wrap items-center gap-2 md:flex">
-        <FacetedFilter
-          title="Source"
-          options={sources.map(value => ({ value, label: formatProvider(value) }))}
-          selected={filters.sources}
-          onChange={values => apply({ sources: values as AuctionSource[] })}
+      <div className="hidden md:contents">
+        <RuleBar
+          filters={filters}
+          options={ruleOptions({ sources, auctionTypes, tlds })}
+          onNavigate={navigate}
         />
-        <FacetedFilter
-          title="Type"
-          options={auctionTypes.map(value => ({ value, label: formatAuctionType(value) }))}
-          selected={filters.auctionTypes}
-          onChange={values => apply({ auctionTypes: values as AuctionType[] })}
-        />
-        <FacetedFilter
-          title="TLD"
-          options={tlds.map(value => ({ value, label: `.${value}` }))}
-          selected={filters.tlds}
-          onChange={values => apply({ tlds: values })}
-          searchable
-          footer={`${tlds.length.toLocaleString('en-US')} TLDs in the inventory`}
-        />
-        <MaxBidFilter filters={filters} onApply={priceMaxCents => apply({ priceMaxCents })} />
-        <EndsFilter
-          value={filters.endingWithin}
-          onChange={endingWithin => apply({ endingWithin })}
-        />
-        <Link
-          prefetch={false}
-          href={buildFiltersPageHref(filters)}
-          className={buttonVariants({ variant: 'outline', size: 'sm' })}
-        >
-          <ListFilterIcon aria-hidden="true" />
-          All filters
-          {advanced > 0 ? (
-            <Badge variant="secondary" className="rounded-sm px-1 font-normal">
-              {advanced}
-            </Badge>
-          ) : null}
-        </Link>
-        {hasActiveDomainTableFilters(filters) ? (
-          <Link
-            prefetch={false}
-            href={buildDomainTableHref(parseDomainTableFilters({}), {
-              sort: filters.sort,
-              direction: filters.direction
-            })}
-            className={buttonVariants({ variant: 'ghost', size: 'sm' })}
-          >
-            Reset
-            <XIcon aria-hidden="true" />
-          </Link>
-        ) : null}
       </div>
       <div className="flex items-center gap-2 md:hidden">
         <Link
@@ -357,23 +197,22 @@ export function AuctionsToolbar({
         <SortSelect
           filters={filters}
           onChange={(sort, direction) =>
-            startTransition(() =>
-              router.push(buildDomainTableHref(filters, { sort, direction, page: 1 }))
-            )
+            navigate(buildDomainTableHref(filters, { sort, direction, page: 1 }))
           }
         />
         <FieldsDrawer />
       </div>
-      <div
-        className={cn(
-          'ml-auto text-sm text-muted-foreground tabular-nums',
-          pending && 'animate-pulse'
-        )}
-      >
-        {count}
-      </div>
-      <div className="hidden md:block">
-        <ColumnsMenu />
+      {/* One unit, so a wrapping rule bar never splits the count from its actions. */}
+      <div className="ml-auto flex items-center gap-2">
+        <div
+          className={cn('text-sm text-muted-foreground tabular-nums', pending && 'animate-pulse')}
+        >
+          {count}
+        </div>
+        {actions ? <div className="hidden md:flex">{actions}</div> : null}
+        <div className="hidden md:block">
+          <ColumnsMenu />
+        </div>
       </div>
     </div>
   )

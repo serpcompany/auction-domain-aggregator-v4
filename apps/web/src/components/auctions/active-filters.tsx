@@ -14,18 +14,21 @@ import { buildFiltersPageHref } from '@/domain/filter-form'
 import { cn } from '@/lib/utils'
 
 // Every applied constraint once, each removable, then Clear all and Edit, and
-// any actions on the listings they match.
+// any actions on the listings they match. Phones show these; wider screens
+// edit the same filters in the toolbar's rule bar.
 export function ActiveFilters({
   filters,
-  actions
+  actions,
+  className
 }: {
   filters: DomainTableFilters
   actions?: ReactNode
+  className?: string
 }) {
   const chips = getDomainTableFilterChips(filters)
   if (chips.length === 0) return null
   return (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className={cn('flex flex-wrap items-center gap-1.5', className)}>
       <span className="mr-0.5 text-xs text-muted-foreground">Filters</span>
       {chips.map(chip => (
         <Link
