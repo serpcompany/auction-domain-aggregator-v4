@@ -79,10 +79,9 @@ export const auctionListings = sqliteTable(
     ),
     index('auction_listings_status_provider_idx').on(table.status, table.provider),
     index('auction_listings_domain_name_idx').on(table.domainName),
-    index('auction_listings_ends_at_idx').on(table.endsAt),
-    index('auction_listings_current_bid_cents_idx').on(table.currentBidCents),
-    index('auction_listings_bid_count_idx').on(table.bidCount),
-    index('auction_listings_age_years_idx').on(table.ageYears),
+    // No single-column index on end time, price, bids, or age: SQLite never
+    // chose one over the status index (every measured plan), and each cost a
+    // written row on every insert, change, and delete.
     // Column-first, so the planner never prefers them over the status index
     // for unfiltered pages. `ends_at` makes them covering for counts, and a
     // TLD equality returns rows already ordered by the default end-time sort.
@@ -200,6 +199,12 @@ export const domainMetrics = sqliteTable(
     check(
       'domain_metrics_retry_after_check',
       sql`(${table.status} in ('ok', 'not_found')) = (${table.retryAfter} is null)`
+    ),
+    // The Domain Rating sort's order; one entry per rated domain.
+    index('domain_metrics_metric_value_domain_name_idx').on(
+      table.metric,
+      table.value,
+      table.domainName
     )
   ]
 )
@@ -273,9 +278,15 @@ export const domainSeoMetrics = sqliteTable(
       'domain_seo_metrics_semrush_backlinks_nonnegative',
       sql`${table.semrushBacklinks} is null or ${table.semrushBacklinks} >= 0`
     ),
-    index('domain_seo_metrics_majestic_tf_idx').on(table.majesticTf),
-    index('domain_seo_metrics_majestic_cf_idx').on(table.majesticCf),
-    index('domain_seo_metrics_majestic_ref_domains_idx').on(table.majesticRefDomains),
-    index('domain_seo_metrics_semrush_as_idx').on(table.semrushAs)
+    // The domain name completes each metric sort's order, so a sort walks one
+    // index and stops after a page; the same indexes serve the minimums. They
+    // replace single-column indexes one for one, so writes stay the same.
+    index('domain_seo_metrics_majestic_tf_domain_name_idx').on(table.majesticTf, table.domainName),
+    index('domain_seo_metrics_majestic_cf_domain_name_idx').on(table.majesticCf, table.domainName),
+    index('domain_seo_metrics_majestic_ref_domains_domain_name_idx').on(
+      table.majesticRefDomains,
+      table.domainName
+    ),
+    index('domain_seo_metrics_semrush_as_domain_name_idx').on(table.semrushAs, table.domainName)
   ]
 )

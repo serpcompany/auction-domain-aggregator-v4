@@ -88,6 +88,16 @@ describe('ingestion Worker', () => {
     expect(createBackfill.mock.calls.map(([options]) => options)).toEqual([
       { id: 'domain-rating-20260713T1530', params: { startDelayMs: 3_600_000 } }
     ])
+
+    // Staging's Cron Trigger syncs only the providers it lists.
+    create.mockClear()
+    await worker.scheduled(
+      createScheduledController({ scheduledTime: new Date('2026-10-12T11:30:00.000Z') }),
+      { ...scheduledEnv(create, createBackfill), SYNC_PROVIDERS: 'godaddy' }
+    )
+    expect(create.mock.calls.map(([options]) => options)).toEqual([
+      { id: 'godaddy-20261012T1130', params: { provider: 'godaddy' } }
+    ])
   })
 
   it('schedules the syncs and the backfill independently', async () => {

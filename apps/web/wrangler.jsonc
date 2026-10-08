@@ -36,9 +36,12 @@
   ],
   // Local only: no Access check and no host redirect (src/lib/deployment.ts). Each deployed
   // environment below sets its own vars; only production sets APP_ENV "production".
+  // SYNC_TIME_UTC and SYNC_PROVIDERS describe that environment's sync Cron Trigger for the Sync
+  // status page ("" is every provider; src/domain/sync-schedule.ts keeps them in step).
   "vars": {
     "APP_ENV": "local",
-    "SYNC_TIME_UTC": "15:30"
+    "SYNC_TIME_UTC": "15:30",
+    "SYNC_PROVIDERS": ""
   },
   "observability": {
     "enabled": true
@@ -87,7 +90,8 @@
       ],
       "vars": {
         "APP_ENV": "staging",
-        "SYNC_TIME_UTC": "11:30",
+        "SYNC_TIME_UTC": "Mon 11:30",
+        "SYNC_PROVIDERS": "godaddy",
         "CANONICAL_HOST": "staging-auctions.serp.co",
         "ACCESS_TEAM_DOMAIN": "serpcompany.cloudflareaccess.com",
         "ACCESS_AUD": "2f037e169be96253359803b70ae3dd3e87395486cbd1b873bcab49592073d8bb"
@@ -124,6 +128,7 @@
       "vars": {
         "APP_ENV": "production",
         "SYNC_TIME_UTC": "15:30",
+        "SYNC_PROVIDERS": "",
         "CANONICAL_HOST": "auctions.serp.co",
         "ACCESS_TEAM_DOMAIN": "serpcompany.cloudflareaccess.com",
         "ACCESS_AUD": "2f037e169be96253359803b70ae3dd3e87395486cbd1b873bcab49592073d8bb"

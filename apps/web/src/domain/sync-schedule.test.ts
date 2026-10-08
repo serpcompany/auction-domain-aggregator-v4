@@ -6,6 +6,7 @@ import {
   formatAgo,
   formatIn,
   formatRunDuration,
+  isScheduled,
   nextScheduledSync,
   providerFeed,
   syncSchedule
@@ -23,25 +24,53 @@ describe('sync schedule', () => {
     const times = [...read('wrangler.jsonc').matchAll(/"SYNC_TIME_UTC": "([^"]+)"/g)].map(
       match => match[1]
     )
+    const providers = (file: string) =>
+      [...read(file).matchAll(/"SYNC_PROVIDERS": "([^"]*)"/g)].map(match => match[1])
     expect(crons).toHaveLength(3)
     expect(times.map(time => syncSchedule(time).cron)).toEqual(crons)
-    // Staging runs hours apart from Production, so they never page a provider at once.
-    expect(times).toEqual(['15:30', '11:30', '15:30'])
+    expect(providers('wrangler.jsonc')).toEqual(providers('wrangler.ingestion.jsonc'))
+    // Staging syncs GoDaddy weekly, hours before Production's daily sync of every provider.
+    expect(times).toEqual(['15:30', 'Mon 11:30', '15:30'])
+    expect(providers('wrangler.jsonc')).toEqual(['', 'godaddy', ''])
   })
 
   it('reads HH:MM in UTC and falls back to 15:30', () => {
     expect(syncSchedule('17:30')).toEqual({
       hour: 17,
       minute: 30,
+      weekday: null,
+      providers: null,
       cron: '30 17 * * *',
       label: 'Daily at 17:30 UTC'
     })
     expect(syncSchedule('07:05').label).toBe('Daily at 07:05 UTC')
-    for (const invalid of [undefined, '', '24:00', '9:30', 'noon']) {
+    for (const invalid of [undefined, '', '24:00', '9:30', 'noon', 'Monday 11:30', 'mon 11:30']) {
       expect(syncSchedule(invalid).label).toBe('Daily at 15:30 UTC')
     }
     expect(nextScheduledSync(now, syncSchedule('17:30')).toISOString()).toBe(
       '2026-10-07T17:30:00.000Z'
+    )
+  })
+
+  it('reads a weekly day and the scheduled providers', () => {
+    const weekly = syncSchedule('Mon 11:30', ' godaddy , namecheap ')
+    expect(weekly).toMatchObject({
+      weekday: 1,
+      providers: ['godaddy', 'namecheap'],
+      cron: '30 11 * * 1',
+      label: 'Mondays at 11:30 UTC'
+    })
+    expect(syncSchedule('Sun 00:00').label).toBe('Sundays at 00:00 UTC')
+    expect(isScheduled(weekly, 'namecheap')).toBe(true)
+    expect(isScheduled(weekly, 'dynadot')).toBe(false)
+    expect(isScheduled(syncSchedule('15:30', ''), 'dynadot')).toBe(true)
+    // 2026-10-07 is a Wednesday: the next Monday, then a week on from a Monday's run.
+    expect(nextScheduledSync(now, weekly).toISOString()).toBe('2026-10-12T11:30:00.000Z')
+    expect(nextScheduledSync(new Date('2026-10-12T11:30:00.000Z'), weekly).toISOString()).toBe(
+      '2026-10-19T11:30:00.000Z'
+    )
+    expect(nextScheduledSync(new Date('2026-10-12T09:00:00.000Z'), weekly).toISOString()).toBe(
+      '2026-10-12T11:30:00.000Z'
     )
   })
 

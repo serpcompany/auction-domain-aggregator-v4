@@ -20,6 +20,7 @@ import {
   runProviderSync,
   type StepRunner,
   type SyncWorkerEnv,
+  scheduledProviders,
   scheduleProviderSyncs
 } from './provider-sync-workflow'
 
@@ -64,13 +65,19 @@ export class DomainRatingWorkflow extends WorkflowEntrypoint<
 }
 
 const worker = {
-  // The daily Cron Trigger starts one Workflow instance per provider, and the
-  // DR backfill, which waits for them.
+  // Each Cron Trigger firing starts one Workflow instance per scheduled
+  // provider, and the DR backfill, which waits for them.
   async scheduled(controller: ScheduledController, env: SyncWorkerEnv) {
     const scheduledTime = new Date(controller.scheduledTime)
+    // Each is scheduled on its own, so one failure cannot stop the other.
     const [syncs, backfill] = await Promise.allSettled([
-      scheduleProviderSyncs(env.PROVIDER_SYNC, scheduledTime),
-      // Scheduled the same way, so one failure cannot stop the other.
+      Promise.resolve().then(() =>
+        scheduleProviderSyncs(
+          env.PROVIDER_SYNC,
+          scheduledTime,
+          scheduledProviders(env.SYNC_PROVIDERS)
+        )
+      ),
       Promise.resolve().then(() =>
         env.DOMAIN_RATING.create({
           id: `domain-rating-${scheduledTime.toISOString().replace(/[-:]/g, '').slice(0, 13)}`,

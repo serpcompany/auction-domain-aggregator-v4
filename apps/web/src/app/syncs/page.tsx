@@ -13,6 +13,7 @@ export const metadata: Metadata = { title: 'Sync status · Auction Domain Aggreg
 
 export default async function SyncsPage() {
   const status = await querySyncStatus()
+  const { env } = getCloudflareContext()
   const now = new Date()
   const latestSuccessfulSync = status.providers
     .map(summary => summary.latestSuccess?.completedAt ?? null)
@@ -29,7 +30,7 @@ export default async function SyncsPage() {
       <SyncStatusPage
         status={status}
         now={now}
-        schedule={syncSchedule(getCloudflareContext().env.SYNC_TIME_UTC)}
+        schedule={syncSchedule(env.SYNC_TIME_UTC, env.SYNC_PROVIDERS)}
       />
     </>
   )

@@ -32,7 +32,8 @@ describe.each(DEPLOYED_ENVIRONMENTS)('the %s environment', env => {
     // One Access application, "auctions", covers both hosts.
     expect(web.vars).toEqual({
       APP_ENV: env,
-      SYNC_TIME_UTC: env === 'staging' ? '11:30' : '15:30',
+      SYNC_TIME_UTC: env === 'staging' ? 'Mon 11:30' : '15:30',
+      SYNC_PROVIDERS: env === 'staging' ? 'godaddy' : '',
       CANONICAL_HOST: HOSTS[env],
       ACCESS_TEAM_DOMAIN: 'serpcompany.cloudflareaccess.com',
       ACCESS_AUD: '2f037e169be96253359803b70ae3dd3e87395486cbd1b873bcab49592073d8bb'
@@ -70,7 +71,9 @@ describe.each(DEPLOYED_ENVIRONMENTS)('the %s environment', env => {
       { binding: 'FEED_PAGES', bucket_name: `auction-domain-aggregator-feed-pages-${env}` }
     ])
     expect(sync.d1_databases).toEqual(web.d1_databases)
-    expect(sync.triggers.crons).toEqual([env === 'staging' ? '30 11 * * *' : '30 15 * * *'])
+    // Staging exists to test deploys: GoDaddy alone, weekly. Production syncs everything daily.
+    expect(sync.triggers.crons).toEqual([env === 'staging' ? '30 11 * * 1' : '30 15 * * *'])
+    expect(sync.vars).toEqual({ SYNC_PROVIDERS: env === 'staging' ? 'godaddy' : '' })
   })
 
   it('is configured, so the CI deploy guard lets the website deploy', () => {
@@ -93,7 +96,8 @@ describe('deploy configuration', () => {
     }
     expect(unstable_readConfig({ config: WEB_CONFIG }).vars).toEqual({
       APP_ENV: 'local',
-      SYNC_TIME_UTC: '15:30'
+      SYNC_TIME_UTC: '15:30',
+      SYNC_PROVIDERS: ''
     })
   })
 

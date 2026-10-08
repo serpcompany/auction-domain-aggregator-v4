@@ -7,6 +7,7 @@ import type { FeedPageBucket } from './feed-pages'
 import { NAMESILO_RECORDING_MANIFEST } from './namesilo-recording'
 import {
   CLEANUP_STEP,
+  ENDED_LISTING_RETENTION_MS,
   fixedErrorCode,
   MAX_PROVIDER_WAIT_MS,
   runProviderSync,
@@ -14,6 +15,7 @@ import {
   type StepConfig,
   SYNC_STEP,
   type SyncWorkerEnv,
+  scheduledProviders,
   scheduleProviderSyncs
 } from './provider-sync-workflow'
 import { type IngestionStorage, type RunState, SyncError } from './sync'
@@ -135,6 +137,9 @@ function memoryStorage(provider: AuctionProvider) {
     },
     async completeRun(_run, completion) {
       failures.push(completion.errorCode)
+    },
+    async deleteEndedListings(_before, afterRowid) {
+      return { listings: 0, seoMetrics: 0, domains: 0, lastRowid: afterRowid }
     }
   }
   return { storage, listings, failures }
@@ -234,13 +239,15 @@ describe('provider sync workflow', () => {
       'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 2',
-      'delete staged pages'
+      'delete staged pages',
+      'delete ended listings, step 1'
     ])
     expect(steps.steps.map(step => step.config)).toEqual([
       SYNC_STEP,
       STAGE_STEP,
       SYNC_STEP,
       SYNC_STEP,
+      CLEANUP_STEP,
       CLEANUP_STEP
     ])
     expect(fetchImpl.mock.calls[0]![0]).toBe(GODADDY_FEED_URL)
@@ -335,7 +342,8 @@ describe('provider sync workflow', () => {
     expect(recorded.steps.names()).toEqual([
       'find recorded responses',
       'start run',
-      'sync pages, segment 1'
+      'sync pages, segment 1',
+      'delete ended listings, step 1'
     ])
     expect(live).not.toHaveBeenCalled()
 
@@ -366,7 +374,8 @@ describe('provider sync workflow', () => {
       'wait before segment 1, retry 1',
       'sync pages, segment 1, retry 1',
       'wait before segment 1, retry 2',
-      'sync pages, segment 1, retry 2'
+      'sync pages, segment 1, retry 2',
+      'delete ended listings, step 1'
     ])
     // At least the requested wait, and at least the step's own backoff.
     expect(steps.sleeps()).toEqual([300_000, 120_000])
@@ -615,10 +624,65 @@ describe('provider sync workflow', () => {
       'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 1',
-      'delete staged pages'
+      'delete staged pages',
+      'delete ended listings, step 1'
     ])
     expect(stores.get('godaddy')!.listings.size).toBe(20_500)
     expect(bucket.objects.size).toBe(0)
+  })
+
+  it('deletes ended listings after a success, a step per 50,000, and only logs a failure', async () => {
+    const records = [godaddyRecord(0)]
+    // 25 full batches fill the first step; the second step ends on a short one. Each batch
+    // continues from the rowid the previous one reached, across steps too.
+    let batches = 0
+    const deleteEndedListings = vi.fn(async (before: Date, afterRowid: number, limit: number) => {
+      expect(Date.now() - before.getTime()).toBeGreaterThanOrEqual(ENDED_LISTING_RETENTION_MS)
+      expect(limit).toBe(2_000)
+      expect(afterRowid).toBe(batches * 10_000)
+      batches += 1
+      return batches <= 26
+        ? { listings: 2_000, seoMetrics: 1_500, domains: 1_900, lastRowid: batches * 10_000 }
+        : { listings: 300, seoMetrics: 100, domains: 250, lastRowid: batches * 10_000 }
+    })
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined)
+    const deleting = setup({
+      zip: await feedZip(records),
+      wrapStorage: storage => ({ ...storage, deleteEndedListings })
+    })
+    await expect(deleting.run('godaddy')).resolves.toMatchObject({ status: 'succeeded' })
+    expect(deleting.steps.names().slice(-2)).toEqual([
+      'delete ended listings, step 1',
+      'delete ended listings, step 2'
+    ])
+    expect(deleteEndedListings).toHaveBeenCalledTimes(27)
+    expect(info).toHaveBeenCalledWith('ended_listings_deleted', {
+      provider: 'godaddy',
+      listings: 52_300,
+      seoMetrics: 39_100,
+      domains: 49_650
+    })
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    const failing = setup({
+      zip: await feedZip(records),
+      wrapStorage: storage => ({
+        ...storage,
+        deleteEndedListings: async () => {
+          throw new Error('D1_ERROR: busy')
+        }
+      })
+    })
+    await expect(failing.run('godaddy')).resolves.toMatchObject({ status: 'succeeded' })
+    expect(failing.steps.names().filter(name => name.startsWith('delete ended'))).toHaveLength(
+      CLEANUP_STEP.retries.limit + 1
+    )
+    expect(warn).toHaveBeenCalledWith('ended_listings_delete_failed', {
+      provider: 'godaddy',
+      message: 'D1_ERROR: busy'
+    })
+    info.mockRestore()
+    warn.mockRestore()
   })
 
   it('retries a segment whose run could not be loaded, but not a stale run', async () => {
@@ -644,7 +708,8 @@ describe('provider sync workflow', () => {
       'stage feed',
       'sync pages, segment 1',
       'sync pages, segment 1',
-      'delete staged pages'
+      'delete staged pages',
+      'delete ended listings, step 1'
     ])
 
     const stale = setup({
@@ -744,6 +809,14 @@ describe('provider sync workflow', () => {
 })
 
 describe('scheduled provider syncs', () => {
+  it('schedules the listed providers in registry order, or every one when none are listed', () => {
+    expect(scheduledProviders()).toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
+    expect(scheduledProviders('')).toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
+    expect(scheduledProviders(' namesilo, godaddy ')).toEqual(['godaddy', 'namesilo'])
+    // A list that names no provider is a mistake, not an empty schedule.
+    expect(() => scheduledProviders('godady')).toThrow('sync_schedule_invalid')
+  })
+
   it('starts one instance per provider, named by the scheduled time', async () => {
     const create = vi.fn(async () => ({}) as WorkflowInstance)
     await expect(

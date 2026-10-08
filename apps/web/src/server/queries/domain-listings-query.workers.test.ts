@@ -1,4 +1,5 @@
 import { sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/d1'
 import { beforeEach, describe, expect, it } from 'vitest'
 
 import {
@@ -8,17 +9,19 @@ import {
   parseDomainTableFilters
 } from '../../domain/domain-table'
 import { refreshListingFacetsQueries } from '../db/listing-facets'
+import * as schema from '../db/schema'
 import { auctionListings, domainMetrics, domainSeoMetrics, domains } from '../db/schema'
 import { createD1IngestionStorage } from '../ingestion/d1-storage'
 import type { NormalizedSeoMetrics } from '../providers/types'
-import { type TestDatabase, testDatabase } from '../test-database'
+import { type TestDatabase, testDatabase, testEnv } from '../test-database'
 import {
   godaddyListing,
   listing,
   QUERY_NOW,
   queryAt,
   REPEATED_COMPLETED_AT,
-  seedProofInventory
+  seedProofInventory,
+  statusAt
 } from '../test-listings'
 import {
   queryDomainListingsWithDatabase,
@@ -29,6 +32,14 @@ import {
 const FIXTURE_SEEN_AT = new Date('2026-07-13T04:00:00.000Z')
 const RANKED_DOMAINS = ['rank-a-long.test', 'rank-b.co', 'rank-cccc.com', 'rank-dd.org']
 const TIE_DOMAIN = 'tie-domain.test'
+
+const METRIC_SORT_KEYS: ReadonlyArray<(typeof DOMAIN_TABLE_SORTS)[number]> = [
+  'majesticTf',
+  'majesticCf',
+  'majesticRefDomains',
+  'semrushAs',
+  'domainRating'
+]
 
 const ids = (result: { rows: { externalId: string }[] }) =>
   result.rows.map(({ externalId }) => externalId)
@@ -133,10 +144,12 @@ async function seedRankedListings(database: TestDatabase) {
 describe('domain listings read model on D1', () => {
   let database: TestDatabase
   let query: ReturnType<typeof queryAt>
+  let status: ReturnType<typeof statusAt>
 
   beforeEach(async () => {
     database = testDatabase()
     query = queryAt(database)
+    status = statusAt(database)
     await seedProofInventory(database)
   })
 
@@ -163,10 +176,11 @@ describe('domain listings read model on D1', () => {
     expect(secondPage.page).toBe(2)
     expect(secondPage.rows).toHaveLength(1)
     expect(secondPage.rows[0]?.currentBidCents).toBe(104)
-    expect(firstPage.sources).toEqual(['dynadot'])
-    expect(firstPage.auctionTypes).toEqual(['expired'])
-    expect(firstPage.tlds).toEqual(['com', 'net', 'org', 'test'])
-    expect(firstPage.latestSuccessfulSync).toEqual(REPEATED_COMPLETED_AT)
+    const inventory = await status()
+    expect(inventory.sources).toEqual(['dynadot'])
+    expect(inventory.auctionTypes).toEqual(['expired'])
+    expect(inventory.tlds).toEqual(['com', 'net', 'org', 'test'])
+    expect(inventory.latestSuccessfulSync).toEqual(REPEATED_COMPLETED_AT)
   })
 
   it('applies every filter family at once and returns the full row shape', async () => {
@@ -218,8 +232,9 @@ describe('domain listings read model on D1', () => {
     )({ q: 'past' })
     expect(afterPastEnds.total).toBe(0)
     expect(afterPastEnds.rows).toHaveLength(0)
-    const ended = await queryAt(database, new Date('2026-08-01T00:00:00.000Z'))({})
-    expect(ended.total).toBe(0)
+    const later = new Date('2026-08-01T00:00:00.000Z')
+    expect((await queryAt(database, later)({})).total).toBe(0)
+    const ended = await statusAt(database, later)()
     expect(ended.tlds).toEqual([])
     expect(ended.sources).toEqual([])
   })
@@ -422,73 +437,142 @@ describe('domain listings read model on D1', () => {
       expect((await query({ q: '_' })).total).toBe(0)
     })
 
-    it('sorts by every column both ways, with unknown values last', async () => {
-      const expectedAscending: Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]> = {
-        domain: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
-        source: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
-        type: ['rank-3', 'rank-1', 'rank-0', 'rank-2'],
-        price: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
-        bids: ['rank-2', 'rank-1', 'rank-3', 'rank-0'],
-        endsAt: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
-        age: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
-        links: ['rank-2', 'rank-3', 'rank-1', 'rank-0'],
-        visitors: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
-        appraisal: ['rank-1', 'rank-2', 'rank-0', 'rank-3'],
-        renewal: ['rank-0', 'rank-3', 'rank-1', 'rank-2'],
-        domainLength: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
-        majesticTf: ['rank-0', 'rank-2', 'rank-1', 'rank-3'],
-        majesticCf: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
-        majesticRefDomains: ['rank-2', 'rank-3', 'rank-0', 'rank-1'],
-        semrushAs: ['rank-3', 'rank-0', 'rank-1', 'rank-2'],
-        domainRating: ['rank-2', 'rank-0', 'rank-1', 'rank-3']
-      }
-      // Listings without the value, last in both directions in domain order.
-      const nullsBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
-        age: ['rank-2'],
-        links: ['rank-0'],
-        visitors: ['rank-1'],
-        appraisal: ['rank-3'],
-        renewal: ['rank-2'],
-        majesticTf: ['rank-3'],
-        majesticCf: ['rank-0'],
-        majesticRefDomains: ['rank-1'],
-        semrushAs: ['rank-2'],
-        domainRating: ['rank-1', 'rank-3']
-      }
-      // rank-0 and rank-2 are both expired, and a tie keeps domain order both ways.
-      const descendingBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
-        type: ['rank-0', 'rank-2', 'rank-1', 'rank-3']
-      }
-      expect(DOMAIN_TABLE_SORTS).toHaveLength(17)
-      for (const sort of DOMAIN_TABLE_SORTS) {
-        const ascending = expectedAscending[sort]
-        const nulls = nullsBySort[sort] ?? []
-        const descending = descendingBySort[sort] ?? [
-          ...ascending.filter(id => !nulls.includes(id)).reverse(),
-          ...nulls
-        ]
-        expect(ids(await query({ q: 'rank-', sort, direction: 'asc' })), `${sort} asc`).toEqual(
-          ascending
-        )
-        expect(ids(await query({ q: 'rank-', sort, direction: 'desc' })), `${sort} desc`).toEqual(
-          descending
-        )
-      }
-    })
-
-    it('breaks ties by domain, provider, and external ID', async () => {
-      for (const sort of DOMAIN_TABLE_SORTS) {
-        for (const direction of ['asc', 'desc'] as const) {
-          const expected =
-            sort === 'source' && direction === 'desc'
-              ? ['tie-godaddy', 'tie-a', 'tie-b']
-              : ['tie-a', 'tie-b', 'tie-godaddy']
+    it.each([
+      { path: 'listing-driven', limit: undefined },
+      { path: 'index-driven', limit: 0 }
+    ])(
+      'sorts by every column both ways, with unknown values last ($path metric sorts)',
+      async ({ limit }) => {
+        const sorted = queryAt(database, QUERY_NOW, limit)
+        const expectedAscending: Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]> = {
+          domain: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
+          source: ['rank-0', 'rank-1', 'rank-2', 'rank-3'],
+          type: ['rank-3', 'rank-1', 'rank-0', 'rank-2'],
+          price: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
+          bids: ['rank-2', 'rank-1', 'rank-3', 'rank-0'],
+          endsAt: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+          age: ['rank-1', 'rank-3', 'rank-0', 'rank-2'],
+          links: ['rank-2', 'rank-3', 'rank-1', 'rank-0'],
+          visitors: ['rank-3', 'rank-0', 'rank-2', 'rank-1'],
+          appraisal: ['rank-1', 'rank-2', 'rank-0', 'rank-3'],
+          renewal: ['rank-0', 'rank-3', 'rank-1', 'rank-2'],
+          domainLength: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+          majesticTf: ['rank-0', 'rank-2', 'rank-1', 'rank-3'],
+          majesticCf: ['rank-1', 'rank-3', 'rank-2', 'rank-0'],
+          majesticRefDomains: ['rank-2', 'rank-3', 'rank-0', 'rank-1'],
+          semrushAs: ['rank-3', 'rank-0', 'rank-1', 'rank-2'],
+          domainRating: ['rank-2', 'rank-0', 'rank-1', 'rank-3']
+        }
+        // Listings without the value, last in both directions, in domain order (for a metric
+        // sort, in the sort's direction).
+        const nullsBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
+          age: ['rank-2'],
+          links: ['rank-0'],
+          visitors: ['rank-1'],
+          appraisal: ['rank-3'],
+          renewal: ['rank-2'],
+          majesticTf: ['rank-3'],
+          majesticCf: ['rank-0'],
+          majesticRefDomains: ['rank-1'],
+          semrushAs: ['rank-2'],
+          domainRating: ['rank-1', 'rank-3']
+        }
+        // rank-0 and rank-2 are both expired, and a tie keeps domain order both ways.
+        const descendingBySort: Partial<Record<(typeof DOMAIN_TABLE_SORTS)[number], string[]>> = {
+          type: ['rank-0', 'rank-2', 'rank-1', 'rank-3']
+        }
+        expect(DOMAIN_TABLE_SORTS).toHaveLength(17)
+        for (const sort of DOMAIN_TABLE_SORTS) {
+          const ascending = expectedAscending[sort]
+          const nulls = nullsBySort[sort] ?? []
+          const metric = METRIC_SORT_KEYS.includes(sort)
+          const descending = descendingBySort[sort] ?? [
+            ...ascending.filter(id => !nulls.includes(id)).reverse(),
+            ...(metric ? [...nulls].reverse() : nulls)
+          ]
+          expect(ids(await sorted({ q: 'rank-', sort, direction: 'asc' })), `${sort} asc`).toEqual(
+            ascending
+          )
           expect(
-            ids(await query({ q: 'tie-domain', sort, direction })),
-            `${sort} ${direction}`
-          ).toEqual(expected)
+            ids(await sorted({ q: 'rank-', sort, direction: 'desc' })),
+            `${sort} desc`
+          ).toEqual(descending)
         }
       }
+    )
+
+    // A metric sort breaks ties by domain, then insertion, in its own direction.
+    it.each([
+      { path: 'listing-driven', limit: undefined },
+      { path: 'index-driven', limit: 0 }
+    ])(
+      'breaks ties by domain, provider, and external ID ($path metric sorts)',
+      async ({ limit }) => {
+        const sorted = queryAt(database, QUERY_NOW, limit)
+        const inserted = ['tie-b', 'tie-a', 'tie-godaddy']
+        for (const sort of DOMAIN_TABLE_SORTS) {
+          for (const direction of ['asc', 'desc'] as const) {
+            const expected = METRIC_SORT_KEYS.includes(sort)
+              ? direction === 'asc'
+                ? inserted
+                : [...inserted].reverse()
+              : sort === 'source' && direction === 'desc'
+                ? ['tie-godaddy', 'tie-a', 'tie-b']
+                : ['tie-a', 'tie-b', 'tie-godaddy']
+            expect(
+              ids(await sorted({ q: 'tie-domain', sort, direction })),
+              `${sort} ${direction}`
+            ).toEqual(expected)
+          }
+        }
+      }
+    )
+
+    // 60 listings; all but every sixth (5, 11, ... 59) have Trust Flow, so page 1 is all
+    // known values and page 2 all unknown.
+    it.each([
+      { path: 'listing-driven', limit: undefined },
+      { path: 'index-driven', limit: 0 }
+    ])('pages across the listings without a value ($path metric sorts)', async ({ limit }) => {
+      const seenAt = FIXTURE_SEEN_AT.getTime()
+      const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < 59)`
+      const name = sql`'boundary-' || printf('%02d', i) || '.test'`
+      await database.run(
+        sql`${numbers} insert into domains (name, first_seen_at) select ${name}, ${seenAt} from n`
+      )
+      await database.run(
+        sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, status, first_seen_at, last_seen_at) select 'dynadot', 'boundary-' || printf('%02d', i), ${name}, 'https://example.invalid/boundary/' || i, 'EXPIRED', 'USD', 100, 0, ${new Date('2026-07-20T00:00:00.000Z').getTime()}, 'active', ${seenAt}, ${seenAt} from n`
+      )
+      await database.run(
+        sql`${numbers} insert into domain_seo_metrics (domain_name, source, majestic_tf, updated_at) select ${name}, 'godaddy', i % 5, ${seenAt} from n where i % 6 != 5`
+      )
+      const rows = Array.from({ length: 60 }, (_, i) => ({
+        id: `boundary-${String(i).padStart(2, '0')}`,
+        tf: i % 6 === 5 ? null : i % 5
+      }))
+      const expected = (direction: 'asc' | 'desc') => {
+        const sign = direction === 'asc' ? 1 : -1
+        const known = rows
+          .filter(row => row.tf !== null)
+          .sort(
+            (left, right) =>
+              sign * (Number(left.tf) - Number(right.tf)) || sign * left.id.localeCompare(right.id)
+          )
+        const unknown = rows.filter(row => row.tf === null)
+        if (direction === 'desc') unknown.reverse()
+        return [...known, ...unknown].map(({ id }) => id)
+      }
+      const paged = queryAt(database, QUERY_NOW, limit)
+      for (const direction of ['asc', 'desc'] as const) {
+        const first = await paged({ q: 'boundary-', sort: 'majesticTf', direction })
+        const second = await paged({ q: 'boundary-', sort: 'majesticTf', direction, page: '2' })
+        expect(first.total).toBe(60)
+        expect([...ids(first), ...ids(second)], direction).toEqual(expected(direction))
+      }
+      // A page that runs out of known values continues with the rest from the start, and a
+      // page that has none starts with them at once.
+      expect(ids(await paged({ q: 'boundary-3', sort: 'majesticTf' })).at(-1)).toBe('boundary-35')
+      expect(ids(await paged({ q: 'boundary-35', sort: 'majesticTf' }))).toEqual(['boundary-35'])
     })
 
     it('clamps a page past the end to the last page', async () => {
@@ -510,7 +594,7 @@ describe('domain listings read model on D1', () => {
       })
       // These fixtures bypass ingestion, so rebuild the facets as a sync would.
       await database.batch(refreshListingFacetsQueries(database))
-      const facets = await query({})
+      const facets = await status()
       expect(facets.sources).toEqual(['dynadot', 'godaddy', 'namecheap', 'namesilo'])
       expect(facets.auctionTypes).toEqual(['auction', 'closeout', 'expired'])
     })
@@ -519,6 +603,45 @@ describe('domain listings read model on D1', () => {
   // TLD and domain length are generated columns over the stored name. Only the final label is
   // the TLD, and quotes or backslashes in a name (which broke the earlier JSON-based TLD
   // expression) must not fail any read.
+  // Without statistics, SQLite uses an index for ORDER BY only when the index satisfies every
+  // term and no filter offers it a better-looking index. On this small inventory only the plan
+  // shows a metric sort falling back to sorting every match.
+  it('reads a metric sort over many matches from indexes in page order', async () => {
+    const statements: { query: string; params: unknown[] }[] = []
+    const logged = drizzle(testEnv.DB, {
+      schema,
+      logger: { logQuery: (query, params) => statements.push({ query, params }) }
+    })
+    const plan = async ({ query, params }: (typeof statements)[number]) => {
+      const { results } = await testEnv.DB.prepare(`explain query plan ${query}`)
+        .bind(...params)
+        .all<{ detail: string }>()
+      return results.map(({ detail }) => detail).join('\n')
+    }
+    for (const sort of METRIC_SORT_KEYS) {
+      for (const searchParams of [{}, { tld: 'com' }, { tld: 'com', priceMax: '500' }]) {
+        for (const direction of ['asc', 'desc'] as const) {
+          statements.length = 0
+          await queryDomainListingsWithDatabase(
+            // Past the first page, so the listings without a value are read too.
+            parseDomainTableFilters({ ...searchParams, sort, direction, page: '2' }),
+            logged,
+            QUERY_NOW,
+            0
+          )
+          const pages = statements.filter(({ query }) => query.includes(' order by '))
+          const label = `${sort} ${direction} ${JSON.stringify(searchParams)}`
+          expect(pages.length, label).toBeGreaterThan(0)
+          for (const page of pages) {
+            const detail = await plan(page)
+            expect(detail, label).not.toContain('USE TEMP B-TREE FOR ORDER BY')
+            expect(detail, label).toContain('auction_listings_domain_name_idx')
+          }
+        }
+      }
+    }
+  })
+
   it('derives TLD and length from the stored name, whatever it contains', async () => {
     const names = [
       'tld-proof.example.co.uk',
@@ -555,7 +678,7 @@ describe('domain listings read model on D1', () => {
     })
     expect(ids(multiLabel)).toEqual(['tld-proof-0'])
     expect(ids(exactLength)).toEqual(['tld-proof-0'])
-    expect((await query({})).tlds).toEqual(expect.arrayContaining(['uk', 'qu"ote', 'ba\\ck']))
+    expect((await status()).tlds).toEqual(expect.arrayContaining(['uk', 'qu"ote', 'ba\\ck']))
   })
 
   it('offers every active TLD, with no cap', async () => {
@@ -571,7 +694,7 @@ describe('domain listings read model on D1', () => {
     )
     await database.batch(refreshListingFacetsQueries(database))
 
-    const { tlds } = await query({})
+    const { tlds } = await status()
     expect(tlds.filter(tld => /^t\d{3}$/.test(tld))).toHaveLength(tldCount)
     expect(tlds.length).toBeGreaterThan(250)
     expect(tlds).toEqual([...tlds].sort())
@@ -614,13 +737,11 @@ describe('domain listings read model on D1', () => {
 
     it('filters a new auction type before a successful sync offers it', async () => {
       // Facets are rebuilt when a sync succeeds, so a running run's new type is filterable first.
-      const before = await query({ type: 'buy_now' })
+      expect((await query({ type: 'buy_now' })).total).toBe(1)
+      expect((await status()).auctionTypes).not.toContain('buy_now')
       await database.batch(refreshListingFacetsQueries(database))
-      const after = await query({ type: 'buy_now' })
-      expect(before.total).toBe(1)
-      expect(before.auctionTypes).not.toContain('buy_now')
-      expect(after.total).toBe(1)
-      expect(after.auctionTypes).toContain('buy_now')
+      expect((await query({ type: 'buy_now' })).total).toBe(1)
+      expect((await status()).auctionTypes).toContain('buy_now')
     })
 
     it('filters on the feed metrics', async () => {
@@ -753,8 +874,12 @@ describe('domain listings read model on D1', () => {
 
 describe('domain listings read model on an empty D1', () => {
   it('reads no rows, facets, or sync', async () => {
-    const empty = await queryAt(testDatabase())({})
-    expect(empty).toMatchObject({ rows: [], total: 0, page: 1, latestSuccessfulSync: null })
-    expect((await queryInventoryStatusWithDatabase(testDatabase())).latestSuccessfulSync).toBeNull()
+    expect(await queryAt(testDatabase())({})).toEqual({ rows: [], total: 0, page: 1 })
+    expect(await queryInventoryStatusWithDatabase(testDatabase())).toEqual({
+      sources: [],
+      auctionTypes: [],
+      tlds: [],
+      latestSuccessfulSync: null
+    })
   })
 })

@@ -71,6 +71,20 @@
       "when": 1791355817578,
       "tag": "0009_run_rejection_reasons",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1791426918436,
+      "tag": "0010_metric_sort_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1791428422201,
+      "tag": "0011_drop_unused_listing_indexes",
+      "breakpoints": true
     }
   ]
 }

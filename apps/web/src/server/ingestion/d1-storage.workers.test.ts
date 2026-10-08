@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest'
 
 import {
   auctionListings,
+  domainMetrics,
   domainSeoMetrics,
+  domains,
   ingestionRunSeenPages,
   ingestionRuns
 } from '../db/schema'
@@ -392,5 +394,88 @@ describe('D1 ingestion storage', () => {
     expect(vanishedListingsLimit(0)).toBe(500)
     expect(vanishedListingsLimit(ACTIVE_LISTINGS.length)).toBe(500)
     expect(vanishedListingsLimit(12_345)).toBe(1_234)
+  })
+
+  // Any listing a week past its end goes, whatever its provider or status, with the feed metrics
+  // and domains nothing else uses; a domain another listing or a stored Ahrefs rating still needs
+  // stays.
+  it('deletes ended listings with the metrics and domains nothing else uses', async () => {
+    const database = testDatabase()
+    const now = new Date('2026-07-30T00:00:00.000Z')
+    const before = new Date(now.getTime() - 7 * 86_400_000)
+    const longEnded = new Date(now.getTime() - 10 * 86_400_000)
+    const recentlyEnded = new Date(now.getTime() - 3 * 86_400_000)
+    const future = new Date(now.getTime() + 3 * 86_400_000)
+    const row = (
+      externalId: string,
+      domainName: string,
+      endsAt: Date,
+      status: 'active' | 'inactive' = 'inactive',
+      provider = 'dynadot'
+    ) => ({
+      ...listing(externalId, domainName, 100),
+      provider,
+      endsAt,
+      status,
+      firstSeenAt: STARTED_AT,
+      lastSeenAt: STARTED_AT
+    })
+    const names = ['alone', 'shared', 'rated', 'recent', 'unsynced', 'other']
+    await database
+      .insert(domains)
+      .values(names.map(name => ({ name: `${name}.test`, firstSeenAt: STARTED_AT })))
+    // One at a time, in rowid order: seven rows would pass D1's 100 bound parameters.
+    for (const value of [
+      row('alone', 'alone.test', longEnded),
+      row('shared', 'shared.test', longEnded),
+      row('shared-open', 'shared.test', future, 'active', 'godaddy'),
+      row('rated', 'rated.test', longEnded),
+      row('recent', 'recent.test', recentlyEnded),
+      // Still active because its provider is no longer synced, and another provider's.
+      row('unsynced', 'unsynced.test', longEnded, 'active', 'namesilo'),
+      row('other', 'other.test', longEnded, 'inactive', 'godaddy')
+    ]) {
+      await database.insert(auctionListings).values(value)
+    }
+    await database.insert(domainSeoMetrics).values(
+      ['alone', 'shared', 'rated'].map(name => ({
+        domainName: `${name}.test`,
+        source: 'godaddy',
+        majesticTf: 10,
+        updatedAt: STARTED_AT
+      }))
+    )
+    await database.insert(domainMetrics).values({
+      domainName: 'rated.test',
+      metric: 'ahrefs_dr',
+      status: 'ok',
+      value: 20,
+      fetchedAt: STARTED_AT
+    })
+    const storage = createD1IngestionStorage(database, 'dynadot')
+
+    const first = await storage.deleteEndedListings(before, 0, 1)
+    expect(first).toMatchObject({ listings: 1, seoMetrics: 1, domains: 1 })
+    const rest = await storage.deleteEndedListings(before, first.lastRowid, 10)
+    expect(rest).toMatchObject({ listings: 4, seoMetrics: 1, domains: 2 })
+    expect(rest.lastRowid).toBeGreaterThan(first.lastRowid)
+    expect(await storage.deleteEndedListings(before, rest.lastRowid, 10)).toEqual({
+      listings: 0,
+      seoMetrics: 0,
+      domains: 0,
+      lastRowid: rest.lastRowid
+    })
+
+    const left = await database
+      .select({ externalId: auctionListings.externalId })
+      .from(auctionListings)
+      .orderBy(auctionListings.externalId)
+    expect(left.map(({ externalId }) => externalId)).toEqual(['recent', 'shared-open'])
+    const metrics = await database
+      .select({ name: domainSeoMetrics.domainName })
+      .from(domainSeoMetrics)
+    expect(metrics.map(({ name }) => name)).toEqual(['shared.test'])
+    const kept = await database.select({ name: domains.name }).from(domains).orderBy(domains.name)
+    expect(kept.map(({ name }) => name)).toEqual(['rated.test', 'recent.test', 'shared.test'])
   })
 })

@@ -14,9 +14,17 @@ All are on the SERP account. Workflow names are account-wide, so each is prefixe
 | R2 (binding `FEED_PAGES`, sync only) | `auction-domain-aggregator-feed-pages-staging` | `auction-domain-aggregator-feed-pages-production` |
 | Sync Worker | `auction-domain-aggregator-ingestion-staging` | `auction-domain-aggregator-ingestion-production` |
 | Workflow (binding `PROVIDER_SYNC`) | `auction-domain-aggregator-provider-sync-staging` | `auction-domain-aggregator-provider-sync-production` |
-| Sync cron (UTC) | `30 11 * * *` (daily, 20:30 in Japan, four hours before Production, so the two never page a provider API at once; Staging gets GoDaddy's previous-day file) | `30 15 * * *` (daily) |
+| Sync cron (UTC) | `30 11 * * 1` (Mondays), GoDaddy only (`SYNC_PROVIDERS` `godaddy`) | `30 15 * * *` (daily), every provider (`SYNC_PROVIDERS` empty) |
 | Website Worker | `auction-domain-aggregator-web-staging` | `auction-domain-aggregator-web-production` |
 | Canonical host (Custom Domain) | `staging-auctions.serp.co` | `auctions.serp.co` |
+
+Staging exists to test deploys and migrations before Production, so it needs realistic data, not fresh data. Its Cron Trigger syncs only GoDaddy, weekly: one file, no API key, and no rate limit, so it never competes with Production for Dynadot's 60 requests a minute. That cut Staging from a full daily sync, about half of all D1 writes and provider calls, to a small fraction of it. The listings of providers Staging no longer syncs leave on their own a week after their auctions end ([Data ingestion](data-ingestion.md), step 7). To sync another provider on Staging, for example to verify an ingestion change, the owner starts its Workflow by hand:
+
+```bash
+corepack pnpm exec wrangler workflows trigger auction-domain-aggregator-provider-sync-staging '{"provider":"dynadot"}'
+```
+
+The ingestion Worker reads `SYNC_PROVIDERS` (comma-separated; empty means every provider) and each website shows the same schedule on Sync status from its own `SYNC_TIME_UTC` (`Mon 11:30` or `15:30`) and `SYNC_PROVIDERS` vars; a test keeps the pairs in step.
 
 Staging's host is one label under `serp.co` because Universal SSL covers only one level. Each R2 bucket has the `expire-staged-feed-pages` lifecycle rule (2 days), so pages a failed cleanup step leaves behind can't accumulate. The sync Workers have no HTTP routes (`workers_dev` and `preview_urls` off) and set `cpu_ms` 60,000 (Workers Paid). The website binds its environment's D1, `ASSETS`, and `WORKER_SELF_REFERENCE` (its own Worker name), but no R2: nothing user-facing reads feed pages. Both Workers have observability on. `redact_query_string` is not in Wrangler 4.110's schema; it arrives with a Wrangler upgrade before payments (#94).
 
