@@ -50,7 +50,8 @@ test('serves the deterministic domain inventory with a healthy database', async 
 }) => {
   const pageErrors: string[] = []
   page.on('pageerror', error => pageErrors.push(error.message))
-  await page.goto('/')
+  // Every type: the bare address opens on auctions only (see below).
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
 
   await expect(
     page.getByRole('heading', { level: 1, name: 'Auctions', exact: true })
@@ -88,8 +89,19 @@ test('serves the deterministic domain inventory with a healthy database', async 
   expect(await response.json()).toEqual({ status: 'ok', database: 'ok' })
 })
 
-test('applies, removes, sorts, clears, and restores URL-backed filters', async ({ page }) => {
+test('opens on auctions, with expired listings one chip away', async ({ page }) => {
   await page.goto('/')
+  await expect(page).toHaveURL('/?type=auction&sort=endsAt&direction=asc&page=1')
+  await expect(page.getByText('30 listings', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: /garden\.com/ })).toBeHidden()
+
+  await page.getByRole('link', { name: 'Remove Type: Auction filter' }).click()
+  await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
+  await expect(page.getByText('60 listings', { exact: true })).toBeVisible()
+})
+
+test('applies, removes, sorts, clears, and restores URL-backed filters', async ({ page }) => {
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
 
   const search = page.getByRole('searchbox', { name: 'Domain contains' })
   await search.fill('garden')
@@ -360,6 +372,7 @@ test('resizes a column by dragging its header edge, keeps the width, and resets 
   const width = async () => Math.round((await header.boundingBox())?.width ?? 0)
   await expect(handle).toHaveAttribute('aria-valuenow', '80')
   const before = await width()
+  const opened = page.url()
 
   const box = await handle.boundingBox()
   expect(box).not.toBeNull()
@@ -370,7 +383,7 @@ test('resizes a column by dragging its header edge, keeps the width, and resets 
   await page.mouse.up()
   await expect.poll(width).toBe(before + 60)
   // The drag neither sorted the table nor selected text.
-  await expect(page).toHaveURL(/\/$/)
+  await expect(page).toHaveURL(opened)
 
   await page.reload()
   await expect.poll(width).toBe(before + 60)
@@ -399,7 +412,7 @@ test('opens listing details beside the table on desktop', async ({ page }) => {
 
 test('shows listings as a list on phones and opens details from a tap', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
-  await page.goto('/')
+  await page.goto('/?sort=endsAt&direction=asc&page=1')
 
   const list = page.getByRole('list', { name: 'Domain results' })
   await expect(list).toBeVisible()

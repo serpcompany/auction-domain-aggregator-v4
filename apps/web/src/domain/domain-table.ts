@@ -277,6 +277,15 @@ export function buildDomainTableHref(
   return `/?${params.toString()}`
 }
 
+// The table opens on auctions: expired-domain listings are one filter chip
+// away. Only the bare address, with no parameters at all, opens there, so
+// every other URL, including Clear all, keeps its meaning.
+export function openingDomainTableHref(searchParams: DomainTableSearchParams) {
+  return Object.keys(searchParams).length === 0
+    ? buildDomainTableHref(parseDomainTableFilters({ type: 'auction' }))
+    : null
+}
+
 export function hasActiveDomainTableFilters(filters: DomainTableFilters) {
   return (
     filters.query !== undefined ||

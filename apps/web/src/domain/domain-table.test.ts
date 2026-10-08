@@ -19,6 +19,7 @@ import {
   isInventoryStale,
   MAX_DOMAIN_TABLE_PAGE,
   nextSortDirection,
+  openingDomainTableHref,
   parseDomainTableFilters
 } from './domain-table'
 
@@ -517,5 +518,12 @@ describe('domain table filter summaries', () => {
     expect(isInventoryStale(new Date(0))).toBe(true)
     expect(isInventoryStale(new Date(Date.now() + 60_000))).toBe(false)
     expect(formatSyncRecency(null)).toBe('No successful sync yet')
+  })
+
+  it('opens the bare address on auctions and leaves every other URL alone', () => {
+    expect(openingDomainTableHref({})).toBe('/?type=auction&sort=endsAt&direction=asc&page=1')
+    // Clear all and every link the table builds carry parameters, so they keep every type.
+    expect(openingDomainTableHref({ sort: 'endsAt', direction: 'asc', page: '1' })).toBeNull()
+    expect(openingDomainTableHref({ q: 'garden' })).toBeNull()
   })
 })
