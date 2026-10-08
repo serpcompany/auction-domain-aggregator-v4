@@ -265,7 +265,6 @@ export function AuctionsToolbar({
   auctionTypes,
   tlds,
   count,
-  actions,
   visibleColumns
 }: {
   filters: DomainTableFilters
@@ -273,8 +272,6 @@ export function AuctionsToolbar({
   auctionTypes: string[]
   tlds: string[]
   count: ReactNode
-  // Buttons that act on the matching listings, beside the count.
-  actions?: ReactNode
   visibleColumns: ColumnKey[]
 }) {
   const router = useRouter()
@@ -377,7 +374,6 @@ export function AuctionsToolbar({
       >
         {count}
       </div>
-      {actions}
       <div className="hidden md:block">
         <ColumnsMenu visibleColumns={visibleColumns} />
       </div>

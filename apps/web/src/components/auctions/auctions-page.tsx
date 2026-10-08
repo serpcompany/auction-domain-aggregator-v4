@@ -227,13 +227,15 @@ export function AuctionsPage({
               <ListingCount result={result} />
             </Suspense>
           }
+        />
+        <ActiveFilters
+          filters={filters}
           actions={
             <Suspense key={key} fallback={null}>
               <FetchDomainRatings result={result} filters={filters} />
             </Suspense>
           }
         />
-        <ActiveFilters filters={filters} />
         {isInventoryStale(status.latestSuccessfulSync, now) ? (
           <Alert
             role="status"

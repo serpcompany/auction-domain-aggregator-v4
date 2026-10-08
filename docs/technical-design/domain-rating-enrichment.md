@@ -33,7 +33,7 @@ When a request finds every domain held by another one, it stores nothing and doe
 
 ## Fetching DR for the matching listings
 
-Fetch DR in the toolbar posts the table's query string to `POST /api/enrichment/domain-rating/matching`. The route parses it with the page's own filter parser, reads the distinct domains of the matching active listings (`queryMatchingDomainNamesWithDatabase`, at most 1,001 rows), and answers 400 `too_many_listings` past 1,000. Otherwise it runs the same `enrichDomainRatings` steps with a limit of 1,000, one Ahrefs call (`AHREFS_DR_MAX_TARGETS`). The button asks for narrower filters without calling the server when the count is above the limit. Each fetched domain costs two D1 row writes: its claim and its result.
+Fetch DR, at the end of the active-filters row, posts the table's query string to `POST /api/enrichment/domain-rating/matching`. The route parses it with the page's own filter parser, reads the distinct domains of the matching active listings (`queryMatchingDomainNamesWithDatabase`, at most 1,001 rows), and answers 400 `too_many_listings` past 1,000. Otherwise it runs the same `enrichDomainRatings` steps with a limit of 1,000, one Ahrefs call (`AHREFS_DR_MAX_TARGETS`). The button asks for narrower filters without calling the server when the count is above the limit. Each fetched domain costs two D1 row writes: its claim and its result.
 
 The `domainRatingMin` filter reads `domain_metrics_metric_value_domain_name_idx` in a subquery, like the feed-metric filters, so it matches only domains with an `ok` rating.
 

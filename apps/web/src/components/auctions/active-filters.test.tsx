@@ -34,6 +34,16 @@ describe('ActiveFilters', () => {
     )
   })
 
+  it('ends with actions on the matching listings', () => {
+    render(
+      <ActiveFilters
+        filters={parseDomainTableFilters({ tld: 'com' })}
+        actions={<button type="button">Fetch DR</button>}
+      />
+    )
+    expect(screen.getByRole('button', { name: 'Fetch DR' })).toBeInTheDocument()
+  })
+
   it('renders nothing without filters', () => {
     const { container } = render(<ActiveFilters filters={parseDomainTableFilters({})} />)
     expect(container).toBeEmptyDOMElement()

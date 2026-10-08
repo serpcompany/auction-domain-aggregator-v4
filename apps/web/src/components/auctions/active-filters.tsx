@@ -1,5 +1,6 @@
 import { ArrowRightIcon, XIcon } from 'lucide-react'
 import Link from 'next/link'
+import type { ReactNode } from 'react'
 
 import { badgeVariants } from '@/components/ui/badge'
 import { buttonVariants } from '@/components/ui/button'
@@ -12,8 +13,15 @@ import {
 import { buildFiltersPageHref } from '@/domain/filter-form'
 import { cn } from '@/lib/utils'
 
-// Every applied constraint once, each removable, then Clear all and Edit.
-export function ActiveFilters({ filters }: { filters: DomainTableFilters }) {
+// Every applied constraint once, each removable, then Clear all and Edit, and
+// any actions on the listings they match.
+export function ActiveFilters({
+  filters,
+  actions
+}: {
+  filters: DomainTableFilters
+  actions?: ReactNode
+}) {
   const chips = getDomainTableFilterChips(filters)
   if (chips.length === 0) return null
   return (
@@ -50,6 +58,7 @@ export function ActiveFilters({ filters }: { filters: DomainTableFilters }) {
         Edit
         <ArrowRightIcon aria-hidden="true" />
       </Link>
+      {actions ? <div className="ml-auto">{actions}</div> : null}
     </div>
   )
 }

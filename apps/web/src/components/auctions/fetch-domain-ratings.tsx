@@ -69,7 +69,7 @@ export function FetchDomainRatingsButton({
   return (
     <Button
       variant="outline"
-      size="sm"
+      size="xs"
       disabled={busy}
       onClick={run}
       title={`Fetch Ahrefs DR for every matching listing (up to ${limit.toLocaleString('en-US')})`}
