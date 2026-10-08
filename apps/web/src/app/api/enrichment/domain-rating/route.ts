@@ -8,7 +8,8 @@ import { createD1DomainRatingStore } from '@/server/enrichment/domain-rating-sto
 
 export const dynamic = 'force-dynamic'
 
-// The only request path that calls Ahrefs. Page rendering stays D1-only.
+// With `matching/route.ts`, the only request paths that call Ahrefs. Page
+// rendering stays D1-only.
 export async function POST(request: Request) {
   const { env } = getCloudflareContext()
   const store = createD1DomainRatingStore(getDb())

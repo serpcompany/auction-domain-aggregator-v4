@@ -2,14 +2,14 @@
 
 Status: Implemented locally
 
-Last updated: 2026-10-07
+Last updated: 2026-10-08
 
 Ahrefs Domain Rating (DR) is the one value the web application fetches from a provider. This leaf records how the request path stays bounded and how stored DR differs from feed-published metrics. The licence terms are in [Ahrefs licensing](../references/data-licensing/ahrefs.md); why it is on demand is in the [completed plan](../plans/completed/ahrefs-domain-rating.md).
 
 ## Rules
 
-- DR is fetched only for the rows on screen, never for the whole inventory, so it cannot be filtered or sorted across the inventory. This follows the licence's anti-harvesting clause.
-- `POST /api/enrichment/domain-rating` is the only request path that calls a provider. Page rendering stays D1-only.
+- DR is fetched for the rows on screen, or on request for every listing the filters match when that is 1,000 listings or fewer, never for the whole inventory. This follows the licence's anti-harvesting clause: every fetch is one person's lookup of a set they chose. Filtering and sorting by DR therefore see only stored ratings.
+- `POST /api/enrichment/domain-rating` and `POST /api/enrichment/domain-rating/matching` are the only request paths that call a provider. Page rendering stays D1-only.
 - A stored DR is write-once and never refreshed by scheduled work. Feed-published Majestic and SEMrush metrics are different: every sync replaces them ([Data ingestion](data-ingestion.md#feed-published-seo-metrics)).
 - `domain_metrics` is keyed by `(domain_name, metric)`; `ahrefs_dr` is the only metric. A later listing for the same domain reuses the stored value.
 - Every displayed value sits under the "Domain Rating by Ahrefs" attribution linked to `https://ahrefs.com/`.
@@ -30,6 +30,12 @@ After the page renders, `apps/web/src/components/auctions/domain-ratings.tsx` po
 The table read treats `ok` and `not_found` as fetched, and also an `omitted` row until its `retry_after`. That cell shows "no rating", and the client does not ask again. A `pending` row, or an `omitted` one past its retry time, reads as not fetched, so the cell shows the spinner and the client asks again.
 
 When a request finds every domain held by another one, it stores nothing and does not refresh. If the request holding them belonged to a page the person has left, the ratings appear on the next view.
+
+## Fetching DR for the matching listings
+
+Fetch DR, at the end of the active-filters row, posts the table's query string to `POST /api/enrichment/domain-rating/matching`. The route parses it with the page's own filter parser, reads the distinct domains of the matching active listings (`queryMatchingDomainNamesWithDatabase`, at most 1,001 rows), and answers 400 `too_many_listings` past 1,000. Otherwise it runs the same `enrichDomainRatings` steps with a limit of 1,000, one Ahrefs call (`AHREFS_DR_MAX_TARGETS`). The button asks for narrower filters without calling the server when the count is above the limit. Each fetched domain costs two D1 row writes: its claim and its result.
+
+The `domainRatingMin` filter reads `domain_metrics_metric_value_domain_name_idx` in a subquery, like the feed-metric filters, so it matches only domains with an `ok` rating.
 
 ## Gaps
 

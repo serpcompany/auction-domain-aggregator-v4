@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+import { POST as postMatching } from '../app/api/enrichment/domain-rating/matching/route'
 import { POST } from '../app/api/enrichment/domain-rating/route'
 import { GET } from '../app/api/health/route'
 import { parseDomainTableFilters } from '../domain/domain-table'
@@ -10,7 +11,7 @@ import {
 } from './queries/domain-listings'
 import { queryFailedSyncCount, querySyncStatus } from './queries/sync-status'
 import { testDatabase, testEnv } from './test-database'
-import { seedProofInventory } from './test-listings'
+import { QUERY_NOW, seedProofInventory } from './test-listings'
 
 // The request path reaches D1 through OpenNext's Cloudflare context. Here that context is the
 // test Worker's own bindings, plus an invented Ahrefs key.
@@ -83,5 +84,45 @@ describe('request wiring to D1', () => {
       'https://api.ahrefs.com/v3/public/domain-rating-free'
     )
     expect(await response.json()).toEqual({ status: 'ok', requested: 1, stored: 1 })
+  })
+
+  it('reads the matching listings from D1 before asking Ahrefs for all of them', async () => {
+    await seedProofInventory(testDatabase())
+    useBindings({ AHREFS_API_KEY: 'invented-key' })
+    const ahrefs = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const { targets } = JSON.parse(String(init?.body)) as { targets: string[] }
+      return Response.json({
+        domain_rating: { targets: targets.map(target => ({ target, domain_rating: 7 })) }
+      })
+    })
+    vi.stubGlobal('fetch', ahrefs)
+    const post = (search: string) =>
+      postMatching(
+        new Request('http://local/api/enrichment/domain-rating/matching', {
+          method: 'POST',
+          body: JSON.stringify({ search })
+        })
+      )
+
+    // The invented auctions ended before the real current time, so nothing matches.
+    expect(await (await post('q=active-05')).json()).toEqual({
+      status: 'ok',
+      requested: 0,
+      stored: 0
+    })
+    expect(ahrefs).not.toHaveBeenCalled()
+
+    // At the inventory's own time, the one matching listing is fetched.
+    vi.useFakeTimers({ now: QUERY_NOW, toFake: ['Date'] })
+    try {
+      expect(await (await post('q=active-05')).json()).toEqual({
+        status: 'ok',
+        requested: 1,
+        stored: 1
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+    expect(ahrefs).toHaveBeenCalledOnce()
   })
 })

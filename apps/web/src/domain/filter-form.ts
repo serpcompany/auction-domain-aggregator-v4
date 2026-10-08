@@ -22,7 +22,7 @@ export const FILTER_SECTIONS = [
     id: 'seo',
     title: 'SEO metrics',
     description:
-      'Majestic and Semrush values come from the GoDaddy auction feed. Domains without a value are excluded once you set a minimum.'
+      'Majestic and Semrush values come from the GoDaddy auction feed. Ahrefs DR exists only for domains already fetched. Domains without a value are excluded once you set a minimum.'
   }
 ] as const
 
@@ -101,7 +101,8 @@ export function countFiltersBySection(
       filters.majesticTfMin !== undefined,
       filters.majesticCfMin !== undefined,
       filters.majesticRefDomainsMin !== undefined,
-      filters.semrushAsMin !== undefined
+      filters.semrushAsMin !== undefined,
+      filters.domainRatingMin !== undefined
     )
   }
 }

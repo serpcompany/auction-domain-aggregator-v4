@@ -26,7 +26,8 @@ import {
 import {
   queryDomainListingsWithDatabase,
   queryInventoryStatusWithDatabase,
-  queryListingFacetsWithDatabase
+  queryListingFacetsWithDatabase,
+  queryMatchingDomainNamesWithDatabase
 } from './domain-listings-query'
 
 const FIXTURE_SEEN_AT = new Date('2026-07-13T04:00:00.000Z')
@@ -432,6 +433,38 @@ describe('domain listings read model on D1', () => {
       }
     )
 
+    it('filters on stored Ahrefs DR, which only fetched domains have', async () => {
+      const rated = async (domainRatingMin: string) =>
+        ids(await query({ q: 'rank-', domainRatingMin }))
+      // rank-1 has no rating and rank-3 was never fetched, so neither matches any minimum.
+      expect(await rated('0')).toEqual(['rank-2', 'rank-0'])
+      expect(await rated('8')).toEqual(['rank-2', 'rank-0'])
+      expect(await rated('9')).toEqual(['rank-0'])
+      expect(await rated('32')).toEqual([])
+    })
+
+    it('lists the distinct matching domains, or null past the limit', async () => {
+      const matching = (searchParams: DomainTableSearchParams, limit: number) =>
+        queryMatchingDomainNamesWithDatabase(
+          parseDomainTableFilters(searchParams),
+          database,
+          limit,
+          QUERY_NOW
+        )
+      // Three listings share the tie domain.
+      expect(await matching({ q: 'tie-' }, 1)).toEqual([TIE_DOMAIN])
+      expect((await matching({ q: 'rank-' }, 4))?.sort()).toEqual([...RANKED_DOMAINS].sort())
+      expect(await matching({ q: 'rank-' }, 3)).toBeNull()
+      // At the real current time every invented auction has ended.
+      expect(
+        await queryMatchingDomainNamesWithDatabase(
+          parseDomainTableFilters({ q: 'rank-' }),
+          database,
+          4
+        )
+      ).toEqual([])
+    })
+
     it('matches % and _ literally', async () => {
       expect((await query({ q: '%' })).total).toBe(0)
       expect((await query({ q: '_' })).total).toBe(0)
@@ -754,7 +787,14 @@ describe('domain listings read model on D1', () => {
       expect((await query({ source: 'godaddy', semrushAsMin: '15' })).total).toBe(2)
     })
 
-    it('binds 87 values for the worst accepted query with metric filters', async () => {
+    it('binds 89 values for the worst accepted query with metric filters', async () => {
+      await database.insert(domainMetrics).values({
+        domainName: 'garden.com',
+        metric: 'ahrefs_dr',
+        status: 'ok',
+        value: 40,
+        fetchedAt: FIXTURE_SEEN_AT
+      })
       const worstCase = await query({
         q: 'garden',
         source: 'dynadot',
@@ -777,6 +817,7 @@ describe('domain listings read model on D1', () => {
         majesticCfMin: '20',
         majesticRefDomainsMin: '40',
         semrushAsMin: '15',
+        domainRatingMin: '30',
         endingWithin: '7d'
       })
       expect(worstCase.total).toBe(1)

@@ -195,6 +195,15 @@ function activeListingWhere(filters: DomainTableFilters, now: Date, pinned = fal
       )
     )
   }
+  if (filters.domainRatingMin !== undefined) {
+    // Read from the DR sort's index; only fetched domains have a value.
+    conditions.push(
+      inArray(
+        column(auctionListings.domainName),
+        sql`(select ${domainMetrics.domainName} from ${domainMetrics} where ${and(eq(domainMetrics.metric, 'ahrefs_dr'), gte(domainMetrics.value, filters.domainRatingMin))})`
+      )
+    )
+  }
   if (filters.endingWithin) {
     conditions.push(
       lte(
@@ -494,6 +503,22 @@ export async function queryDomainListingsWithDatabase(
     total,
     page
   }
+}
+
+// The distinct domains of the listings that match the filters, or null when
+// there are more than `limit`.
+export async function queryMatchingDomainNamesWithDatabase(
+  filters: DomainTableFilters,
+  database: AppDatabase,
+  limit: number,
+  now = new Date()
+): Promise<string[] | null> {
+  const rows = await database
+    .selectDistinct({ domainName: auctionListings.domainName })
+    .from(auctionListings)
+    .where(activeListingWhere(filters, now))
+    .limit(limit + 1)
+  return rows.length > limit ? null : rows.map(row => row.domainName)
 }
 
 export interface ListingFacets {

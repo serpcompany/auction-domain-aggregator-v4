@@ -1,8 +1,11 @@
-import { AhrefsError } from './ahrefs'
+import { AHREFS_DR_MAX_TARGETS, AhrefsError } from './ahrefs'
 
 // The route accepts at most this many domains per request: one page of the
 // table is 50 rows.
 export const DOMAIN_RATING_REQUEST_LIMIT = 50
+// Fetching DR for every listing that matches the filters is offered only up
+// to this many domains: one Ahrefs call.
+export const DOMAIN_RATING_MATCHING_LIMIT = AHREFS_DR_MAX_TARGETS
 // A claim outlives the Ahrefs call's 15-second timeout, so it lapses only when
 // the request holding it died or the call failed. Then the domains wait out
 // the claim before anyone asks again.
@@ -63,9 +66,13 @@ export async function enrichDomainRatings(
   store: DomainRatingStore,
   fetchRatings: FetchDomainRatings,
   requestedDomains: string[],
-  { signal, now = () => new Date() }: { signal: AbortSignal; now?: () => Date }
+  {
+    signal,
+    now = () => new Date(),
+    limit = DOMAIN_RATING_REQUEST_LIMIT
+  }: { signal: AbortSignal; now?: () => Date; limit?: number }
 ): Promise<{ requested: number; stored: number }> {
-  const unique = [...new Set(requestedDomains)].slice(0, DOMAIN_RATING_REQUEST_LIMIT)
+  const unique = [...new Set(requestedDomains)].slice(0, limit)
   signal.throwIfAborted()
   if (unique.length === 0) return { requested: 0, stored: 0 }
 

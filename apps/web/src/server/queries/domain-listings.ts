@@ -10,7 +10,8 @@ import {
   type ListingFacets,
   queryDomainListingsWithDatabase,
   queryInventoryStatusWithDatabase,
-  queryListingFacetsWithDatabase
+  queryListingFacetsWithDatabase,
+  queryMatchingDomainNamesWithDatabase
 } from './domain-listings-query'
 
 export type { DomainListingRow, DomainListingsResult, InventoryStatus, ListingFacets }
@@ -20,6 +21,14 @@ export async function queryDomainListings(
   database: AppDatabase = getDb()
 ): Promise<DomainListingsResult> {
   return queryDomainListingsWithDatabase(filters, database)
+}
+
+export async function queryMatchingDomainNames(
+  filters: DomainTableFilters,
+  limit: number,
+  database: AppDatabase
+): Promise<string[] | null> {
+  return queryMatchingDomainNamesWithDatabase(filters, database, limit)
 }
 
 export async function queryListingFacets(database: AppDatabase = getDb()): Promise<ListingFacets> {
