@@ -332,26 +332,6 @@ export function hasActiveDomainTableFilters(filters: DomainTableFilters) {
   )
 }
 
-export function countAdvancedDomainTableFilters(filters: DomainTableFilters) {
-  return [
-    filters.domainLengthMin !== undefined || filters.domainLengthMax !== undefined,
-    filters.ageMin !== undefined || filters.ageMax !== undefined,
-    filters.noHyphens,
-    filters.noDigits,
-    filters.priceMinCents !== undefined,
-    filters.renewalMaxCents !== undefined,
-    filters.bidsMin !== undefined,
-    filters.visitorsMin !== undefined,
-    filters.linksMin !== undefined,
-    filters.appraisalMinCents !== undefined,
-    filters.majesticTfMin !== undefined,
-    filters.majesticCfMin !== undefined,
-    filters.majesticRefDomainsMin !== undefined,
-    filters.semrushAsMin !== undefined,
-    filters.domainRatingMin !== undefined
-  ].filter(Boolean).length
-}
-
 function titleCase(value: string) {
   return value
     .split(/[-_]/)

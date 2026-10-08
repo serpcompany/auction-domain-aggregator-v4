@@ -833,42 +833,101 @@ describe('domain listings read model on D1', () => {
       expect((await query({ source: 'godaddy', semrushAsMin: '15' })).total).toBe(2)
     })
 
-    it('binds 89 values for the worst accepted query with metric filters', async () => {
-      await database.insert(domainMetrics).values({
+    // Every filter the URL accepts at its widest, with the category cap filled.
+    const worstCaseParams = {
+      q: 'garden',
+      source: 'dynadot',
+      type: 'expired',
+      tld: ['com', ...Array.from({ length: 80 }, (_, index) => `cap${index}`)],
+      domainLengthMin: '0',
+      domainLengthMax: '253',
+      noHyphens: '1',
+      noDigits: '1',
+      priceMin: '0',
+      priceMax: '999999',
+      bidsMin: '0',
+      ageMin: '0',
+      ageMax: '999',
+      linksMin: '0',
+      visitorsMin: '0',
+      appraisalMin: '0',
+      renewalMax: '999999',
+      majesticTfMin: '30',
+      majesticCfMin: '20',
+      majesticRefDomainsMin: '40',
+      semrushAsMin: '15',
+      domainRatingMin: '30',
+      endingWithin: '7d'
+    }
+
+    const rateGarden = () =>
+      database.insert(domainMetrics).values({
         domainName: 'garden.com',
         metric: 'ahrefs_dr',
         status: 'ok',
         value: 40,
         fetchedAt: FIXTURE_SEEN_AT
       })
-      const worstCase = await query({
-        q: 'garden',
-        source: 'dynadot',
-        type: 'expired',
-        tld: ['com', ...Array.from({ length: 80 }, (_, index) => `cap${index}`)],
-        domainLengthMin: '0',
-        domainLengthMax: '253',
-        noHyphens: '1',
-        noDigits: '1',
-        priceMin: '0',
-        priceMax: '999999',
-        bidsMin: '0',
-        ageMin: '0',
-        ageMax: '999',
-        linksMin: '0',
-        visitorsMin: '0',
-        appraisalMin: '0',
-        renewalMax: '999999',
-        majesticTfMin: '30',
-        majesticCfMin: '20',
-        majesticRefDomainsMin: '40',
-        semrushAsMin: '15',
-        domainRatingMin: '30',
-        endingWithin: '7d'
-      })
+
+    it('runs the worst accepted query with metric filters', async () => {
+      await rateGarden()
+      const worstCase = await query(worstCaseParams)
       expect(worstCase.total).toBe(1)
       expect(worstCase.rows[0]?.domainName).toBe('garden.com')
       expect(worstCase.rows[0]?.seoMetrics?.majesticTf).toBe(30)
+    })
+
+    // D1 rejects a statement with more than 100 bound values, and local D1 does not, so the
+    // test counts them: the parameters Drizzle binds (its `toSQL().params`) for every count and
+    // row statement of the worst query, in every sort and direction, through both metric-sort
+    // paths. Page 2 binds an offset too, so a full page more of listings matches. Rules may
+    // only express filters within this budget; maximum filters would reach 98 (results-table plan).
+    it('binds at most 89 values in the worst accepted count and row statements', async () => {
+      await rateGarden()
+      const seenAt = FIXTURE_SEEN_AT.getTime()
+      const numbers = sql`with recursive n(i) as (select 0 union all select i + 1 from n where i < ${DOMAIN_TABLE_PAGE_SIZE})`
+      // Letters only, for the no-digits and no-hyphens filters: gardenaa.com, gardenab.com, …
+      const name = sql`'garden' || char(97 + i / 26) || char(97 + i % 26) || '.com'`
+      await database.run(
+        sql`${numbers} insert into domains (name, first_seen_at) select ${name}, ${seenAt} from n`
+      )
+      await database.run(
+        sql`${numbers} insert into auction_listings (provider, external_id, domain_name, auction_url, auction_type, currency, current_bid_cents, bid_count, ends_at, age_years, inbound_links, visitors, appraisal_cents, renewal_price_cents, status, first_seen_at, last_seen_at) select 'dynadot', 'worst-' || i, ${name}, 'https://example.invalid/worst/' || i, 'EXPIRED', 'USD', 100, 1, ${new Date('2026-07-15T00:00:00.000Z').getTime()}, 5, 5, 5, 100, 100, 'active', ${seenAt}, ${seenAt} from n`
+      )
+      await database.run(
+        sql`${numbers} insert into domain_seo_metrics (domain_name, source, majestic_tf, majestic_cf, majestic_ref_domains, semrush_as, updated_at) select ${name}, 'godaddy', 40, 30, 50, 20, ${seenAt} from n`
+      )
+      await database.run(
+        sql`${numbers} insert into domain_metrics (domain_name, metric, status, value, fetched_at) select ${name}, 'ahrefs_dr', 'ok', 50, ${seenAt} from n`
+      )
+
+      const statements: { query: string; params: unknown[] }[] = []
+      const logged = drizzle(testEnv.DB, {
+        schema,
+        logger: { logQuery: (query, params) => statements.push({ query, params }) }
+      })
+      for (const sort of DOMAIN_TABLE_SORTS) {
+        for (const direction of ['asc', 'desc']) {
+          for (const listingDrivenLimit of [undefined, 0]) {
+            const result = await queryDomainListingsWithDatabase(
+              parseDomainTableFilters({ ...worstCaseParams, sort, direction, page: '2' }),
+              logged,
+              QUERY_NOW,
+              listingDrivenLimit
+            )
+            expect(result.page, sort).toBe(2)
+          }
+        }
+      }
+
+      const counts = statements.filter(({ query }) => query.startsWith('select count('))
+      const rows = statements.filter(({ query }) => query.includes(' offset '))
+      expect(counts.length).toBeGreaterThanOrEqual(DOMAIN_TABLE_SORTS.length * 4)
+      expect(rows.length).toBeGreaterThanOrEqual(DOMAIN_TABLE_SORTS.length * 4)
+      for (const { query, params } of [...counts, ...rows]) {
+        expect(params.length, query).toBeLessThanOrEqual(89)
+      }
+      expect(Math.max(...rows.map(({ params }) => params.length))).toBe(89)
     })
   })
 

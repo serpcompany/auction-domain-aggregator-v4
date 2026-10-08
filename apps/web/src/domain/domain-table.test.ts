@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import {
   buildDomainTableHref,
-  countAdvancedDomainTableFilters,
   DOMAIN_TABLE_CATEGORY_VALUE_LIMIT,
   DOMAIN_TABLE_PAGE_SIZE,
   DOMAIN_TABLE_SORTS,
@@ -438,22 +437,6 @@ describe('domain table filter summaries', () => {
     ]) {
       expect(hasActiveDomainTableFilters(parseDomainTableFilters({ [metric]: '1' }))).toBe(true)
     }
-  })
-
-  it('counts active advanced concepts without counting quick-only values', () => {
-    expect(countAdvancedDomainTableFilters(active)).toBe(15)
-    expect(
-      countAdvancedDomainTableFilters(
-        parseDomainTableFilters({
-          q: 'garden',
-          source: 'dynadot',
-          type: 'expired',
-          tld: 'com',
-          priceMax: '500',
-          endingWithin: '24h'
-        })
-      )
-    ).toBe(0)
   })
 
   it('builds stable human labels and removal links', () => {
