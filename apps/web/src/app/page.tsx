@@ -1,9 +1,14 @@
 import { cookies } from 'next/headers'
+import { redirect } from 'next/navigation'
 
 import { FreshnessBadge } from '@/components/app-shell/freshness-badge'
 import { SiteHeader } from '@/components/app-shell/site-header'
 import { AuctionsPage } from '@/components/auctions/auctions-page'
-import { type DomainTableSearchParams, parseDomainTableFilters } from '@/domain/domain-table'
+import {
+  type DomainTableSearchParams,
+  openingDomainTableHref,
+  parseDomainTableFilters
+} from '@/domain/domain-table'
 import {
   COLUMN_WIDTHS_COOKIE,
   COLUMNS_COOKIE,
@@ -19,7 +24,10 @@ export default async function Home({
 }: {
   searchParams: Promise<DomainTableSearchParams>
 }) {
-  const filters = parseDomainTableFilters(await searchParams)
+  const params = await searchParams
+  const opening = openingDomainTableHref(params)
+  if (opening) redirect(opening)
+  const filters = parseDomainTableFilters(params)
   const cookieStore = await cookies()
   const visibleColumns = parseVisibleColumns(cookieStore.get(COLUMNS_COOKIE)?.value)
   const columnWidths = parseColumnWidths(cookieStore.get(COLUMN_WIDTHS_COOKIE)?.value)
