@@ -1,16 +1,19 @@
-import { expect, type Page, test } from '@playwright/test'
+import { expect, type Page, type Request, test } from '@playwright/test'
 
 async function expectUrlParameter(page: Page, name: string, expected: string | null) {
   await expect.poll(() => new URL(page.url()).searchParams.get(name)).toBe(expected)
 }
 
-// Requests that render the table page, which read D1. Route-tree prefetches,
-// which the sidebar's links send after a load, are not among them.
+// A request that renders the table page and so reads D1. The sidebar's link to
+// "/" is prefetched whenever hydration gets to it, which these checks ignore.
+function isPageRequest(request: Request) {
+  return new URL(request.url()).pathname === '/' && !request.headers()['next-router-prefetch']
+}
+
 function recordPageRequests(page: Page) {
   const requests: string[] = []
   page.on('request', request => {
-    const prefetch = request.headers()['next-router-prefetch'] !== undefined
-    if (new URL(request.url()).pathname === '/' && !prefetch) requests.push(request.url())
+    if (isPageRequest(request)) requests.push(request.url())
   })
   return requests
 }
@@ -52,7 +55,7 @@ test('edits every filter on the Filters page and applies them to the results', a
   await page.getByRole('button', { name: 'Show results' }).click()
 
   await expect(page).toHaveURL(/\/\?tld=com&bidsMin=1&sort=price&direction=desc&page=1$/)
-  await expect(page.getByRole('link', { name: 'Remove Bids: 1+ filter' })).toBeVisible()
+  await expect(page.getByRole('spinbutton', { name: 'Bids value' })).toHaveValue('1')
 })
 
 test('serves the deterministic domain inventory with a healthy database', async ({
@@ -71,8 +74,11 @@ test('serves the deterministic domain inventory with a healthy database', async 
   await expect(search).toBeVisible()
   await expect(search).toHaveAttribute('autocomplete', 'off')
   await expect(search).toHaveAttribute('placeholder', 'Search domains…')
-  await page.getByRole('button', { name: /^TLD/ }).click()
-  await page.getByPlaceholder('TLD').fill('co')
+  await page.getByRole('button', { name: 'Filters' }).click()
+  await page.getByRole('option', { name: 'TLD', exact: true }).click()
+  const tlds = page.getByRole('combobox', { name: 'TLD values' })
+  await expect(tlds).toBeFocused()
+  await tlds.fill('co')
   await expect(page.getByRole('option', { name: '.com' })).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
@@ -102,34 +108,65 @@ test('serves the deterministic domain inventory with a healthy database', async 
   expect(await response.json()).toEqual({ status: 'ok', database: 'ok' })
 })
 
-test('opens on auctions, with expired listings one chip away', async ({ page }) => {
+test('opens on auctions, with expired listings one rule away', async ({ page }) => {
   await page.goto('/')
   await expect(page).toHaveURL('/?type=auction&sort=endsAt&direction=asc&page=1')
   await expect(page.getByText('50 listings', { exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: /garden\.com/ })).toBeHidden()
 
-  await page.getByRole('link', { name: 'Remove Type: Auction filter' }).click()
+  await page.getByRole('button', { name: 'Remove Type rule' }).click()
   await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
   await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
 })
 
+test('adds a rule from Filters and applies its value only on Enter', async ({ page }) => {
+  await page.goto('/?sort=price&direction=desc&page=2')
+
+  await page.getByRole('button', { name: 'Filters' }).click()
+  await page.getByRole('option', { name: 'Price', exact: true }).click()
+  const value = page.getByRole('spinbutton', { name: 'Price value' })
+  await expect(value).toBeFocused()
+  await page.getByRole('combobox', { name: 'Price operator' }).click()
+  await page.getByRole('option', { name: '≤' }).click()
+
+  // Typing and choosing the operator send no page request; Enter does.
+  const pageRequests = recordPageRequests(page)
+  await value.click()
+  await value.pressSequentially('500', { delay: 50 })
+  await page.waitForTimeout(500)
+  expect(pageRequests).toEqual([])
+  await value.press('Enter')
+  await expect(page).toHaveURL('/?priceMax=500&sort=price&direction=desc&page=1')
+  await expect(page.getByRole('spinbutton', { name: 'Price value' })).toHaveValue('500')
+
+  // Clear all removes every rule and keeps the sort.
+  await page.getByRole('link', { name: 'Clear all', exact: true }).click()
+  await expect(page).toHaveURL('/?sort=price&direction=desc&page=1')
+  await expect(page.getByRole('group', { name: 'Price rule' })).toHaveCount(0)
+})
+
 test('applies, removes, sorts, clears, and restores URL-backed filters', async ({ page }) => {
   await page.goto('/?sort=endsAt&direction=asc&page=1')
+  const addRule = async (field: string) => {
+    await page.getByRole('button', { name: 'Filters' }).click()
+    await page.getByRole('option', { name: field, exact: true }).click()
+  }
 
   const search = page.getByRole('searchbox', { name: 'Domain contains' })
   await search.fill('garden')
   await search.press('Enter')
   await expectUrlParameter(page, 'q', 'garden')
 
-  await page.getByRole('button', { name: /^Max bid/ }).click()
-  await page.getByRole('spinbutton', { name: 'Max bid' }).fill('30')
-  await page.getByRole('button', { name: 'Apply', exact: true }).click()
+  await addRule('Price')
+  await page.getByRole('combobox', { name: 'Price operator' }).click()
+  await page.getByRole('option', { name: '≤' }).click()
+  await page.getByRole('spinbutton', { name: 'Price value' }).fill('30')
+  await page.getByRole('spinbutton', { name: 'Price value' }).press('Enter')
   await expectUrlParameter(page, 'priceMax', '30')
 
-  // The toolbar's Ends filter, not the Ends header's menu button after it.
-  const endsFilter = page.getByRole('button', { name: /^Ends/ }).first()
-  await endsFilter.click()
-  await page.getByRole('option', { name: 'Within 1 hour' }).click()
+  await addRule('Ends')
+  await page.getByRole('combobox', { name: 'Ends value' }).click()
+  await page.getByRole('option', { name: '1 hour' }).click()
   await expectUrlParameter(page, 'endingWithin', '1h')
   await expectUrlParameter(page, 'q', 'garden')
   await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
@@ -140,16 +177,18 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expect(endTime).toContainText(/UTC/)
   await expect(endTime).toHaveAttribute('datetime', /T.*Z$/)
 
-  await page.getByRole('link', { name: 'All filters' }).click()
-  await expect(page.getByRole('heading', { level: 1, name: 'Filters' })).toBeVisible()
-  await page.getByLabel('Minimum current bid').fill('20')
-  await page.getByText('No digits', { exact: true }).click()
-  await page.getByText('No hyphens', { exact: true }).click()
-  await page.getByRole('button', { name: 'Show results' }).click()
-
-  await expectUrlParameter(page, 'priceMin', '20')
+  // A flag applies as soon as it is chosen; between waits for both ends.
+  await addRule('Domain has no digits')
   await expectUrlParameter(page, 'noDigits', '1')
+  await addRule('Domain has no hyphens')
   await expectUrlParameter(page, 'noHyphens', '1')
+  await page.getByRole('combobox', { name: 'Price operator' }).click()
+  await page.getByRole('option', { name: 'between' }).click()
+  await expect(page.getByRole('spinbutton', { name: 'Price maximum' })).toHaveValue('30')
+  await page.getByRole('spinbutton', { name: 'Price minimum' }).fill('20')
+  await page.getByRole('spinbutton', { name: 'Price minimum' }).press('Enter')
+  await expectUrlParameter(page, 'priceMin', '20')
+  await expectUrlParameter(page, 'priceMax', '30')
   await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
   await page.getByRole('columnheader', { name: 'Price', exact: true }).getByRole('button').click()
@@ -161,17 +200,11 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await page.goBack()
   await expectUrlParameter(page, 'sort', 'endsAt')
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('garden')
-  await expect(page.getByRole('button', { name: /^Max bid/ })).toContainText('$30')
-  await expect(endsFilter).toContainText('1 hour')
+  await expect(page.getByRole('spinbutton', { name: 'Price minimum' })).toHaveValue('20')
+  await expect(page.getByRole('combobox', { name: 'Ends value' })).toContainText('1 hour')
   await expect(page.getByText('1 listing', { exact: true })).toBeVisible()
 
-  await page.getByRole('link', { name: /^All filters/ }).click()
-  await expect(page.getByLabel('Minimum current bid')).toHaveValue('20')
-  await expect(page.getByRole('checkbox', { name: 'No digits' })).toBeChecked()
-  await page.getByRole('link', { name: 'Cancel' }).click()
-  await expectUrlParameter(page, 'priceMin', '20')
-
-  await page.getByRole('link', { name: 'Remove Domain: no digits filter' }).click()
+  await page.getByRole('button', { name: 'Remove Domain has no digits rule' }).click()
   await expectUrlParameter(page, 'noDigits', null)
   await expectUrlParameter(page, 'noHyphens', '1')
   await expectUrlParameter(page, 'q', 'garden')
@@ -180,6 +213,7 @@ test('applies, removes, sorts, clears, and restores URL-backed filters', async (
   await expect(page).toHaveURL('/?sort=endsAt&direction=asc&page=1')
   await expect(page.getByText('100 listings', { exact: true })).toBeVisible()
   await expect(page.getByRole('searchbox', { name: 'Domain contains' })).toHaveValue('')
+  await expect(page.getByRole('group', { name: /rule$/ })).toHaveCount(0)
 })
 
 // Below 768 px the list replaces the table (see the phone journey below).
