@@ -43,7 +43,6 @@ import {
 import {
   buildDomainTableHref,
   DOMAIN_TABLE_ENDING_WINDOWS,
-  type DomainTableEndingWindow,
   type DomainTableFilters,
   formatAuctionType,
   formatProvider,
@@ -53,6 +52,7 @@ import {
 import {
   applyRule,
   changeRuleOperator,
+  ENDING_WINDOW_LABELS,
   isRuleReady,
   RULE_FIELD_KEYS,
   RULE_OPERATOR_LABELS,
@@ -63,14 +63,6 @@ import {
   ruleField,
   rulesFromFilters
 } from '@/domain/filter-rules'
-
-const WINDOW_LABELS: Record<DomainTableEndingWindow, string> = {
-  '1h': '1 hour',
-  '6h': '6 hours',
-  '24h': '24 hours',
-  '3d': '3 days',
-  '7d': '7 days'
-}
 
 type Option = { value: string; label: string }
 
@@ -256,7 +248,7 @@ function RuleEditor({
       <Select
         items={DOMAIN_TABLE_ENDING_WINDOWS.map(window => ({
           value: window,
-          label: WINDOW_LABELS[window]
+          label: ENDING_WINDOW_LABELS[window]
         }))}
         value={rule.values[0] ?? null}
         onValueChange={window => commit({ ...rule, values: [window as string] })}
@@ -267,7 +259,7 @@ function RuleEditor({
         <SelectContent data-rule-popup="">
           {DOMAIN_TABLE_ENDING_WINDOWS.map(window => (
             <SelectItem key={window} value={window}>
-              {WINDOW_LABELS[window]}
+              {ENDING_WINDOW_LABELS[window]}
             </SelectItem>
           ))}
         </SelectContent>

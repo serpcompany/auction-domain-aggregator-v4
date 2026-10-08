@@ -8,6 +8,7 @@ import {
 import {
   applyRule,
   changeRuleOperator,
+  describeRule,
   isRuleReady,
   RULE_FIELD_KEYS,
   type Rule,
@@ -221,5 +222,35 @@ describe('rule helpers', () => {
       label: 'Ahrefs DR',
       description: 'Domain Rating'
     })
+  })
+})
+
+describe('describeRule', () => {
+  it('reads every rule as words', () => {
+    const described = rulesFromFilters(
+      filters({
+        q: 'garden',
+        noHyphens: '1',
+        source: ['godaddy', 'dynadot'],
+        type: 'buy_now',
+        tld: 'com',
+        priceMax: '12.5',
+        endingWithin: '24h',
+        ageMin: '3',
+        ageMax: '3',
+        majesticTfMin: '25'
+      })
+    ).map(describeRule)
+    expect(described).toEqual([
+      'Domain contains garden',
+      'Domain has no hyphens',
+      'Source is any of GoDaddy, Dynadot',
+      'Type is Buy Now',
+      'TLD is .com',
+      'Price ≤ $12.50',
+      'Ends within 24 hours',
+      'Age = 3',
+      'Majestic TF ≥ 25'
+    ])
   })
 })

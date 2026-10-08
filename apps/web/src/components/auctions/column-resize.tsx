@@ -37,7 +37,8 @@ type Resize = (key: ResizableColumnKey, width: number | undefined, save?: boolea
 const Widths = createContext<{
   widths: ColumnWidths
   resize: Resize
-  resetAll: () => void
+  // Every width at once: a saved view's, or `{}` for the defaults.
+  replaceAll: (widths: ColumnWidths) => void
 } | null>(null)
 
 export function useColumnWidths() {
@@ -67,11 +68,10 @@ export function ColumnWidthsProvider({
     setWidths(next)
     if (save) saveColumnWidths(next)
   }
-  // Every column back to its default width.
-  const resetAll = () => {
-    latest.current = {}
-    setWidths({})
-    saveColumnWidths({})
+  const replaceAll = (next: ColumnWidths) => {
+    latest.current = next
+    setWidths(next)
+    saveColumnWidths(next)
   }
   const style = Object.fromEntries(
     Object.entries(widths).map(([key, width]) => [
@@ -80,7 +80,7 @@ export function ColumnWidthsProvider({
     ])
   ) as CSSProperties
   return (
-    <Widths.Provider value={{ widths, resize, resetAll }}>
+    <Widths.Provider value={{ widths, resize, replaceAll }}>
       <div className="contents" style={style}>
         {children}
       </div>
